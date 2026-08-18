@@ -1,0 +1,60 @@
+node_modules
+/dist
+/dist-portable
+.DS_Store
+.env
+.env.*
+!.env.example
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Rust / Tauri build output
+/src-tauri/target
+/src-tauri/gen/schemas
+
+# Release artifacts (built locally)
+/releases
+
+# Local test sandboxes with real binaries
+/tests
+
+# Banc graphique : pilote telecharge, bacs a sable jetables, captures d'echec.
+# Le code du banc vit dans /e2e et est versionne ; rien de ce qui suit ne l'est.
+/.e2e
+
+# Editor / tool config
+.vscode
+.qwen
+
+# Licence signing key — never commit this
+license-private.key
+
+# Development notes (not shipped)
+api.txt
+verification_PROBLEM.md
+
+# Legacy verification page (now injected into LuaVault)
+verification.html
+src/verification
+
+# Non-Windows icons (Windows-only app)
+src-tauri/icons/android
+src-tauri/icons/ios
+src-tauri/icons/icon.icns
+
+# Internal AI-agent orchestration tooling and notes — local development
+# process only, kept on disk for local reference, never tracked or shipped.
+/.orchestration
+/.pi
+/.agents
+/.claude
+AGENTS.md
+CLAUDE.md
+QWEN.md
+IDEES_AMELIORATIONS.md
+PLAN_IMPLEMENTATION.md
+e2e/README.md
+
+# Release signing keys — never commit, never ship
+release-primary.key
+release-backup.key

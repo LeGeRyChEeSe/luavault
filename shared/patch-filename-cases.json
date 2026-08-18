@@ -1,0 +1,21 @@
+{
+  "accepted": [
+    ["1790600_online_fix.rar", "1790600"],
+    ["1790600_online_fix.zip", "1790600"],
+    ["1790600.rar", "1790600"],
+    ["440.zip", "440"],
+    ["Portal 2 (440).zip", "440"],
+    ["440 (1790600).zip", "1790600"],
+    ["patch (0440).zip", "0440"],
+    ["1790600.7z", "1790600"]
+  ],
+  "rejected": [
+    "patch_v2_64bit.zip",
+    "OnlineFix_v1.5.rar",
+    "online_fix.rar",
+    "_online_fix.rar",
+    "1790600_online_fix_v2.rar",
+    "Portal 2 (440x).zip",
+    "Portal 2 (440) final.zip"
+  ]
+}

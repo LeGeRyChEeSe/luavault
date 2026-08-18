@@ -1,0 +1,45 @@
+{
+  "name": "luavault",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Local library companion for Steam and SteamTools.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test:ts": "npx --yes tsx@4.19.2 scripts/test-virtual-scroll.ts",
+    "e2e": "npx --yes tsx@4.19.2 e2e/run.ts",
+    "e2e:smoke": "npx --yes tsx@4.19.2 e2e/smoke.ts",
+    "e2e:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File e2e/setup.ps1",
+    "e2e:build": "tauri build --debug --no-bundle",
+    "e2e:mutate": "powershell -NoProfile -ExecutionPolicy Bypass -File e2e/mutate.ps1",
+    "tauri": "tauri",
+    "build:app": "tauri build",
+    "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
+    "icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-icon.ps1",
+    "validate": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate.ps1",
+    "validate:quiet": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate.ps1 -Quiet"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-log": "^2",
+    "@tauri-apps/plugin-opener": "^2"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2",
+    "@tsconfig/svelte": "^5.0.4",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.3"
+  }
+}
+
+

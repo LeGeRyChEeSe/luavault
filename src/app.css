@@ -1,0 +1,481 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Theming model
+   ---------------------------------------------------------------------------
+   Every colour in the app is an OKLCH triplet whose *lightness* is fixed per
+   step and whose *hue + chroma* come from two variables, `--lv-h` / `--lv-c`.
+   A theme is therefore two numbers, and dark mode is one alternate lightness
+   ramp — not a second stylesheet.
+
+   The primary ramp keeps the name `azure-*` it has always had, so no markup
+   changes when the theme does. In dark mode the ramp is inverted (azure-900 is
+   the readable text colour, azure-50 the deep background), which is what makes
+   `text-azure-900/60` legible in both modes without a single `dark:` variant.
+
+   Accent hues (mint / peach / rose / lilac / sky) never move: they carry
+   meaning, and "danger" must not turn green because the user picked a theme.
+--------------------------------------------------------------------------- */
+
+@theme {
+  /* Default theme: cold azure. Overridden per `[data-theme]` below. */
+  --lv-h: 240;
+  --lv-c: 0.11;
+
+  --color-azure-50: oklch(0.975 calc(var(--lv-c) * 0.1) var(--lv-h));
+  --color-azure-100: oklch(0.95 calc(var(--lv-c) * 0.25) var(--lv-h));
+  --color-azure-200: oklch(0.9 calc(var(--lv-c) * 0.5) var(--lv-h));
+  --color-azure-300: oklch(0.82 calc(var(--lv-c) * 0.85) var(--lv-h));
+  --color-azure-400: oklch(0.73 calc(var(--lv-c) * 1.15) var(--lv-h));
+  --color-azure-500: oklch(0.64 calc(var(--lv-c) * 1.35) var(--lv-h));
+  --color-azure-600: oklch(0.56 calc(var(--lv-c) * 1.35) var(--lv-h));
+  --color-azure-700: oklch(0.48 calc(var(--lv-c) * 1.2) var(--lv-h));
+  --color-azure-800: oklch(0.41 calc(var(--lv-c) * 1) var(--lv-h));
+  --color-azure-900: oklch(0.35 calc(var(--lv-c) * 0.8) var(--lv-h));
+
+  --color-ice-50: oklch(0.985 0.006 var(--lv-h));
+  --color-ice-100: oklch(0.965 0.012 var(--lv-h));
+  --color-ice-200: oklch(0.94 0.018 var(--lv-h));
+
+  /* The panel colour every `bg-surface/xx` in the markup refers to. Splitting
+     it out of `white` is what lets dark mode exist at all. */
+  --color-surface: oklch(1 0 0);
+  --color-surface-deep: oklch(0.985 0.006 var(--lv-h));
+
+  /* Pastel accents — soft tint for fills, deep tone for text on that fill. */
+  --color-mint-soft: oklch(0.94 0.055 165);
+  --color-mint: oklch(0.65 0.13 165);
+  --color-mint-deep: oklch(0.5 0.12 165);
+
+  --color-peach-soft: oklch(0.93 0.06 62);
+  --color-peach: oklch(0.7 0.14 62);
+  --color-peach-deep: oklch(0.56 0.13 55);
+
+  --color-rose-soft: oklch(0.92 0.05 15);
+  --color-rose: oklch(0.63 0.17 15);
+  --color-rose-deep: oklch(0.52 0.16 15);
+
+  --color-lilac-soft: oklch(0.93 0.045 295);
+  --color-lilac: oklch(0.6 0.16 295);
+  --color-lilac-deep: oklch(0.48 0.15 295);
+
+  --color-sky-soft: oklch(0.94 0.045 235);
+  --color-sky: oklch(0.65 0.14 235);
+  --color-sky-deep: oklch(0.5 0.13 235);
+
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+    sans-serif;
+
+  --shadow-glass: 0 8px 32px oklch(0.35 0.08 var(--lv-h) / 0.12);
+  --shadow-glass-lg: 0 16px 48px oklch(0.35 0.08 var(--lv-h) / 0.17);
+
+  --radius-xl2: 1.25rem;
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Glass recipe, so panels re-tint with the theme instead of staying white. */
+  --lv-glass-a: oklch(1 0 0 / 0.62);
+  --lv-glass-b: oklch(0.96 0.02 var(--lv-h) / 0.42);
+  --lv-glass-border: oklch(1 0 0 / 0.65);
+  --lv-scrollbar: oklch(0.64 0.12 var(--lv-h) / 0.28);
+}
+
+/* ------------------------------------------------------------------ themes */
+
+:root {
+  color-scheme: light;
+}
+
+[data-theme="emeraude"] {
+  --lv-h: 168;
+  --lv-c: 0.1;
+}
+[data-theme="orchidee"] {
+  --lv-h: 315;
+  --lv-c: 0.11;
+}
+[data-theme="ambre"] {
+  --lv-h: 62;
+  --lv-c: 0.11;
+}
+[data-theme="ardoise"] {
+  --lv-h: 255;
+  --lv-c: 0.035;
+}
+
+/* ---------------------------------------------------------------- dark mode
+
+   Same hue, inverted lightness ramp. Accents keep their hue but swap roles:
+   `-soft` becomes a deep tint to sit *on*, `-deep` becomes the bright text. */
+
+[data-mode="dark"] {
+  color-scheme: dark;
+
+  --color-azure-50: oklch(0.19 calc(var(--lv-c) * 0.35) var(--lv-h));
+  --color-azure-100: oklch(0.24 calc(var(--lv-c) * 0.4) var(--lv-h));
+  --color-azure-200: oklch(0.32 calc(var(--lv-c) * 0.5) var(--lv-h));
+  --color-azure-300: oklch(0.45 calc(var(--lv-c) * 0.8) var(--lv-h));
+  --color-azure-400: oklch(0.6 calc(var(--lv-c) * 1.15) var(--lv-h));
+  --color-azure-500: oklch(0.68 calc(var(--lv-c) * 1.3) var(--lv-h));
+  --color-azure-600: oklch(0.75 calc(var(--lv-c) * 1.15) var(--lv-h));
+  --color-azure-700: oklch(0.83 calc(var(--lv-c) * 0.85) var(--lv-h));
+  --color-azure-800: oklch(0.9 calc(var(--lv-c) * 0.55) var(--lv-h));
+  --color-azure-900: oklch(0.955 calc(var(--lv-c) * 0.3) var(--lv-h));
+
+  --color-ice-50: oklch(0.16 0.02 var(--lv-h));
+  --color-ice-100: oklch(0.21 0.025 var(--lv-h));
+  --color-ice-200: oklch(0.26 0.03 var(--lv-h));
+
+  --color-surface: oklch(0.28 0.022 var(--lv-h));
+  --color-surface-deep: oklch(0.22 0.02 var(--lv-h));
+
+  --color-mint-soft: oklch(0.32 0.06 165);
+  --color-mint: oklch(0.72 0.14 165);
+  --color-mint-deep: oklch(0.86 0.13 165);
+
+  --color-peach-soft: oklch(0.33 0.06 62);
+  --color-peach: oklch(0.78 0.13 62);
+  --color-peach-deep: oklch(0.88 0.11 68);
+
+  --color-rose-soft: oklch(0.32 0.07 15);
+  --color-rose: oklch(0.7 0.16 15);
+  --color-rose-deep: oklch(0.85 0.11 15);
+
+  --color-lilac-soft: oklch(0.32 0.06 295);
+  --color-lilac: oklch(0.72 0.14 295);
+  --color-lilac-deep: oklch(0.86 0.1 295);
+
+  --color-sky-soft: oklch(0.32 0.055 235);
+  --color-sky: oklch(0.73 0.13 235);
+  --color-sky-deep: oklch(0.87 0.09 235);
+
+  --shadow-glass: 0 8px 32px oklch(0 0 0 / 0.45);
+  --shadow-glass-lg: 0 16px 48px oklch(0 0 0 / 0.55);
+
+  --lv-glass-a: oklch(0.32 0.025 var(--lv-h) / 0.72);
+  --lv-glass-b: oklch(0.24 0.03 var(--lv-h) / 0.6);
+  --lv-glass-border: oklch(1 0 0 / 0.09);
+  --lv-scrollbar: oklch(0.75 0.06 var(--lv-h) / 0.3);
+}
+
+/* Frosted glass panel */
+@utility glass {
+  background: linear-gradient(135deg, var(--lv-glass-a), var(--lv-glass-b));
+  backdrop-filter: blur(22px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  border: 1px solid var(--lv-glass-border);
+  box-shadow: var(--shadow-glass);
+}
+
+@utility glass-strong {
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--lv-glass-a) 100%, white 12%),
+    var(--lv-glass-a)
+  );
+  backdrop-filter: blur(28px) saturate(1.6);
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+  border: 1px solid var(--lv-glass-border);
+  box-shadow: var(--shadow-glass-lg);
+}
+
+/* Interactive surfaces: lift on hover, settle on press. */
+@utility lift {
+  transition:
+    transform 180ms var(--ease-out-soft),
+    box-shadow 180ms var(--ease-out-soft),
+    background-color 180ms var(--ease-out-soft),
+    border-color 180ms var(--ease-out-soft);
+
+  &:hover {
+    transform: translateY(-1px);
+  }
+  &:active {
+    transform: translateY(0) scale(0.975);
+    transition-duration: 80ms;
+  }
+  &:disabled {
+    transform: none;
+  }
+}
+
+/* Cards lift a little more, and their shadow deepens with them. */
+@utility lift-card {
+  transition:
+    transform 220ms var(--ease-out-soft),
+    box-shadow 220ms var(--ease-out-soft),
+    border-color 220ms var(--ease-out-soft);
+
+  &:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-glass-lg);
+  }
+}
+
+/* Pulsing dot for "something is happening right now". */
+@utility pulse-dot {
+  animation: lv-pulse 1.8s ease-in-out infinite;
+}
+
+@utility enter-up {
+  animation: lv-enter-up 320ms var(--ease-out-soft) both;
+}
+
+@utility enter-fade {
+  animation: lv-enter-fade 240ms var(--ease-out-soft) both;
+}
+
+@utility enter-pop {
+  animation: lv-enter-pop 260ms var(--ease-out-soft) both;
+}
+
+/* The detail panel unfolds when a game is picked, instead of blinking in. */
+@utility unfold {
+  animation: lv-unfold 420ms var(--ease-out-soft) both;
+  transform-origin: top center;
+}
+
+/* Sweeping highlight used on the primary call-to-action. */
+@utility sheen {
+  position: relative;
+  overflow: hidden;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      110deg,
+      transparent 20%,
+      oklch(1 0 0 / 0.32) 45%,
+      transparent 70%
+    );
+    transform: translateX(-120%);
+    transition: transform 620ms var(--ease-out-soft);
+    pointer-events: none;
+  }
+  &:hover::after {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes lv-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+@keyframes lv-enter-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lv-enter-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes lv-enter-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Spotlight zoom: the big card scales in and out instead of blinking. The
+   closing class is toggled in GameSpotlight.svelte a beat before unmount. */
+.lv-spotlight-backdrop {
+  animation: lv-enter-fade 200ms var(--ease-out-soft) both;
+}
+.lv-spotlight-backdrop.lv-spotlight-out {
+  animation: lv-fade-out 200ms ease-in both;
+}
+.lv-spotlight-card {
+  animation: lv-zoom-in 240ms var(--ease-out-soft) both;
+}
+.lv-spotlight-card.lv-spotlight-card-out {
+  animation: lv-zoom-out 200ms ease-in both;
+}
+
+/* Unified modal backdrops — extracted from four hand-copied values that drifted.
+   A class doesn't drift; a copy-pasted value does. See PIPE-01.
+
+   Cette classe est définie HORS @layer : elle bat donc tout utilitaire Tailwind
+   posé sur le même élément (poser bg-azure-950/30 à côté ne fera rien).
+   L'unification a changé l'apparence de TROIS voiles, et c'est voulu :
+   - TagEditor et SettingsView passaient de bg-black/20 + backdrop-blur-sm — noir
+     neutre à 20 %, 8 px de flou (--blur-sm vaut 8 px en Tailwind v4 ; l'ancien
+     4 px s'appelle désormais xs) — à un fond teinté à 50 % et 3 px ;
+   - la grande carte de GameSpotlight passait de 0,55 et 6 px à 0,50 et 3 px,
+     la dérive qui a motivé le lot. */
+.lv-veil {
+  background: oklch(0.15 0.03 var(--lv-h) / 0.5);
+  backdrop-filter: blur(3px);
+}
+.lv-veil-deep {
+  background: oklch(0.12 0.02 var(--lv-h) / 0.86);
+  backdrop-filter: blur(8px);
+}
+
+@keyframes lv-zoom-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes lv-zoom-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+@keyframes lv-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes lv-unfold {
+  from {
+    opacity: 0;
+    transform: perspective(900px) rotateX(-8deg) translateY(-10px) scaleY(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(900px) rotateX(0) translateY(0) scaleY(1);
+  }
+}
+
+@keyframes lv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Theme switch: the new palette wipes in from the switcher as a circle.
+   Driven by the View Transitions API in `lib/theme.svelte.ts`. */
+::view-transition-old(root) {
+  animation: none;
+}
+::view-transition-new(root) {
+  animation: lv-theme-wipe 620ms var(--ease-out-soft);
+  mix-blend-mode: normal;
+}
+@keyframes lv-theme-wipe {
+  from {
+    clip-path: circle(0% at var(--lv-wipe-x, 50%) var(--lv-wipe-y, 50%));
+  }
+  to {
+    clip-path: circle(150% at var(--lv-wipe-x, 50%) var(--lv-wipe-y, 50%));
+  }
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    color: var(--color-azure-900);
+    background:
+      radial-gradient(
+        1200px 800px at 85% -10%,
+        oklch(0.72 calc(var(--lv-c) * 1.1) var(--lv-h) / 0.4),
+        transparent 60%
+      ),
+      radial-gradient(
+        900px 620px at 12% 8%,
+        oklch(0.7 0.1 calc(var(--lv-h) + 60) / 0.28),
+        transparent 62%
+      ),
+      radial-gradient(
+        1000px 700px at -10% 110%,
+        oklch(0.75 0.08 calc(var(--lv-h) - 70) / 0.3),
+        transparent 58%
+      ),
+      linear-gradient(
+        160deg,
+        var(--color-ice-50) 0%,
+        var(--color-ice-100) 50%,
+        var(--color-ice-200) 100%
+      );
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    /* Colours cross-fade even when the View Transition path isn't available. */
+    transition:
+      background-color 420ms var(--ease-out-soft),
+      color 420ms var(--ease-out-soft);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--lv-scrollbar);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    transition: background-color 160ms ease;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--lv-scrollbar) 100%, black 25%);
+    background-clip: content-box;
+  }
+
+  /* Respect the user's motion preference — animations are decoration only. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    .lift:hover,
+    .lift-card:hover {
+      transform: none;
+    }
+  }
+}

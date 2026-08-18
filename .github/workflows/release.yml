@@ -1,0 +1,99 @@
+# Expects RELEASE_SIGNING_KEY to contain the raw contents of release-primary.key.
+# Add that secret manually in this repository's GitHub Actions settings; never commit it.
+name: Draft release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      # The checked-out package.json is the release source of truth.
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          if ($tag -notmatch '^v(?<version>.+)$') {
+            throw "Expected a v* tag, received '$tag'."
+          }
+          "version=$($Matches['version'])" >> $env:GITHUB_OUTPUT
+
+      - name: Verify tag and package versions agree
+        shell: pwsh
+        run: |
+          $tagVersion = '${{ steps.version.outputs.version }}'
+          $packageVersion = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          if ($packageVersion -cne $tagVersion) {
+            throw "Tag v$tagVersion does not match package.json version $packageVersion."
+          }
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cargo's registry and target/ are otherwise rebuilt from nothing on
+      # every run — validate:quiet's dev-profile build plus the NSIS
+      # installer's release-profile build both recompile every dependency.
+      # Keyed on Cargo.lock so a dependency bump still gets a clean rebuild.
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Validate source
+        run: npm run validate:quiet
+
+      - name: Build NSIS installer
+        run: npm run build:app
+
+      - name: Build portable archive
+        run: npm run build:portable
+
+      - name: Sign artifacts and create draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          RELEASE_SIGNING_KEY_PATH: ${{ runner.temp }}\luavault-release-signing\release-primary.key
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $keyDirectory = Split-Path -Parent $env:RELEASE_SIGNING_KEY_PATH
+          New-Item -ItemType Directory -Path $keyDirectory -Force | Out-Null
+          [System.IO.File]::WriteAllText(
+            $env:RELEASE_SIGNING_KEY_PATH,
+            $env:RELEASE_SIGNING_KEY,
+            [System.Text.UTF8Encoding]::new($false)
+          )
+          & .\scripts\publish-release.ps1 -Version $env:RELEASE_VERSION -SigningKey $env:RELEASE_SIGNING_KEY_PATH -Draft
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Remove temporary signing key
+        if: always()
+        shell: pwsh
+        env:
+          RELEASE_SIGNING_KEY_PATH: ${{ runner.temp }}\luavault-release-signing\release-primary.key
+        run: |
+          $keyDirectory = Split-Path -Parent $env:RELEASE_SIGNING_KEY_PATH
+          if (Test-Path -LiteralPath $keyDirectory) {
+            Remove-Item -LiteralPath $keyDirectory -Recurse -Force
+          }
