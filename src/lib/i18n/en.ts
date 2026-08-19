@@ -142,7 +142,7 @@ export const en: Record<Key, string> = {
   "tools.steamtools.install": "Install SteamTools",
   "tools.steamtools.confirm": "Confirm? (Steam will be closed)",
   "tools.steamtools.title": "Runs the official fix-st.ps1 script with administrator rights",
-  "tools.steamtools.command": "Command: irm -useb cdn.LuaVault/fix-st.ps1 | iex",
+  "tools.steamtools.command": "Command: irm -useb cdn.openlua.cloud/fix-st.ps1 | iex",
   "tools.marker.lua_dir": "config\\lua folder",
 
   // ── News view (I18N-14) ───────────────────────────────────────
@@ -678,7 +678,7 @@ export const en: Record<Key, string> = {
   "library.error.accept.title": "You accept that the application no longer guarantees the index has not been modified since its last signature on this machine.",
 
   "library.empty.none": "No .lua file yet.",
-  "library.empty.none.hint": "Use the Search tab to fetch your first game.",
+  "library.empty.none.hint": "Import your first .lua file by dragging it here or using Import .lua files.",
   "library.empty.hidden": "All your games are hidden.",
   "library.empty.hidden.hint": "Find them again in Settings, under “Hidden games”.",
 
@@ -808,6 +808,7 @@ export const en: Record<Key, string> = {
   "settings.folders.steamtools.absent": "missing",
   "settings.folders.steamtools.note": "— SteamTools has no folder of its own: its DLLs (OpenSteamTool.dll, xinput1_4.dll) sit in the Steam folder.",
   "settings.folders.steamtools.tip": "Opens the folder that holds the SteamTools DLLs.",
+  "settings.folders.steamtools.open-failed": "Unable to open the SteamTools folder.",
 
   "settings.folders.defender.label": "Antivirus (Windows Defender)",
   "settings.folders.defender.on": "exclusion in place",
@@ -890,7 +891,7 @@ export const en: Record<Key, string> = {
   "settings.data.preview.known": "Already in the library:",
   "settings.data.preview.new": "New:",
   "settings.data.preview.skipped": "Skipped:",
-  "settings.data.preview.hint": "These games are not added yet: search for them in the Search tab to fetch their .lua.",
+  "settings.data.preview.hint": "These games are not added yet: import their .lua files manually by dragging them here or using Import .lua files.",
 
   "settings.data.badge.known": "already there",
   "settings.data.badge.known.tip": "Already in the library",
@@ -990,8 +991,9 @@ export const en: Record<Key, string> = {
   "onboarding.finish.busy": "Starting…",
 
   // ── Credits items (I18N-12) ────────────────────────────────────
-  "credits.item.LuaVault.role": "The service that generates and distributes .lua files and online patches. The very reason this application exists.",
+  "credits.item.LuaVault.role": "The community Discord for help with the app. LuaVault provides neither games nor patches — everything comes from your own local files.",
   "credits.item.steamtools.role": "The tool that reads .lua files from the Steam folder. LuaVault only prepares the ground for it.",
+  "credits.item.openlua.role": "Hosts the SteamTools install/repair script (fix-st.ps1) that Steam & Tools runs.",
   "credits.item.steam.role": "Valve's platform: installation detection, game manifests, cards and news.",
   "credits.item.tauri.role": "Native desktop application: Rust backend, WebView2 interface.",
   "credits.item.rust.role": "The entire backend: networking, archives, files, cryptography.",
@@ -1008,11 +1010,9 @@ export const en: Record<Key, string> = {
   "credits.item.ed25519.role": "License signatures, verified offline.",
   "credits.item.winreg.role": "Windows registry access to locate Steam.",
   "credits.item.utils.role": "Folder traversal, dates, errors and system paths.",
-  "credits.item.verification.role": "The anti-bot verification required by LuaVault before each download.",
   "credits.item.steamwebapi.role": "Game cards, visuals and update notes displayed in the main card.",
-  "credits.item.steamdb.role": "Rating volumes and notes that power the recommendations.",
   "credits.item.vdf.role": "To determine whether an AppID is actually installed, and where.",
-  "credits.item.tauridocs.role": "The bridge to pass the verification token from an external page.",
+  "credits.item.tauridocs.role": "How Tauri scopes which commands each window is allowed to call.",
   "credits.item.viewtransitions.role": "The theme-switching animation.",
   "credits.item.oklch.role": "The math that lets a theme fit into two numbers.",
 };

@@ -163,21 +163,15 @@ const CREDIT_GROUPS_DATA = [
     icon: "globe",
     items: [
       {
-        id: "verification",
-        name: "Cloudflare verification",
-        url: "https://www.cloudflare.com/products/verification/",
+        id: "openlua",
+        name: "openlua.cloud",
+        url: "https://openlua.cloud",
         licence: undefined,
       },
       {
         id: "steamwebapi",
         name: "Steam Web API",
         url: "https://partner.steamgames.com/doc/webapi_overview",
-        licence: undefined,
-      },
-      {
-        id: "steamdb",
-        name: "SteamDB",
-        url: "https://steamdb.info/",
         licence: undefined,
       },
     ],

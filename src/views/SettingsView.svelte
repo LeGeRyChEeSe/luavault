@@ -1,6 +1,5 @@
 <script lang="ts">
   import { open, save } from "@tauri-apps/plugin-dialog";
-  import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
   import Artwork from "../components/Artwork.svelte";
   import Icon from "../components/Icons.svelte";
   import ActionButton from "../components/ActionButton.svelte";
@@ -45,6 +44,7 @@
   import { formatBytes, formatDateTime } from "../lib/format";
   import { checkExportPassword } from "../lib/backup-password";
   import { focusTrap } from "../lib/focus-trap";
+  import { openFolder, openSteamtoolsFolder } from "../lib/open-folder";
   import { t } from "../lib/i18n.svelte";
   import ThemePicker from "../components/ThemePicker.svelte";
   import LanguagePicker from "../components/LanguagePicker.svelte";
@@ -68,6 +68,15 @@
     report?.steamtools?.steam_path ?? report?.steam?.path ?? null,
   );
   let busy = $state<string | null>(null);
+
+  function openSteamtoolsDir() {
+    if (!steamtoolsDir) return;
+    void openSteamtoolsFolder(
+      steamtoolsDir,
+      t("settings.folders.steamtools.open-failed"),
+      (kind, message) => appState.toast(kind, message),
+    );
+  }
 
   // --------------------------------------------------------- hidden games
   /** Hidden games stay in the library; this is the only place to bring them back. */
@@ -827,7 +836,7 @@
         label={t("settings.folders.open")}
         icon="folder"
         disabled={!steamtoolsDir}
-        onclick={() => steamtoolsDir && void openPath(steamtoolsDir)}
+        onclick={openSteamtoolsDir}
         tip={t("settings.folders.steamtools.tip")}
       />
     </div>
@@ -879,7 +888,7 @@
       <ActionButton
         label={t("settings.folders.open")}
         icon="folder"
-        onclick={() => report && void revealItemInDir(report.library_dir)}
+        onclick={() => report && void openFolder(report.library_dir)}
       />
       <ActionButton label={t("settings.folders.edit")} icon="edit" disabled={busy !== null} onclick={pickLibrary} />
     </div>

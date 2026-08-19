@@ -3,7 +3,6 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { confirm, open } from "@tauri-apps/plugin-dialog";
-  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import Icon from "../components/Icons.svelte";
   import ActionButton from "../components/ActionButton.svelte";
   import BulkProgress from "../components/BulkProgress.svelte";
@@ -46,6 +45,7 @@
   import type { LibraryFilter, SelectionAction } from "../lib/library-state.svelte";
   import { virtualWindow } from "../lib/virtual-scroll";
   import { isPatchArchivePath, patchAppIdFromFilename, patchFailureFor } from "../lib/patch-import";
+  import { openFolder } from "../lib/open-folder";
 
   const statuses = $derived(appState.statuses);
   const report = $derived(appState.report);
@@ -894,7 +894,7 @@
       <ActionButton
         label={t("library.open-folder")}
         icon="folder"
-        onclick={() => report && void revealItemInDir(report.library_dir)}
+        onclick={() => report && void openFolder(report.library_dir)}
         tip={t("library.open-folder.tip")}
       />
       <ActionButton

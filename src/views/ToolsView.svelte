@@ -1,6 +1,5 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
-  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import Icon from "../components/Icons.svelte";
   import ActionButton from "../components/ActionButton.svelte";
   import ConfirmButton from "../components/ConfirmButton.svelte";
@@ -8,6 +7,7 @@
   import { appState } from "../lib/app-state.svelte";
   import { installSteam, installSteamtools, restartSteam, setSteamDir } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
+  import { openFolder } from "../lib/open-folder";
 
   const report = $derived(appState.report);
   const steam = $derived(report?.steam ?? null);
@@ -98,7 +98,7 @@
           <ActionButton
             label={t("tools.open_folder.label")}
             icon="folder"
-            onclick={() => void revealItemInDir(steam.path)}
+            onclick={() => void openFolder(steam.path)}
           />
           <ActionButton
             label={t("tools.change_folder.label")}

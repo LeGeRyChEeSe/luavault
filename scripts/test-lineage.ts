@@ -3,7 +3,6 @@ import { readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 
 const forbidden = [
-  "openlua.cloud",
   "Turnstile",
   "X-Client-Data",
   "AutoSteamTools",

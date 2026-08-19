@@ -1,13 +1,13 @@
 <script lang="ts">
   import { appState } from "../lib/app-state.svelte";
   import { getLogDir } from "../lib/api";
-  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import Icon from "../components/Icons.svelte";
   import ActionButton from "../components/ActionButton.svelte";
   import ConfirmButton from "../components/ConfirmButton.svelte";
   import { logsState } from "../lib/logs-state.svelte";
   import { t } from "../lib/i18n.svelte";
   import type { LogLevelFilter } from "../lib/log-filter";
+  import { openFolder } from "../lib/open-folder";
   import {
     LOG_DISPLAY_LIMIT,
     displayLogs,
@@ -138,7 +138,7 @@
         <ActionButton
           label={t("logs.dir")}
           icon="folder"
-          onclick={() => void revealItemInDir(logDir!)}
+          onclick={() => void openFolder(logDir!)}
         />
       {/if}
       <ActionButton

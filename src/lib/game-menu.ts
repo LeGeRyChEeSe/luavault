@@ -12,8 +12,8 @@ import {
 } from "./api";
 import { installFixWithRepair } from "./defender";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { t } from "./i18n.svelte";
+import { openFolder } from "./open-folder";
 
 export type MenuGroup = "action" | "utility" | "danger";
 
@@ -208,7 +208,7 @@ export function menuItemsFor(status: GameStatus): GameMenuItem[] {
       group: "utility",
       run: async () => {
         const d = status.fix.game_dir ?? status.game.install_dir!;
-        await revealItemInDir(d);
+        await openFolder(d);
         return t("menu.open-folder.done", { name: status.name });
       },
     });

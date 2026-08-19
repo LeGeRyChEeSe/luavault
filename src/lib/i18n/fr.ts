@@ -166,7 +166,7 @@ export const fr = {
   "tools.steamtools.install": "Installer SteamTools",
   "tools.steamtools.confirm": "Confirmer ? (Steam sera fermé)",
   "tools.steamtools.title": "Exécute le script officiel fix-st.ps1 avec droits administrateur",
-  "tools.steamtools.command": "Commande : irm -useb cdn.LuaVault/fix-st.ps1 | iex",
+  "tools.steamtools.command": "Commande : irm -useb cdn.openlua.cloud/fix-st.ps1 | iex",
   "tools.marker.lua_dir": "dossier config\\lua",
 
   // ── News view (I18N-14) ───────────────────────────────────────
@@ -684,7 +684,7 @@ export const fr = {
   "library.error.accept.title": "Vous acceptez que l'application n'ait plus la garantie que l'index n'a pas été modifié depuis sa dernière signature sur cette machine.",
 
   "library.empty.none": "Aucun fichier .lua pour le moment.",
-  "library.empty.none.hint": "Utilisez l'onglet Recherche pour récupérer votre premier jeu.",
+  "library.empty.none.hint": "Importez votre premier fichier .lua en le glissant-déposant ici ou avec « Importer des .lua ».",
   "library.empty.hidden": "Tous vos jeux sont masqués.",
   "library.empty.hidden.hint": "Retrouvez-les dans Réglages, section « Jeux masqués ».",
 
@@ -814,6 +814,7 @@ export const fr = {
   "settings.folders.steamtools.absent": "absent",
   "settings.folders.steamtools.note": "— SteamTools n'a pas de dossier à part : ses DLL (OpenSteamTool.dll, xinput1_4.dll) siègent dans le dossier Steam.",
   "settings.folders.steamtools.tip": "Ouvre le dossier qui contient les DLL de SteamTools.",
+  "settings.folders.steamtools.open-failed": "Impossible d'ouvrir le dossier SteamTools.",
 
   "settings.folders.defender.label": "Antivirus (Windows Defender)",
   "settings.folders.defender.on": "exclusion en place",
@@ -896,7 +897,7 @@ export const fr = {
   "settings.data.preview.known": "Déjà en bibliothèque :",
   "settings.data.preview.new": "Nouveaux :",
   "settings.data.preview.skipped": "Ignorées :",
-  "settings.data.preview.hint": "Ces jeux ne sont pas encore ajoutés : recherchez-les dans l'onglet Recherche pour récupérer leur .lua.",
+  "settings.data.preview.hint": "Ces jeux ne sont pas encore ajoutés : importez manuellement leurs fichiers .lua en les glissant-déposant ici ou avec « Importer des .lua ».",
 
   "settings.data.badge.known": "déjà là",
   "settings.data.badge.known.tip": "Déjà en bibliothèque",
@@ -996,8 +997,9 @@ export const fr = {
   "onboarding.finish.busy": "Démarrage…",
 
   // ── Credits items (I18N-12) ────────────────────────────────────
-  "credits.item.LuaVault.role": "Le service qui génère et distribue les fichiers .lua et les patchs en ligne. Toute la raison d'être de cette application.",
+  "credits.item.LuaVault.role": "Le Discord d'entraide de la communauté pour l'application. LuaVault ne fournit aucun jeu ni patch — tout provient de vos propres fichiers locaux.",
   "credits.item.steamtools.role": "L'outil qui lit les .lua depuis le dossier Steam. LuaVault ne fait que lui préparer le terrain.",
+  "credits.item.openlua.role": "Héberge le script d'installation et de réparation SteamTools (fix-st.ps1) exécuté par Steam & Outils.",
   "credits.item.steam.role": "La plateforme de Valve : détection des installations, manifestes de jeux, fiches et actualités.",
   "credits.item.tauri.role": "Application de bureau native : backend Rust, interface WebView2.",
   "credits.item.rust.role": "Tout le backend : réseau, archives, fichiers, cryptographie.",
@@ -1014,11 +1016,9 @@ export const fr = {
   "credits.item.ed25519.role": "Signatures des licences, vérifiées hors ligne.",
   "credits.item.winreg.role": "Lecture du registre Windows pour retrouver Steam.",
   "credits.item.utils.role": "Parcours de dossiers, dates, erreurs et chemins système.",
-  "credits.item.verification.role": "La vérification anti-robot exigée par LuaVault avant chaque téléchargement.",
   "credits.item.steamwebapi.role": "Fiches de jeu, visuels et notes de mise à jour affichés dans la grande carte.",
-  "credits.item.steamdb.role": "Les notes et volumes d'avis qui alimentent les recommandations.",
   "credits.item.vdf.role": "Pour savoir si un AppID est réellement installé, et où.",
-  "credits.item.tauridocs.role": "La clé du passage du jeton verification depuis une page externe.",
+  "credits.item.tauridocs.role": "Comment Tauri délimite les commandes qu'une fenêtre a le droit d'appeler.",
   "credits.item.viewtransitions.role": "L'animation de bascule entre thèmes.",
   "credits.item.oklch.role": "Ce qui permet à un thème de tenir en deux nombres.",
 } as const;

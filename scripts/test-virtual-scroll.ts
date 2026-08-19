@@ -1083,6 +1083,19 @@ const I18N_LITERAL_CASES = 3;
   assert.equal(mod.i18nLiteralsCases(), I18N_LITERAL_CASES, "I18N-55: la garde doit aller au bout de son cas");
 }
 
+// ── MORT-10: local-import guidance must not point to the removed Search tab ──
+const MORT_10_I18N_CASES = 4;
+{
+  const mod = (await import("./test-mort-10-i18n")) as unknown as {
+    __mort10I18nRan: boolean;
+    mort10I18nSuite: Promise<void>;
+    mort10I18nCases: () => number;
+  };
+  assert.ok(mod.__mort10I18nRan === true, "MORT-10: la garde des conseils d’import local doit être importée par le runner");
+  await mod.mort10I18nSuite;
+  assert.equal(mod.mort10I18nCases(), MORT_10_I18N_CASES, "MORT-10: la garde doit aller au bout de ses quatre clés ciblées");
+}
+
 await import("./test-keyboard-shortcuts");
 
 // ── MORT-06: structural guards retained after the public-edition cleanup ──
@@ -1134,6 +1147,87 @@ const PATCH_IMPORT_CASES = 22;
   assert.ok(mod.__patchImportRan === true, "IMPORT-01: la suite doit être importée par le runner");
   await mod.patchImportSuite;
   assert.equal(mod.patchImportCases(), PATCH_IMPORT_CASES, `IMPORT-01: la suite doit aller au bout de ses ${PATCH_IMPORT_CASES} cas`);
+}
+
+// ── PATCH-01: secondary install-patch action decision and delegation ──
+const PATCH_STATUS_CASES = 5;
+{
+  const mod = (await import("./test-patch-status")) as unknown as {
+    __patchStatusRan: boolean;
+    patchStatusSuite: Promise<void>;
+    patchStatusCases: () => number;
+  };
+  assert.ok(mod.__patchStatusRan === true, "PATCH-01: la suite patch-status doit être importée par le runner");
+  await mod.patchStatusSuite;
+  assert.equal(
+    mod.patchStatusCases(),
+    PATCH_STATUS_CASES,
+    `PATCH-01: la suite doit aller au bout de ses ${PATCH_STATUS_CASES} cas`,
+  );
+}
+
+// ── OPENLUA-01: SteamTools repair endpoint and attribution ──────
+const OPENLUA_STEAMTOOLS_CASES = 6;
+{
+  const mod = (await import("./test-openlua-steamtools")) as unknown as {
+    __openluaSteamtoolsRan: boolean;
+    openluaSteamtoolsSuite: Promise<void>;
+    openluaSteamtoolsCases: () => number;
+  };
+  assert.ok(mod.__openluaSteamtoolsRan === true, "OPENLUA-01: la garde doit être importée par le runner");
+  await mod.openluaSteamtoolsSuite;
+  assert.equal(
+    mod.openluaSteamtoolsCases(),
+    OPENLUA_STEAMTOOLS_CASES,
+    `OPENLUA-01: la garde doit aller au bout de ses ${OPENLUA_STEAMTOOLS_CASES} cas`,
+  );
+}
+
+// ── CREDITS-01: remove stale attributions and correct LuaVault's role ──
+const CREDITS_STALE_ENTRIES_CASES = 11;
+{
+  const mod = (await import("./test-credits-stale-entries")) as unknown as {
+    __creditsStaleEntriesRan: boolean;
+    creditsStaleEntriesSuite: Promise<void>;
+    creditsStaleEntriesCases: () => number;
+  };
+  assert.ok(mod.__creditsStaleEntriesRan === true, "CREDITS-01: la garde des crédits doit être importée par le runner");
+  await mod.creditsStaleEntriesSuite;
+  assert.equal(
+    mod.creditsStaleEntriesCases(),
+    CREDITS_STALE_ENTRIES_CASES,
+    `CREDITS-01: la garde doit aller au bout de ses ${CREDITS_STALE_ENTRIES_CASES} cas`,
+  );
+}
+
+// ── TAURIDOCS-01: default capability and stale credit wording ──
+const TAURIDOCS_CAPABILITY_CASES = 9;
+{
+  const mod = (await import("./test-tauridocs-capability")) as unknown as {
+    __tauridocsCapabilityRan: boolean;
+    tauridocsCapabilitySuite: Promise<void>;
+    tauridocsCapabilityCases: () => number;
+  };
+  assert.ok(mod.__tauridocsCapabilityRan === true, "TAURIDOCS-01: la garde doit être importée par le runner");
+  await mod.tauridocsCapabilitySuite;
+  assert.equal(
+    mod.tauridocsCapabilityCases(),
+    TAURIDOCS_CAPABILITY_CASES,
+    `TAURIDOCS-01: la garde doit aller au bout de ses ${TAURIDOCS_CAPABILITY_CASES} cas`,
+  );
+}
+
+// ── STG-01: shared folder opening and visible SteamTools failures ──
+const OPEN_FOLDER_CASES = 6;
+{
+  const mod = (await import("./test-open-folder")) as unknown as {
+    __openFolderRan: boolean;
+    openFolderSuite: Promise<void>;
+    openFolderCases: () => number;
+  };
+  assert.ok(mod.__openFolderRan === true, "STG-01: la suite open-folder doit être importée par le runner");
+  await mod.openFolderSuite;
+  assert.equal(mod.openFolderCases(), OPEN_FOLDER_CASES, `STG-01: la suite doit aller au bout de ses ${OPEN_FOLDER_CASES} cas`);
 }
 
 // ── BANC-01: every graphical-suite import resolves on disk ───

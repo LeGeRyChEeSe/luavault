@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import ActionButton from "./ActionButton.svelte";
   import Icon from "./Icons.svelte";
   import { appState } from "../lib/app-state.svelte";
@@ -17,6 +16,8 @@
   import { installFixWithRepair } from "../lib/defender";
   import { focusTrap } from "../lib/focus-trap";
   import { t } from "../lib/i18n.svelte";
+  import { openFolder } from "../lib/open-folder";
+  import { shouldOfferInstallFix } from "../lib/patch-status";
 
   let {
     status,
@@ -31,9 +32,6 @@
   } = $props();
 
   const fix = $derived(status.fix);
-  /** True while the stage itself already speaks about the patch. */
-  const stageIsAboutFix = $derived(status.stage.startsWith("fix_"));
-
   /** Only one action runs at a time, so the label can say which. */
   let busy = $state<string | null>(null);
   let passwordAction = $state<"install" | null>(null);
@@ -124,7 +122,7 @@
 
   function reveal() {
     const dir = fix.game_dir ?? status.game.install_dir;
-    if (dir) void revealItemInDir(dir);
+    if (dir) void openFolder(dir);
   }
 </script>
 
@@ -226,7 +224,7 @@
         tip={t("actions.remove-fix.tip")}
       />
     {/if}
-    {#if status.fix_downloaded && !stageIsAboutFix}
+    {#if shouldOfferInstallFix(status)}
       <ActionButton
         label={t("actions.downloaded-fix.label")}
         icon="patch"

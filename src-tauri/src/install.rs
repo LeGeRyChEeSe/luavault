@@ -178,6 +178,6 @@ pub fn restart_steam(steam_exe: &std::path::Path) -> Result<()> {
 pub fn steamtools_command() -> (&'static str, String) {
     (
         "powershell.exe",
-        "-NoProfile -ExecutionPolicy Bypass -Command \"irm -useb cdn.LuaVault/fix-st.ps1 | iex\"".to_string(),
+        "-NoProfile -ExecutionPolicy Bypass -Command \"irm -useb cdn.openlua.cloud/fix-st.ps1 | iex\"".to_string(),
     )
 }
