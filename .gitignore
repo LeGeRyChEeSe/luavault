@@ -58,3 +58,7 @@ e2e/README.md
 # Release signing keys — never commit, never ship
 release-primary.key
 release-backup.key
+
+# Discord FAQ message draft (Components v2 JSON + screenshots) — posted by hand,
+# not part of the app's source or docs.
+/docs/discord-faq

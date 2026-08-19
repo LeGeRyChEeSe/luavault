@@ -13,6 +13,7 @@ Frosted-glass UI, cold blue palette, a native binary of a few MB.
 [![Frontend: Svelte 5](https://img.shields.io/badge/frontend-Svelte%205-4f8ef7?style=flat-square&logo=svelte&logoColor=white)](https://svelte.dev)
 [![Latest release](https://img.shields.io/github/v/release/LeGeRyChEeSe/luavault?style=flat-square&color=4f8ef7&label=release)](https://github.com/LeGeRyChEeSe/luavault/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/LeGeRyChEeSe/luavault/total?style=flat-square&color=4f8ef7)](https://github.com/LeGeRyChEeSe/luavault/releases)
+[![Discord](https://img.shields.io/badge/discord-join-4f8ef7?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/vSczZGT7aQ)
 
 </div>
 
