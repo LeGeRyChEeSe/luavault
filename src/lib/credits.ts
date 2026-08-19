@@ -156,6 +156,30 @@ const CREDIT_GROUPS_DATA = [
         url: "https://crates.io/",
         licence: "MIT / Apache-2.0",
       },
+      {
+        id: "aesgcm",
+        name: "aes-gcm",
+        url: "https://github.com/RustCrypto/AEADs",
+        licence: "MIT / Apache-2.0",
+      },
+      {
+        id: "argon2",
+        name: "argon2",
+        url: "https://github.com/RustCrypto/password-hashes",
+        licence: "MIT / Apache-2.0",
+      },
+      {
+        id: "hmac",
+        name: "hmac",
+        url: "https://github.com/RustCrypto/MACs",
+        licence: "MIT / Apache-2.0",
+      },
+      {
+        id: "zeroize",
+        name: "zeroize",
+        url: "https://github.com/RustCrypto/utils",
+        licence: "MIT / Apache-2.0",
+      },
     ],
   },
   {
@@ -188,7 +212,7 @@ const CREDIT_GROUPS_DATA = [
       },
       {
         id: "tauridocs",
-        name: "Documentation Tauri v2 — capabilities & IPC distant",
+        name: "Documentation Tauri v2 — capabilities",
         url: "https://tauri.app/security/capabilities/",
         licence: undefined,
       },

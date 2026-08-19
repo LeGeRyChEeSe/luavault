@@ -1,7 +1,7 @@
 {
   "name": "luavault",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "Local library companion for Steam and SteamTools.",
   "scripts": {

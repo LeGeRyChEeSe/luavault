@@ -1,6 +1,6 @@
 [package]
 name = "luavault"
-version = "1.0.0"
+version = "1.0.1"
 description = "Local library companion for Steam and SteamTools"
 authors = ["kilian"]
 edition = "2021"

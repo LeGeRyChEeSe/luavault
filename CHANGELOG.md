@@ -15,6 +15,25 @@ Two rules to follow when editing this file, because the script depends on them:
   publish script then places them separately in `notes_i18n`, with French kept as
   the `notes` fallback for older clients.
 
+## 1.0.1 - 2026-08-19
+
+### fr
+- Correctifs : le bouton « Ouvrir le dossier » des Réglages qui échouait
+  silencieusement, une indication obsolète pointant vers un onglet retiré de
+  l'interface, une carte de jeu qui continuait à proposer une étape déjà
+  terminée, et un point de terminaison de commande externe cassé.
+- Crédits mis à jour ; retrait de la dernière mention de vérification
+  Cloudflare et d'une entrée SteamDB obsolète.
+- Ajout d'un badge Discord dans le README, pointant vers le serveur dédié.
+
+### en
+- Fixes: a Settings "Open folder" button that failed silently, a stale hint
+  pointing at a removed UI tab, a game card that kept offering an
+  already-completed step, and a broken external command endpoint.
+- Updated credits; removed the last Cloudflare verification mention and a
+  stale SteamDB entry.
+- Added a Discord badge to the README, linking to the dedicated server.
+
 ## 1.0.0 - 2026-08-15
 
 ### fr
