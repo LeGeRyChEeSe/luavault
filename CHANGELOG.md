@@ -18,12 +18,20 @@ Two rules to follow when editing this file, because the script depends on them:
 ## 1.0.2 - 2026-08-19
 
 ### fr
+- IMPORTANT — si ce bouton "Installer" échoue encore avec « HTTP 404 »,
+  c'est ce bug lui-même : téléchargez et réinstallez manuellement la
+  dernière version depuis la page des Releases GitHub, une seule fois.
+  Les mises à jour automatiques suivantes fonctionneront normalement.
 - Correctif critique : la mise à jour depuis l'application échouait toujours
   avec « serveur de mise à jour : HTTP 404 » — l'URL de téléchargement de
   l'artefact ajoutait un segment `/download/<version>/` qui n'existe pas sur
   GitHub Releases. Le téléchargement pointe maintenant vers la bonne adresse.
 
 ### en
+- IMPORTANT — if this "Install" button still fails with "HTTP 404", that's
+  this exact bug: manually download and reinstall the latest version from
+  the GitHub Releases page once. Automatic updates will work normally
+  after that.
 - Critical fix: updating from within the app always failed with "update
   server: HTTP 404" — the artefact download URL added a `/download/<version>/`
   segment that doesn't exist on GitHub Releases. Downloads now point at the
