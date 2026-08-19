@@ -485,10 +485,15 @@ pub async fn download_and_verify_from(
         );
     }
 
-    let v = safe_segment(version).context("version invalide")?;
+    // `version` plays no part in the URL: `base` already resolves to GitHub's
+    // "latest release" download prefix (see `base_url`), which serves an asset
+    // by file name alone — there is no per-version path on that host. It is
+    // still validated so a malformed value fails closed before any request,
+    // matching every other externally-influenced path segment in this module.
+    safe_segment(version).context("version invalide")?;
     let f = safe_segment(file).context("nom de fichier invalide")?;
 
-    let url = format!("{}/download/{}/{}", base, v, f);
+    let url = format!("{}/{}", base, f);
     let resp = http
         .inner()
         .get(&url)
@@ -1171,7 +1176,7 @@ mod tests {
     async fn download_good_hash_writes_the_file() {
         let tag = unique_file("good");
         let mut routes = HashMap::new();
-        routes.insert(format!("/download/1.2.3/{tag}"), http_ok(PAYLOAD));
+        routes.insert(format!("/{tag}"), http_ok(PAYLOAD));
         let base = spawn_raw_server(routes).await;
         let http = UpdateClient::wrap(reqwest::Client::new());
 
@@ -1191,7 +1196,7 @@ mod tests {
     async fn download_bad_hash_refuses_and_writes_nothing() {
         let tag = unique_file("badhash");
         let mut routes = HashMap::new();
-        routes.insert(format!("/download/1.2.3/{tag}"), http_ok(PAYLOAD));
+        routes.insert(format!("/{tag}"), http_ok(PAYLOAD));
         let base = spawn_raw_server(routes).await;
         let http = UpdateClient::wrap(reqwest::Client::new());
 
@@ -1214,7 +1219,7 @@ mod tests {
     async fn download_wrong_size_refuses_and_writes_nothing() {
         let tag = unique_file("badsize");
         let mut routes = HashMap::new();
-        routes.insert(format!("/download/1.2.3/{tag}"), http_ok(PAYLOAD));
+        routes.insert(format!("/{tag}"), http_ok(PAYLOAD));
         let base = spawn_raw_server(routes).await;
         let http = UpdateClient::wrap(reqwest::Client::new());
 
@@ -1250,7 +1255,7 @@ mod tests {
             chunked.extend_from_slice(b"\r\n");
         }
         chunked.extend_from_slice(b"0\r\n\r\n");
-        routes.insert(format!("/download/1.2.3/{tag}"), chunked);
+        routes.insert(format!("/{tag}"), chunked);
         let base = spawn_raw_server(routes).await;
         let http = UpdateClient::wrap(reqwest::Client::new());
 

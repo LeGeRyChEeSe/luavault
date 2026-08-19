@@ -15,6 +15,20 @@ Two rules to follow when editing this file, because the script depends on them:
   publish script then places them separately in `notes_i18n`, with French kept as
   the `notes` fallback for older clients.
 
+## 1.0.2 - 2026-08-19
+
+### fr
+- Correctif critique : la mise à jour depuis l'application échouait toujours
+  avec « serveur de mise à jour : HTTP 404 » — l'URL de téléchargement de
+  l'artefact ajoutait un segment `/download/<version>/` qui n'existe pas sur
+  GitHub Releases. Le téléchargement pointe maintenant vers la bonne adresse.
+
+### en
+- Critical fix: updating from within the app always failed with "update
+  server: HTTP 404" — the artefact download URL added a `/download/<version>/`
+  segment that doesn't exist on GitHub Releases. Downloads now point at the
+  correct address.
+
 ## 1.0.1 - 2026-08-19
 
 ### fr
