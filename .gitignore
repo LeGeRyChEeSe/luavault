@@ -59,6 +59,7 @@ e2e/README.md
 release-primary.key
 release-backup.key
 
-# Discord FAQ message draft (Components v2 JSON + screenshots) — posted by hand,
-# not part of the app's source or docs.
-/docs/discord-faq
+# docs/ only ships the screenshots referenced by the README. Everything else
+# (Reddit promo posts, Discord FAQ drafts) is posted by hand and stays local.
+/docs/*
+!/docs/screenshots
