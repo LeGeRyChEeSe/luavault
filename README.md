@@ -24,7 +24,7 @@ import, automatic adoption of anything already sitting in `{Steam}\config\lua`,
 online fixes with backup and integrity checks, and Steam/SteamTools install and
 repair — all from one dependency-free window.
 
-Current version: **1.0.0** — see [`CHANGELOG.md`](CHANGELOG.md).
+Current version: **1.0.2** — see [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Screenshots
 
@@ -59,8 +59,10 @@ Current version: **1.0.0** — see [`CHANGELOG.md`](CHANGELOG.md).
 
 **Online fixes**
 
-- Fix download when a game offers one, RAR/ZIP extraction (format detected by
-  magic bytes, not by extension).
+- **Local import of patch archives**: drag-and-drop or the Import button accepts
+  `.zip`, `.rar` and `.7z` archives, matched to a game by the AppID in the
+  filename (`440.zip`, `440_online_fix.zip`, `Game name (440).zip`) and
+  confirmed before import. Format is detected by magic bytes, not by extension.
 - **Backup of every overwritten file** before applying: uninstall restores the
   pre-patch state, even when the game has moved folders since.
 - **SHA-256 integrity check** per file: a Steam update that reverts a DLL to its
