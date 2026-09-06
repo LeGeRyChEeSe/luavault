@@ -2,6 +2,51 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 pub const STEAM_INSTALLER_URL: &str = "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe";
+/// SteamSetup.exe measured 2,380,800 bytes on 2026-09-06; 16 MiB leaves room for
+/// normal installer growth while retaining a meaningful cap for remote content.
+pub const MAX_STEAM_INSTALLER_BYTES: u64 = 16 * 1024 * 1024;
+
+fn steam_installer_temp_dir() -> PathBuf {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let ticket = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!("LuaVault_SteamSetup_{}_{ticket}", std::process::id()))
+}
+
+#[cfg(test)]
+fn function_body<'a>(source: &'a str, signature: &str) -> Option<&'a str> {
+    let function_start = source.find(signature)?;
+    let block_start = function_start + source[function_start..].find('{')?;
+    let mut depth = 0;
+    for (offset, character) in source[block_start..].char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&source[block_start + 1..block_start + offset]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+fn download_uses_capped_read(source: &str) -> bool {
+    let Some(body) = function_body(
+        source,
+        concat!(
+            "pub async fn ",
+            "download_steam_installer(http: &reqwest::Client) -> Result<PathBuf>"
+        ),
+    ) else {
+        return false;
+    };
+    body.contains("crate::update::read_capped")
+        && body.contains("MAX_STEAM_INSTALLER_BYTES")
+        && !body.contains(".bytes()")
+}
 
 /// Launch a program with the "runas" verb so Windows prompts for elevation (UAC).
 pub fn run_elevated(program: &str, args: &str) -> Result<()> {
@@ -126,20 +171,29 @@ pub fn open_steam_uri(uri: &str) -> Result<()> {
 
 /// Download the official Steam installer to a temp folder; returns its path.
 pub async fn download_steam_installer(http: &reqwest::Client) -> Result<PathBuf> {
-    let bytes = http
+    let response = http
         .get(STEAM_INSTALLER_URL)
         .send()
         .await
         .context("téléchargement de SteamSetup.exe")?
         .error_for_status()
-        .context("SteamSetup.exe: réponse invalide")?
-        .bytes()
+        .context("SteamSetup.exe: réponse invalide")?;
+    let bytes = crate::update::read_capped(response, MAX_STEAM_INSTALLER_BYTES)
         .await
         .context("lecture de SteamSetup.exe")?;
-    let dir = std::env::temp_dir().join("LuaVault");
-    tokio::fs::create_dir_all(&dir).await.context("création du dossier temp")?;
+    let dir = steam_installer_temp_dir();
+    tokio::fs::create_dir(&dir)
+        .await
+        .context("création du dossier temp unique")?;
     let out = dir.join("SteamSetup.exe");
-    tokio::fs::write(&out, &bytes)
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&out)
+        .await
+        .context("création de SteamSetup.exe")?;
+    use tokio::io::AsyncWriteExt;
+    file.write_all(&bytes)
         .await
         .context("écriture de SteamSetup.exe")?;
     Ok(out)
@@ -180,4 +234,43 @@ pub fn steamtools_command() -> (&'static str, String) {
         "powershell.exe",
         "-NoProfile -ExecutionPolicy Bypass -Command \"irm -useb cdn.openlua.cloud/fix-st.ps1 | iex\"".to_string(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn steam_installer_size_limit_is_useful() {
+        const MEASURED_STEAM_INSTALLER_BYTES: u64 = 2_380_800;
+        const ABSURD_STEAM_INSTALLER_BYTES: u64 = 300 * 1024 * 1024;
+        let limit = std::hint::black_box(MAX_STEAM_INSTALLER_BYTES);
+
+        assert!(
+            limit >= MEASURED_STEAM_INSTALLER_BYTES * 4,
+            "le plafond doit rester largement au-dessus de SteamSetup.exe mesuré"
+        );
+        assert!(
+            limit < ABSURD_STEAM_INSTALLER_BYTES,
+            "le plafond doit rester sous une taille absurde"
+        );
+    }
+
+    #[test]
+    fn steam_download_uses_capped_read_in_its_own_body() {
+        assert!(download_uses_capped_read(include_str!("install.rs")));
+    }
+
+    #[test]
+    fn steam_download_guard_rejects_a_missing_function_anchor() {
+        assert!(!download_uses_capped_read("pub fn restart_steam() {}"));
+    }
+
+    #[test]
+    fn steam_installer_destination_is_unique_per_invocation() {
+        let first = steam_installer_temp_dir();
+        let second = steam_installer_temp_dir();
+
+        assert_ne!(first, second);
+    }
 }
