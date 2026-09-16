@@ -140,14 +140,14 @@ impl UpdateClient {
         Self(build_http_client())
     }
 
-    fn inner(&self) -> &reqwest::Client {
+    pub(crate) fn inner(&self) -> &reqwest::Client {
         &self.0
     }
 
     /// Wrap an arbitrary client. Tests only: production goes through [`Self::new`],
     /// which is the whole point of the newtype.
     #[cfg(test)]
-    fn wrap(client: reqwest::Client) -> Self {
+    pub(crate) fn wrap(client: reqwest::Client) -> Self {
         Self(client)
     }
 }
@@ -627,8 +627,11 @@ pub fn validate_install_path(
 
 // -------------------------------------------------------------------- tests
 
+// `pub(crate)`: `motd.rs` fetches a second signed document through the same
+// client and reuses the raw test server and the signing helpers below, rather
+// than growing a second copy that would drift from this one.
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
     use std::collections::HashMap;
@@ -783,13 +786,13 @@ mod tests {
 
     // ── signature verification ──
 
-    fn test_keypair(seed: u8) -> (SigningKey, String) {
+    pub(crate) fn test_keypair(seed: u8) -> (SigningKey, String) {
         let sk = SigningKey::from_bytes(&[seed; 32]);
         let pk_hex = hmac::bytes_to_hex(sk.verifying_key().as_bytes());
         (sk, pk_hex)
     }
 
-    fn sign_b64(sk: &SigningKey, msg: &[u8]) -> String {
+    pub(crate) fn sign_b64(sk: &SigningKey, msg: &[u8]) -> String {
         use base64::Engine;
         let sig = sk.sign(msg);
         base64::engine::general_purpose::STANDARD.encode(sig.to_bytes())
@@ -1001,7 +1004,7 @@ mod tests {
 
     /// Spawn a raw HTTP server on 127.0.0.1:0. Routes map a path to the EXACT
     /// bytes written back (status line + headers + body). Returns the base URL.
-    async fn spawn_raw_server(routes: HashMap<String, Vec<u8>>) -> String {
+    pub(crate) async fn spawn_raw_server(routes: HashMap<String, Vec<u8>>) -> String {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -1042,7 +1045,7 @@ mod tests {
         format!("http://127.0.0.1:{}", addr.port())
     }
 
-    fn http_ok(body: &[u8]) -> Vec<u8> {
+    pub(crate) fn http_ok(body: &[u8]) -> Vec<u8> {
         format!(
             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             body.len()

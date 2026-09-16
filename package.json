@@ -13,7 +13,7 @@
     "e2e": "npx --yes tsx@4.19.2 e2e/run.ts",
     "e2e:smoke": "npx --yes tsx@4.19.2 e2e/smoke.ts",
     "e2e:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File e2e/setup.ps1",
-    "e2e:build": "tauri build --debug --no-bundle",
+    "e2e:build": "tauri build --debug --no-bundle --config e2e/tauri.e2e.conf.json",
     "e2e:mutate": "powershell -NoProfile -ExecutionPolicy Bypass -File e2e/mutate.ps1",
     "tauri": "tauri",
     "build:app": "tauri build",

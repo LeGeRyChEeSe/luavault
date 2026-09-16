@@ -32,6 +32,10 @@ pub struct AppConfig {
     /// Optional default password for extracting online fix archives.
     #[serde(default)]
     pub default_archive_password: Option<String>,
+    /// Id of the message of the day the user asked never to see again. One id
+    /// only: a newer publication shows regardless (`motd::is_dismissed`).
+    #[serde(default)]
+    pub motd_dismissed_id: Option<String>,
 }
 
 /// Result of merging an imported config into a local one.
@@ -118,6 +122,7 @@ pub fn merge_imported(
                 .default_archive_password
                 .clone()
                 .or_else(|| local.default_archive_password.clone()),
+            motd_dismissed_id: imported.motd_dismissed_id.clone(),
         },
         kept_local,
     }
@@ -205,6 +210,7 @@ mod tests {
             update_notified_version: None,
             update_from_version: None,
             default_archive_password: None,
+            motd_dismissed_id: None,
         }
     }
 
@@ -485,6 +491,7 @@ mod tests {
             update_notified_version: Some("1.0.0".to_string()),
             update_from_version: None,
             default_archive_password: None,
+            motd_dismissed_id: None,
         };
         let imported = AppConfig {
             steam_dir: Some(PathBuf::from("Z:\\NonExistent")),
@@ -497,6 +504,7 @@ mod tests {
             update_notified_version: Some("2.0.0".to_string()),
             update_from_version: None,
             default_archive_password: Some("secret".to_string()),
+            motd_dismissed_id: Some("m-import".to_string()),
         };
         let result = merge_imported(&local, &imported, exists_false);
         // Les chemins locaux survivent.

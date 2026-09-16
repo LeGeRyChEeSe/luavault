@@ -15,6 +15,16 @@ Two rules to follow when editing this file, because the script depends on them:
   publish script then places them separately in `notes_i18n`, with French kept as
   the `notes` fallback for older clients.
 
+## 1.1.0 - 2026-09-16
+
+### fr
+- Message du jour : l'auteur peut publier une notice signée (panne, avertissement, information) affichée au lancement pendant une durée choisie, sans mise à jour de l'application.
+- La notice est traduite (français / anglais), mise en forme (gras, listes, liens, couleurs) et peut être écartée définitivement ; un bouton « Message du jour » la réaffiche à la demande.
+
+### en
+- Message of the day: the author can publish a signed notice (outage, warning, information) shown at launch for a chosen duration, with no application update required.
+- The notice is translated (French / English), formatted (bold, lists, links, colours) and can be dismissed for good; a "Message of the day" button brings it back on demand.
+
 ## 1.0.2 - 2026-08-19
 
 ### fr

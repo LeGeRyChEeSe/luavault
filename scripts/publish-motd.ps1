@@ -1,0 +1,198 @@
+# Publication du message du jour — s'exécute sur la machine de l'auteur, avec la
+# clé privée de publication et `gh` authentifié.
+#
+#   .\scripts\publish-motd.ps1 -Fr "Le serveur est **en panne**." -En "The server is **down**." -Hours 12
+#   .\scripts\publish-motd.ps1 -File motd.md -Days 3 -Severity warning
+#   .\scripts\publish-motd.ps1 -Clear
+#   ... -DryRun          écrit et signe releases\motd\motd.json sans rien publier
+#
+# Le message est affiché par l'application au lancement, jusqu'à `expires_at`
+# (calculé ici : maintenant + durée). Il est SIGNÉ avec la même clé que le
+# manifeste : un hébergeur compromis ne peut pas afficher un texte que l'auteur
+# n'a pas signé. Le client vérifie la signature sur les octets bruts, d'où
+# l'écriture sans BOM.
+#
+# Hébergement : les deux fichiers sont les assets d'une PRÉ-RELEASE GitHub
+# taguée `motd`, créée une fois et réécrite à chaque publication (`--clobber`).
+# Une pré-release ne devient jamais « latest » : publier un message ne déplace
+# pas le pointeur de mise à jour, et publier une version n'efface pas le message.
+#
+# Format de -File : une section par langue, la première ligne `# Titre` donne le
+# titre, le reste est le corps (markdown restreint, voir
+# src/lib/motd-markdown.ts pour le dialecte et les couleurs) :
+#
+#   ## fr
+#   # Panne en cours
+#   Le serveur est {red}indisponible{/} jusqu'à 18 h.
+#
+#   ## en
+#   # Ongoing outage
+#   The server is {red}unavailable{/} until 6 pm.
+#
+# Chaque publication porte un identifiant neuf (-Id, sinon horodatage) : c'est
+# lui que mémorise « Ne plus afficher ». Republier = réafficher chez tout le monde.
+
+[CmdletBinding()]
+param(
+    [string]$Fr = '',
+    [string]$En = '',
+    [string]$TitleFr = '',
+    [string]$TitleEn = '',
+    # Un fichier markdown à sections `## <langue>` ; remplace -Fr/-En/-Title*.
+    [string]$File = '',
+    [int]$Hours = 0,
+    [int]$Days = 0,
+    [ValidateSet('info', 'warning', 'critical')][string]$Severity = 'info',
+    [string]$Id = '',
+    # Retire le message : publie `message: null`, signé. Les assets restent en
+    # place pour que le client lise un document valide plutôt qu'un 404.
+    [switch]$Clear,
+    [string]$SigningKey,
+    [string]$Tag = 'motd',
+    [switch]$DryRun
+)
+
+$ErrorActionPreference = 'Stop'
+$root = Split-Path $PSScriptRoot -Parent
+$dir = Join-Path $root 'releases\motd'
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+
+if ([string]::IsNullOrWhiteSpace($SigningKey)) {
+    $SigningKey = Join-Path $root 'release-primary.key'
+}
+if (-not (Test-Path -LiteralPath $SigningKey -PathType Leaf)) {
+    throw "Clé de signature introuvable : $SigningKey."
+}
+
+# --------------------------------------------------------------- lecture de -File
+#
+# Chemin absolu passé à System.IO : le répertoire courant du processus .NET n'est
+# pas celui de PowerShell.
+function Read-MotdFile([string]$Path) {
+    $full = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Path)) }
+    if (-not (Test-Path -LiteralPath $full)) { throw "fichier introuvable : $full" }
+    $text = [System.IO.File]::ReadAllText($full, [System.Text.Encoding]::UTF8)
+
+    $titles = [ordered]@{}
+    $bodies = [ordered]@{}
+    $lang = $null
+    $buffer = @()
+    $flush = {
+        if ($null -eq $lang) { return }
+        $lines = @($buffer)
+        $firstIndex = -1
+        for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i].Trim() -ne '') { $firstIndex = $i; break } }
+        if ($firstIndex -ge 0 -and $lines[$firstIndex] -cmatch '^#\s+(.+)$') {
+            $titles[$lang] = $Matches[1].Trim()
+            $lines = @($lines | Select-Object -Skip ($firstIndex + 1))
+        }
+        $body = (($lines -join "`n").Trim())
+        if ($body -ne '') { $bodies[$lang] = $body }
+    }
+    foreach ($line in ($text -split "`r?`n")) {
+        if ($line -cmatch '^##\s+([a-z]{2,3})\s*$') {
+            & $flush
+            $lang = $Matches[1]
+            $buffer = @()
+        }
+        elseif ($null -ne $lang) {
+            $buffer += $line
+        }
+    }
+    & $flush
+    return @{ titles = $titles; bodies = $bodies }
+}
+
+# --------------------------------------------------------------- composition
+
+if ($Clear) {
+    $document = [ordered]@{ schema = 1; message = $null }
+}
+else {
+    if ($Hours -le 0 -and $Days -le 0) {
+        throw "indique une durée : -Hours <n> et/ou -Days <n>."
+    }
+    if ($Hours -lt 0 -or $Days -lt 0) { throw "une durée négative n'a pas de sens." }
+
+    $titles = [ordered]@{}
+    $bodies = [ordered]@{}
+    if ($File) {
+        $parsed = Read-MotdFile $File
+        $titles = $parsed.titles
+        $bodies = $parsed.bodies
+    }
+    else {
+        if ($Fr) { $bodies['fr'] = $Fr }
+        if ($En) { $bodies['en'] = $En }
+        if ($TitleFr) { $titles['fr'] = $TitleFr }
+        if ($TitleEn) { $titles['en'] = $TitleEn }
+    }
+    if ($bodies.Count -eq 0) {
+        throw "aucun corps de message : -Fr / -En, ou -File avec une section '## fr'."
+    }
+    if (-not $bodies.Contains('fr') -or -not $bodies.Contains('en')) {
+        Write-Warning "message publié sans 'fr' ET 'en' — les autres locales retomberont sur ce qui existe."
+    }
+
+    $now = (Get-Date).ToUniversalTime()
+    $expires = $now.AddDays($Days).AddHours($Hours)
+    if (-not $Id) { $Id = $now.ToString('yyyyMMdd-HHmmss') }
+
+    $document = [ordered]@{
+        schema  = 1
+        message = [ordered]@{
+            id           = $Id
+            published_at = $now.ToString('yyyy-MM-ddTHH:mm:ssZ')
+            expires_at   = $expires.ToString('yyyy-MM-ddTHH:mm:ssZ')
+            severity     = $Severity
+            title        = $titles
+            body         = $bodies
+        }
+    }
+}
+
+New-Item -ItemType Directory -Force $dir | Out-Null
+$docPath = Join-Path $dir 'motd.json'
+$json = $document | ConvertTo-Json -Depth 6
+[System.IO.File]::WriteAllText($docPath, $json, $utf8NoBom)
+
+Write-Host "message écrit : $docPath"
+Write-Host $json
+
+# --------------------------------------------------------------- signature
+
+$signature = & cargo run --quiet --manifest-path (Join-Path $root 'src-tauri\Cargo.toml') `
+    --bin lvrelease -- sign $SigningKey $docPath
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($signature)) {
+    throw 'La signature Ed25519 du message a échoué.'
+}
+$sigPath = "$docPath.sig"
+[System.IO.File]::WriteAllText($sigPath, $signature.Trim(), $utf8NoBom)
+Write-Host "signature : $($signature.Trim())"
+
+if ($DryRun) {
+    Write-Host "-DryRun : rien n'est publié."
+    exit 0
+}
+
+# --------------------------------------------------------------- publication
+
+# La pré-release `motd` est créée une fois ; ensuite, seuls ses assets bougent.
+& gh release view $Tag *> $null
+if ($LASTEXITCODE -ne 0) {
+    & gh release create $Tag --prerelease --title 'Message of the day' `
+        --notes 'Signed notice shown by the application at launch. Assets are rewritten on every publication; this pre-release never becomes the latest release.'
+    if ($LASTEXITCODE -ne 0) { throw "la pré-release $Tag n'a pas pu être créée." }
+}
+
+# La signature part en premier : entre les deux envois, un client lit l'ancien
+# document avec la nouvelle signature et le rejette — un instant sans message,
+# jamais un message dont la signature passe à tort.
+foreach ($asset in @($sigPath, $docPath)) {
+    & gh release upload $Tag $asset --clobber
+    if ($LASTEXITCODE -ne 0) { throw "échec de l'envoi de $(Split-Path $asset -Leaf) sur la pré-release $Tag." }
+}
+
+if ($Clear) { Write-Host "message retiré." } else { Write-Host "publié : message $Id, jusqu'au $($expires.ToString('yyyy-MM-dd HH:mm')) UTC" }
+Write-Host "vérifie depuis l'extérieur :"
+Write-Host "  curl -sL https://github.com/LeGeRyChEeSe/luavault/releases/download/$Tag/motd.json"

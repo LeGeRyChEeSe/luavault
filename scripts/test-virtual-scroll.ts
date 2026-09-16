@@ -1098,6 +1098,20 @@ const MORT_10_I18N_CASES = 4;
 
 await import("./test-keyboard-shortcuts");
 
+// ── MOTD: le dialecte markdown et les décisions pures du message du jour ──
+// Même contrat que les suites ci-dessus : promesse attendue, compte exact.
+const MOTD_CASES = 32;
+{
+  const mod = (await import("./test-motd-markdown")) as unknown as {
+    __motdRan: boolean;
+    motdSuite: Promise<void>;
+    motdCases: () => number;
+  };
+  assert.ok(mod.__motdRan === true, "MOTD: la suite test-motd-markdown doit être importée par le runner");
+  await mod.motdSuite;
+  assert.equal(mod.motdCases(), MOTD_CASES, `MOTD: la suite doit aller au bout de ses ${MOTD_CASES} cas`);
+}
+
 // ── MORT-06: structural guards retained after the public-edition cleanup ──
 await import("./test-artwork-wiring");
 await import("./test-offline-wiring");
