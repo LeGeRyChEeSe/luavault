@@ -18,8 +18,11 @@
 # L'application tourne en mode PORTABLE dans un dossier jetable (.e2e\motd-manual\) :
 # ta vraie installation, sa bibliotheque et son config.json ne sont jamais touches.
 #
-# -Keep garde le dossier et le serveur en vie apres la fermeture de l'application,
-# pour relancer l'exe a la main et verifier « Ne plus afficher » d'un lancement a l'autre.
+# -Keep garde le dossier (donc le config.json et son motd_dismissed_id) et le serveur
+# en vie apres la fermeture de l'application. Relancer ensuite LA MEME commande verifie
+# « Ne plus afficher » d'un lancement a l'autre : l'identifiant est derive du texte, le
+# message est donc le meme (voir -Id). Sans -Keep, le dossier est efface et le choix
+# avec lui.
 
 param(
     [string]$Fr = '',
@@ -31,6 +34,11 @@ param(
     [int]$Days = 0,
     [ValidateSet('info', 'warning', 'critical')][string]$Severity = 'info',
     [switch]$Clear,
+    # Identifiant du message. Sans lui, il est DERIVE DU TEXTE : relancer la meme
+    # commande republie le meme message (donc « Ne plus afficher » tient d'un
+    # lancement a l'autre), changer le texte en publie un nouveau. En production,
+    # publish-motd.ps1 horodate : chaque publication est un message neuf, c'est voulu.
+    [string]$Id = '',
     [int]$Port = 8765,
     [string]$Exe = '',
     [switch]$Keep
@@ -50,6 +58,13 @@ if ($Clear) { $publish.Clear = $true }
 else {
     if ($File) { $publish.File = $File } else { $publish.Fr = $Fr; $publish.En = $En; $publish.TitleFr = $TitleFr; $publish.TitleEn = $TitleEn }
     $publish.Hours = $Hours; $publish.Days = $Days
+    if (-not $Id) {
+        $material = if ($File) { [System.IO.File]::ReadAllText((Resolve-Path $File)) } else { "$TitleFr|$TitleEn|$Fr|$En" }
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $digest = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes("$Severity|$material"))
+        $Id = 'local-' + (($digest[0..5] | ForEach-Object { $_.ToString('x2') }) -join '')
+    }
+    $publish.Id = $Id
 }
 & (Join-Path $PSScriptRoot 'publish-motd.ps1') @publish
 if ($LASTEXITCODE -ne 0) { throw "publish-motd.ps1 -DryRun a echoue" }
@@ -67,6 +82,10 @@ if (-not (Test-Path $configPath)) {
 }
 
 # 3. Le serveur statique local : sert motd.json + motd.json.sig, 404 pour le reste.
+# Un serveur laisse par un precedent -Keep tient encore le port : on le remplace,
+# sinon le nouveau meurt en silence et le PID note ci-dessous ne designe plus rien.
+Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 $server = Start-Process -FilePath 'python' -ArgumentList @('-m', 'http.server', "$Port", '--bind', '127.0.0.1') `
     -WorkingDirectory $motdDir -PassThru -WindowStyle Hidden
 Start-Sleep -Milliseconds 800
