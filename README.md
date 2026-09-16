@@ -149,6 +149,7 @@ npm run icon             # regenerate icons from icon-source.png
 
 .\scripts\publish-release.ps1 -Version 1.0.0 -DryRun   # manifest + signature only
 .\scripts\publish-release.ps1 -Version 1.0.0           # sign and upload
+.\scripts\publish-motd.ps1 -Fr "…" -En "…" -Hours 12  # message of the day (signed)
 ```
 
 Publishing also requires the `lvrelease` binary (built by Cargo) and the
@@ -180,6 +181,7 @@ src-tauri/src/
 ├─ stats.rs       # library statistics
 ├─ wipe.rs        # granular, previewable cleanup
 ├─ update.rs      # signed manifest (GitHub Releases), download, SHA-256 check
+├─ motd.rs        # message of the day: signed notice, expiry, "do not show again"
 ├─ exchange.rs    # CSV/JSON export and import preview
 ├─ library.rs     # .lua library + index.json + copy to Steam
 ├─ install.rs     # elevated installs, steam:// URIs, Steam restart

@@ -76,5 +76,15 @@ export default defineSuite({
         `Steam est hors du bac à sable : ${report.steam!.path}`,
       );
     },
+
+    "l'hôte de mise à jour interrogé est le simulacre, pas GitHub": async (app) => {
+      // `LV_UPDATE_BASE` / `LV_MOTD_BASE` are honoured in every build; if the
+      // harness dropped them, every run would ask GitHub for a manifest and a
+      // motd, and the motd suite would be judging the real notice. The app asks
+      // at startup, so the stub's call log is the proof.
+      await app.session.waitUntil("le simulacre d'hôte de mise à jour a été appelé", async () =>
+        app.updateStub.calls.includes('/manifest.json') && app.updateStub.calls.includes('/motd.json'),
+      );
+    },
   },
 });

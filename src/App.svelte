@@ -13,6 +13,7 @@
   import GameSpotlight from "./components/GameSpotlight.svelte";
   import Icon from "./components/Icons.svelte";
   import UpdateModal from "./components/UpdateModal.svelte";
+  import MotdModal from "./components/MotdModal.svelte";
   import { appState } from "./lib/app-state.svelte";
   import { listen } from "@tauri-apps/api/event";
   import {
@@ -85,6 +86,9 @@
       // went to Settings to press "check now". Nothing here depends on adoption,
       // so it starts now and resolves whenever it resolves.
       void appState.checkForUpdate();
+      // The message of the day rides the same priority: a notice about an
+      // outage is exactly what must not wait behind a minute of adoption.
+      void appState.checkForMotd();
       // Games already sitting in {Steam}\config\lua join the library on their own.
       await appState.adoptFromSteam();
       try {
@@ -254,6 +258,17 @@
         <span class="h-2 w-2 shrink-0 rounded-full {DOT[stState]}"></span>
         <span class="max-lg:hidden">SteamTools</span>
       </button>
+      {#if appState.motd}
+        <button
+          onclick={() => appState.openMotd()}
+          data-tip={t("shell.motd.tip")}
+          data-motd-open
+          class="lift flex items-center gap-2 rounded-lg bg-surface/45 px-2.5 py-1.5 text-xs hover:bg-surface/70 max-lg:justify-center max-lg:px-0"
+        >
+          <Icon name="megaphone" size={14} />
+          <span class="max-lg:hidden">{t("shell.motd.label")}</span>
+        </button>
+      {/if}
       {#if appState.updateAvailable}
         <button
           onclick={() => (showUpdateModal = true)}
@@ -362,6 +377,14 @@
   <UpdateModal
     update={appState.updateAvailable}
     onclose={() => (showUpdateModal = false)}
+  />
+{/if}
+
+{#if appState.motdOpen && appState.motd}
+  <MotdModal
+    message={appState.motd}
+    dismissed={appState.motdDismissed}
+    onclose={(remember) => void appState.closeMotd(remember)}
   />
 {/if}
 

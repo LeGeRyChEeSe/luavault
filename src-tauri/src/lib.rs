@@ -12,6 +12,7 @@ pub mod hmac;
 mod i18n_log;
 mod install;
 mod library;
+mod motd;
 mod reachability;
 mod stats;
 mod steamstore;
@@ -202,6 +203,8 @@ pub fn run() {
             commands::export_library,
             commands::preview_import,
             commands::check_update,
+            commands::check_motd,
+            commands::set_motd_dismissed,
             commands::download_update,
             commands::install_update,
             commands::mark_update_notified,

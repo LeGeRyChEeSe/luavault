@@ -55,6 +55,7 @@
     "arrow-up-down": ["var(--color-azure-700)", "var(--color-azure-100)"],
     tag: ["var(--color-lilac)", "var(--color-lilac-soft)"],
     update: ["var(--color-sky)", "var(--color-sky-soft)"],
+    megaphone: ["var(--color-peach)", "var(--color-peach-soft)"],
     select: ["var(--color-azure-600)", "var(--color-azure-100)"],
     checkbox: ["var(--color-azure-600)", "var(--color-azure-100)"],
   };
@@ -180,6 +181,8 @@
       <line x1="7" y1="7" x2="7.01" y2="7" />
     {:else if name === "update"}
       <circle cx="12" cy="12" r="9" />
+    {:else if name === "megaphone"}
+      <path d="M3 10v4a2 2 0 0 0 2 2h2l9 4V4L7 8H5a2 2 0 0 0-2 2Z" />
     {:else if name === "select"}
       <rect x="3" y="3" width="18" height="18" rx="4" />
     {:else if name === "checkbox"}
@@ -348,6 +351,10 @@
     <circle cx="12" cy="12" r="9" />
     <polyline points="8 12 12 8 16 12" />
     <line x1="12" y1="8" x2="12" y2="16" />
+  {:else if name === "megaphone"}
+    <path d="M3 10v4a2 2 0 0 0 2 2h2l9 4V4L7 8H5a2 2 0 0 0-2 2Z" />
+    <path d="M16 9a3 3 0 0 1 0 6" />
+    <path d="M7 16v3.5a1.5 1.5 0 0 0 3 0V17" />
   {:else if name === "select"}
     <rect x="3.5" y="3.5" width="17" height="17" rx="3.5" />
     <path d="m8.3 12.3 2.7 2.7 5-5.6" />

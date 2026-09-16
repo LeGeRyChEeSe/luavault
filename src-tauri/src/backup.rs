@@ -1713,7 +1713,7 @@ mod tests {
             first_run_done: true,
             defender_exclusions: None,
             update_notified_version: None,
-            update_from_version: None, default_archive_password: None,
+            update_from_version: None, default_archive_password: None, motd_dismissed_id: None,
         };
         let local_json = serde_json::to_vec_pretty(&local_cfg).unwrap();
         std::fs::write(data.join("config.json"), &local_json).unwrap();
@@ -1751,7 +1751,7 @@ mod tests {
                 first_run_done: true,
                 defender_exclusions: None,
                 update_notified_version: None,
-                update_from_version: None, default_archive_password: None,
+                update_from_version: None, default_archive_password: None, motd_dismissed_id: None,
             };
             let tampered_json = serde_json::to_vec_pretty(&tampered_cfg).unwrap();
             writer.start_file("config.json", options).unwrap();
@@ -1834,7 +1834,7 @@ mod tests {
             first_run_done: true,
             defender_exclusions: None,
             update_notified_version: None,
-            update_from_version: None, default_archive_password: None,
+            update_from_version: None, default_archive_password: None, motd_dismissed_id: None,
         };
         let local_json = serde_json::to_vec_pretty(&local_cfg).unwrap();
         std::fs::write(data.join("config.json"), &local_json).unwrap();
@@ -1951,7 +1951,7 @@ mod tests {
                 first_run_done: true,
                 defender_exclusions: None,
                 update_notified_version: None,
-                update_from_version: None, default_archive_password: None,
+                update_from_version: None, default_archive_password: None, motd_dismissed_id: None,
             })
             .unwrap(),
         )
@@ -2024,7 +2024,7 @@ mod tests {
                 first_run_done: true,
                 defender_exclusions: None,
                 update_notified_version: None,
-                update_from_version: None, default_archive_password: None,
+                update_from_version: None, default_archive_password: None, motd_dismissed_id: None,
             };
             let tampered_json = serde_json::to_vec_pretty(&tampered_cfg).unwrap();
             writer.start_file("config.json", options).unwrap();
