@@ -13,8 +13,9 @@
 //! - A failed network call is the nominal offline case: `None`, `debug!`.
 //! - Nothing is read without a hard size cap, and the client performs no
 //!   decompression (`update::build_http_client`).
-//! - Expiry is decided by the CLIENT clock against `expires_at`: the server is
-//!   a file host, and a message left behind must die on its own.
+//! - Expiry is decided by the CLIENT clock against `expires_at` when the author
+//!   set one. Without it the message stays until it is withdrawn (a signed
+//!   `message: null`) — the author's choice for an outage of unknown length.
 //!
 //! The text itself is a small markdown dialect rendered by the frontend
 //! (`src/lib/motd-markdown.ts`) without ever going through `{@html}`.
@@ -42,8 +43,11 @@ pub struct MotdMessage {
     /// re-publication with a new id shows again — that is the way to insist.
     pub id: String,
     pub published_at: String,
-    /// RFC 3339. The message is shown only while `now < expires_at`.
-    pub expires_at: String,
+    /// RFC 3339, optional. Present: shown only while `now < expires_at`.
+    /// Absent: shown until the author withdraws it. Present but unreadable:
+    /// ignored — a typo must not turn into a message nobody can end.
+    #[serde(default)]
+    pub expires_at: Option<String>,
     /// A tone hint, nothing more — `info`, `warning` or `critical`. The
     /// frontend maps it to a colour and an icon; anything else reads as `info`.
     #[serde(default)]
@@ -184,8 +188,9 @@ pub fn parse_verified(doc_bytes: &[u8], sig_text: &str, keys: &[&str]) -> Option
 /// Reduce a verified document to the message worth showing at `now`, or
 /// `None`. Pure, so every branch is tested by value:
 /// - no message, or an empty id → nothing;
-/// - `expires_at` unreadable → nothing (a notice with no end would be shown
-///   forever, which is the one failure this field exists to prevent);
+/// - `expires_at` absent → active until withdrawn;
+/// - `expires_at` present but unreadable → nothing (a typo must not become a
+///   message nobody can end);
 /// - expired → nothing;
 /// - no body in any language → nothing to render, nothing shown.
 pub fn evaluate(doc: MotdDocument, now: DateTime<Utc>) -> Option<MotdMessage> {
@@ -194,16 +199,18 @@ pub fn evaluate(doc: MotdDocument, now: DateTime<Utc>) -> Option<MotdMessage> {
         debug!("check_motd: message sans identifiant — ignoré");
         return None;
     }
-    let expires = match DateTime::parse_from_rfc3339(&message.expires_at) {
-        Ok(t) => t.with_timezone(&Utc),
-        Err(e) => {
-            debug!("check_motd: expires_at illisible ({e}) — ignoré");
+    if let Some(raw) = message.expires_at.as_deref() {
+        let expires = match DateTime::parse_from_rfc3339(raw) {
+            Ok(t) => t.with_timezone(&Utc),
+            Err(e) => {
+                debug!("check_motd: expires_at illisible ({e}) — ignoré");
+                return None;
+            }
+        };
+        if now >= expires {
+            debug!("check_motd: message {} expiré ({raw})", message.id);
             return None;
         }
-    };
-    if now >= expires {
-        debug!("check_motd: message {} expiré ({})", message.id, message.expires_at);
-        return None;
     }
     if message.body.values().all(|s| s.trim().is_empty()) {
         debug!("check_motd: message {} sans corps — ignoré", message.id);
@@ -278,6 +285,24 @@ mod tests {
         // A notice with no readable end would be shown forever.
         let doc = parse(&doc_json("m1", "demain"));
         assert!(evaluate(doc, at("2026-09-17T00:00:00Z")).is_none());
+    }
+
+    #[test]
+    fn evaluate_without_expiry_is_active_until_withdrawn() {
+        // No `expires_at` at all: the author will withdraw it by hand.
+        let doc = parse(
+            r#"{"schema":1,"message":{"id":"open","published_at":"2026-09-16T10:00:00Z","severity":"warning","body":{"fr":"Panne en cours."}}}"#,
+        );
+        let m = evaluate(doc, at("2030-01-01T00:00:00Z")).expect("no expiry means still active");
+        assert_eq!(m.expires_at, None);
+    }
+
+    #[test]
+    fn evaluate_explicit_null_expiry_is_active() {
+        let doc = parse(
+            r#"{"schema":1,"message":{"id":"open","published_at":"2026-09-16T10:00:00Z","expires_at":null,"body":{"fr":"x"}}}"#,
+        );
+        assert!(evaluate(doc, at("2030-01-01T00:00:00Z")).is_some());
     }
 
     #[test]

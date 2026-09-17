@@ -575,7 +575,8 @@ export interface MotdMessage {
   /** Unique per publication; "do not show again" remembers this id. */
   id: string;
   published_at: string;
-  expires_at: string;
+  /** RFC 3339, or null when the message stays until the author withdraws it. */
+  expires_at: string | null;
   /** `info` | `warning` | `critical`; anything else reads as `info`. */
   severity: string | null;
   /** locale → text. The UI falls back through en, then fr, then any. */

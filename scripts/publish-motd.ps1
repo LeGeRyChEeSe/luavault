@@ -3,13 +3,15 @@
 #
 #   .\scripts\publish-motd.ps1 -Fr "Le serveur est **en panne**." -En "The server is **down**." -Hours 12
 #   .\scripts\publish-motd.ps1 -File motd.md -Days 3 -Severity warning
+#   .\scripts\publish-motd.ps1 -Fr "…" -En "…"          # sans durée : affiché jusqu'à -Clear
 #   .\scripts\publish-motd.ps1 -Clear
 #   ... -DryRun          écrit et signe releases\motd\motd.json sans rien publier
 #
 # Le message est affiché par l'application au lancement, jusqu'à `expires_at`
-# (calculé ici : maintenant + durée). Il est SIGNÉ avec la même clé que le
-# manifeste : un hébergeur compromis ne peut pas afficher un texte que l'auteur
-# n'a pas signé. Le client vérifie la signature sur les octets bruts, d'où
+# (calculé ici : maintenant + durée) — ou, sans -Hours ni -Days, jusqu'à ce que
+# tu le retires avec -Clear : le cas de la panne dont on ignore la durée.
+# Il est SIGNÉ avec la même clé que le manifeste : un hébergeur compromis ne
+# peut pas afficher un texte que l'auteur n'a pas signé. Le client vérifie la signature sur les octets bruts, d'où
 # l'écriture sans BOM.
 #
 # Hébergement : les deux fichiers sont les assets d'une PRÉ-RELEASE GitHub
@@ -109,10 +111,8 @@ if ($Clear) {
     $document = [ordered]@{ schema = 1; message = $null }
 }
 else {
-    if ($Hours -le 0 -and $Days -le 0) {
-        throw "indique une durée : -Hours <n> et/ou -Days <n>."
-    }
     if ($Hours -lt 0 -or $Days -lt 0) { throw "une durée négative n'a pas de sens." }
+    $openEnded = ($Hours -eq 0 -and $Days -eq 0)
 
     $titles = [ordered]@{}
     $bodies = [ordered]@{}
@@ -135,20 +135,22 @@ else {
     }
 
     $now = (Get-Date).ToUniversalTime()
-    $expires = $now.AddDays($Days).AddHours($Hours)
     if (-not $Id) { $Id = $now.ToString('yyyyMMdd-HHmmss') }
 
-    $document = [ordered]@{
-        schema  = 1
-        message = [ordered]@{
-            id           = $Id
-            published_at = $now.ToString('yyyy-MM-ddTHH:mm:ssZ')
-            expires_at   = $expires.ToString('yyyy-MM-ddTHH:mm:ssZ')
-            severity     = $Severity
-            title        = $titles
-            body         = $bodies
-        }
+    $message = [ordered]@{
+        id           = $Id
+        published_at = $now.ToString('yyyy-MM-ddTHH:mm:ssZ')
     }
+    # Sans durée, pas de champ du tout : le client l'entend comme « jusqu'au
+    # retrait ». Un champ présent mais illisible serait ignoré, jamais éternel.
+    if (-not $openEnded) {
+        $expires = $now.AddDays($Days).AddHours($Hours)
+        $message['expires_at'] = $expires.ToString('yyyy-MM-ddTHH:mm:ssZ')
+    }
+    $message['severity'] = $Severity
+    $message['title'] = $titles
+    $message['body'] = $bodies
+    $document = [ordered]@{ schema = 1; message = $message }
 }
 
 New-Item -ItemType Directory -Force $dir | Out-Null
@@ -193,6 +195,8 @@ foreach ($asset in @($sigPath, $docPath)) {
     if ($LASTEXITCODE -ne 0) { throw "échec de l'envoi de $(Split-Path $asset -Leaf) sur la pré-release $Tag." }
 }
 
-if ($Clear) { Write-Host "message retiré." } else { Write-Host "publié : message $Id, jusqu'au $($expires.ToString('yyyy-MM-dd HH:mm')) UTC" }
+if ($Clear) { Write-Host "message retiré." }
+elseif ($openEnded) { Write-Host "publié : message $Id, sans expiration — retire-le avec -Clear." }
+else { Write-Host "publié : message $Id, jusqu'au $($expires.ToString('yyyy-MM-dd HH:mm')) UTC" }
 Write-Host "vérifie depuis l'extérieur :"
 Write-Host "  curl -sL https://github.com/LeGeRyChEeSe/luavault/releases/download/$Tag/motd.json"

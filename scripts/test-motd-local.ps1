@@ -2,6 +2,7 @@
 #
 #   npm run build:app                                   # une fois : le binaire RELEASE
 #   .\scripts\test-motd-local.ps1 -Fr "…" -En "…" -Hours 2 [-Severity warning] [-File motd.md]
+#   .\scripts\test-motd-local.ps1 -Fr "…" -En "…"       # sans duree : jusqu'au -Clear
 #   .\scripts\test-motd-local.ps1 -Clear                # le cas « rien à dire »
 #
 # Ce que ce script rend fidele a la production, et pourquoi :
