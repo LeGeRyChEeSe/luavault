@@ -5,6 +5,7 @@
 #   .\scripts\publish-motd.ps1 -File motd.md -Days 3 -Severity warning
 #   .\scripts\publish-motd.ps1 -Fr "…" -En "…"          # sans durée : affiché jusqu'à -Clear
 #   .\scripts\publish-motd.ps1 -Clear
+#   .\scripts\publish-motd.ps1                # sans argument : mode interactif (questions)
 #   ... -DryRun          écrit et signe releases\motd\motd.json sans rien publier
 #
 # Le message est affiché par l'application au lancement, jusqu'à `expires_at`
@@ -18,6 +19,10 @@
 # taguée `motd`, créée une fois et réécrite à chaque publication (`--clobber`).
 # Une pré-release ne devient jamais « latest » : publier un message ne déplace
 # pas le pointeur de mise à jour, et publier une version n'efface pas le message.
+# Mesuré le 2026-09-18 : après un remplacement, le CDN de GitHub a servi l'ancien
+# fichier pendant ~2 minutes avant le nouveau. Un client qui tombe dans cette
+# fenêtre lit l'ancien document avec la nouvelle signature, le rejette, et
+# n'affiche rien — jamais un message périmé tenu pour valide.
 #
 # Format de -File : une section par langue, la première ligne `# Titre` donne le
 # titre, le reste est le corps (markdown restreint, voir
@@ -105,6 +110,60 @@ function Read-MotdFile([string]$Path) {
     return @{ titles = $titles; bodies = $bodies }
 }
 
+# --------------------------------------------------------------- mode interactif
+#
+# Lancé sans argument, le script pose les questions une à une. Un message
+# vide à une étape optionnelle passe a la suivante. Rien n'est signé ni publié
+# avant l'aperçu et la confirmation finale.
+function Read-MultiLine([string]$Prompt) {
+    Write-Host $Prompt -ForegroundColor Cyan
+    Write-Host "  (ligne vide pour terminer, laisser vide pour ignorer)" -ForegroundColor DarkGray
+    $lines = @()
+    while ($true) {
+        $line = Read-Host
+        if ($null -eq $line -or $line -eq '') { break }
+        $lines += $line
+    }
+    return ($lines -join "`n")
+}
+
+function Read-Duration {
+    while ($true) {
+        $raw = (Read-Host "Durée d'affichage (ex. 12h, 3d, 2d12h ; vide = jusqu'au retrait)").Trim().ToLower()
+        if ($raw -eq '') { return @{ Days = 0; Hours = 0 } }
+        if ($raw -cmatch '^(?:(\d+)d)?(?:(\d+)h)?$' -and $raw -ne '') {
+            $d = if ($Matches[1]) { [int]$Matches[1] } else { 0 }
+            $h = if ($Matches[2]) { [int]$Matches[2] } else { 0 }
+            if ($d -gt 0 -or $h -gt 0) { return @{ Days = $d; Hours = $h } }
+        }
+        Write-Host "  format attendu : <jours>d, <heures>h ou les deux (ex. 1d6h)." -ForegroundColor Yellow
+    }
+}
+
+$interactive = (-not $Clear -and -not $File -and -not $Fr -and -not $En)
+if ($interactive) {
+    Write-Host ""
+    Write-Host "=== Message du jour — LuaVault ===" -ForegroundColor Green
+    $choice = (Read-Host "1) publier un nouveau message   2) retirer le message actuel   [1]").Trim()
+    if ($choice -eq '2') {
+        $Clear = $true
+    }
+    else {
+        $TitleFr = (Read-Host "Titre (fr, optionnel)").Trim()
+        $Fr = Read-MultiLine "Corps (fr) — markdown restreint : **gras**, {red}…{/}, - puces, [lien](https://…)"
+        $TitleEn = (Read-Host "Titre (en, optionnel)").Trim()
+        $En = Read-MultiLine "Corps (en)"
+        if (-not $Fr -and -not $En) { throw "aucun corps de message saisi." }
+        $sev = (Read-Host "Sévérité : info / warning / critical  [info]").Trim().ToLower()
+        if ($sev -eq '') { $sev = 'info' }
+        if ($sev -notin @('info', 'warning', 'critical')) { throw "sévérité inconnue : $sev" }
+        $Severity = $sev
+        $duration = Read-Duration
+        $Days = $duration.Days
+        $Hours = $duration.Hours
+    }
+}
+
 # --------------------------------------------------------------- composition
 
 if ($Clear) {
@@ -160,6 +219,14 @@ $json = $document | ConvertTo-Json -Depth 6
 
 Write-Host "message écrit : $docPath"
 Write-Host $json
+
+if ($interactive -and -not $DryRun) {
+    $go = (Read-Host "Signer et publier ce document ? (o/N)").Trim().ToLower()
+    if ($go -notin @('o', 'oui', 'y', 'yes')) {
+        Write-Host "abandon : rien n'est signé ni publié."
+        exit 0
+    }
+}
 
 # --------------------------------------------------------------- signature
 
