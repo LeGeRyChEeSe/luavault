@@ -22,6 +22,7 @@
 //! and the licence gate does not stand in the way.
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { startUpdateStub, type UpdateStub, type UpdateStubOptions } from './update-stub.ts';
 import { existsSync, mkdirSync, copyFileSync, writeFileSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,6 +49,9 @@ export interface Seed {
   files?: Record<string, string | Uint8Array>;
   /// Skip copying the developer licence — for testing the licence gate itself.
   withoutLicence?: boolean;
+  /// What the stand-in release host serves (message of the day). Absent →
+  /// nothing published, which is also what every other suite gets.
+  update?: UpdateStubOptions;
 }
 
 export interface AppHandle {
@@ -56,6 +60,8 @@ export interface AppHandle {
   sandbox: string;
   /// The fake Steam directory the app was pointed at.
   steamDir: string;
+  /// The stand-in for the release host (manifest 404, optional motd).
+  updateStub: UpdateStub;
 }
 
 function freePort(base: number): number {
@@ -139,6 +145,10 @@ export class App {
   get steamDir(): string {
     return this.handle.steamDir;
   }
+  /// The stand-in release host: its `calls` records every path the app asked for.
+  get updateStub(): UpdateStub {
+    return this.handle.updateStub;
+  }
   static async launch(tag: string, seed: Seed = {}): Promise<App> {
     sweepStaleSandboxes();
     const sandbox = join(ROOT, '.e2e', `run-${tag}-${process.pid}`);
@@ -185,13 +195,21 @@ export class App {
     const port = freePort(4444);
     const nativePort = freePort(5555);
     const base = `http://127.0.0.1:${port}`;
+    // Every run points the app at a stand-in release host: `LV_UPDATE_BASE` and
+    // `LV_MOTD_BASE` are honoured in every build (the signature is the control,
+    // not the URL), so no bench run asks GitHub for a manifest, and the motd
+    // suite can publish its own notice.
+    const updateStub = await startUpdateStub(seed.update);
     const driver = spawn(
       'tauri-driver',
       ['--port', String(port), '--native-port', String(nativePort), '--native-driver', EDGE_DRIVER],
       // No `shell: true`. Going through cmd.exe leaves tauri-driver and
       // msedgedriver orphaned when the wrapper is killed, and the very first
       // run of this suite hung exactly that way.
-      { stdio: ['ignore', 'pipe', 'pipe'], env: process.env },
+      {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, LV_UPDATE_BASE: updateStub.url, LV_MOTD_BASE: updateStub.url },
+      },
     );
     driver.stderr?.on('data', (d) => {
       const line = String(d).trim();
@@ -203,14 +221,16 @@ export class App {
       const session = await Session.create(base, {
         'tauri:options': { application: exe },
       });
-      return new App({ session, sandbox, steamDir }, driver);
+      return new App({ session, sandbox, steamDir, updateStub }, driver);
     } catch (e) {
       driver.kill();
+      await updateStub.close();
       throw e;
     }
   }
 
   async close(keepSandbox = false): Promise<void> {
+    await this.handle.updateStub.close();
     await this.handle.session.quit();
     this.driver?.kill();
     this.driver = null;

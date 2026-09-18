@@ -1,6 +1,6 @@
 use crate::{
     archive, artwork, backup, cache, config, defender, detect, discover, encrypted_backup,
-    exchange, fixes, hmac, i18n_log, install, library, reachability, stats, steamstore, update, vdf, wipe, AppState,
+    exchange, fixes, hmac, i18n_log, install, library, motd, reachability, stats, steamstore, update, vdf, wipe, AppState,
 };
 use log::{debug, info, warn};
 use serde::Serialize;
@@ -2415,6 +2415,39 @@ pub async fn check_update(state: State<'_, AppState>) -> Result<Option<update::U
         None => return Ok(None),
     };
     Ok(update::evaluate_manifest(manifest, env!("CARGO_PKG_VERSION"), config::is_portable()))
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Message of the day
+
+/// Fetch the signed notice and reduce it to what the window needs. `None`
+/// covers offline, unpublished, unsigned and expired alike — every one of
+/// them is the quiet case.
+#[tauri::command]
+pub async fn check_motd(state: State<'_, AppState>) -> Result<Option<motd::MotdView>, String> {
+    let http = state.update_http.clone();
+    let doc = match motd::fetch_verified_motd(&http, &motd::base_url()).await {
+        Some(d) => d,
+        None => return Ok(None),
+    };
+    let Some(message) = motd::evaluate(doc, chrono::Utc::now()) else {
+        return Ok(None);
+    };
+    let dismissed_id = state.config.lock().unwrap().motd_dismissed_id.clone();
+    let dismissed = motd::is_dismissed(&message, dismissed_id.as_deref());
+    info!("check_motd: message {} actif (écarté : {dismissed})", message.id);
+    Ok(Some(motd::MotdView { message, dismissed }))
+}
+
+/// Remember — or forget — the "do not show again" choice for one message id.
+/// `None` clears it, which is what unticking the box on a reopened window does.
+#[tauri::command]
+pub async fn set_motd_dismissed(state: State<'_, AppState>, id: Option<String>) -> Result<(), String> {
+    let mut cfg = state.config.lock().unwrap().clone();
+    cfg.motd_dismissed_id = id;
+    cfg.save().map_err(|e| e.to_string())?;
+    *state.config.lock().unwrap() = cfg;
+    Ok(())
 }
 
 #[tauri::command]

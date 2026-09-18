@@ -568,6 +568,31 @@ export interface UpdateAvailable {
 }
 
 export const checkUpdate = () => invoke<UpdateAvailable | null>("check_update");
+
+// ── Message of the day (signed notice beside the releases) ──
+
+export interface MotdMessage {
+  /** Unique per publication; "do not show again" remembers this id. */
+  id: string;
+  published_at: string;
+  /** RFC 3339, or null when the message stays until the author withdraws it. */
+  expires_at: string | null;
+  /** `info` | `warning` | `critical`; anything else reads as `info`. */
+  severity: string | null;
+  /** locale → text. The UI falls back through en, then fr, then any. */
+  title: Record<string, string>;
+  /** locale → markdown body (see lib/motd-markdown.ts). */
+  body: Record<string, string>;
+}
+
+export interface MotdView {
+  message: MotdMessage;
+  /** True when the user asked never to see this exact id again. */
+  dismissed: boolean;
+}
+
+export const checkMotd = () => invoke<MotdView | null>("check_motd");
+export const setMotdDismissed = (id: string | null) => invoke<void>("set_motd_dismissed", { id });
 export const downloadUpdate = (version: string, file: string, sha256: string, size: number) =>
   invoke<string>("download_update", { version, file, sha256, size });
 export const installUpdate = (path: string) => invoke<void>("install_update", { path });

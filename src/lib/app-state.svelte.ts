@@ -1,8 +1,9 @@
-import { checkUpdate, detectAll, getReachability, getUpdateNotified, libraryStatus, listLibrary, markUpdateNotified, syncFromSteam, takeUpdateResult } from "./api";
-import type { DetectionReport, GameStatus, LibraryEntry, Reachability, UpdateAvailable, UpdateResult } from "./api";
+import { checkMotd, checkUpdate, detectAll, getReachability, getUpdateNotified, libraryStatus, listLibrary, markUpdateNotified, setMotdDismissed, syncFromSteam, takeUpdateResult } from "./api";
+import type { DetectionReport, GameStatus, LibraryEntry, MotdMessage, Reachability, UpdateAvailable, UpdateResult } from "./api";
 import { themeStore } from "./theme.svelte";
 import { i18n, t } from "./i18n.svelte";
 import { LONG_TOAST_MS, resolveToastDuration } from "./toast-duration";
+import { shouldOpenMotdAtStartup } from "./motd";
 
 export interface Toast {
   id: number;
@@ -59,6 +60,15 @@ class AppStore {
   spotlight = $state<GameSpotlight | null>(null);
   /** Non-null when a newer version is available (set once at startup). */
   updateAvailable = $state<UpdateAvailable | null>(null);
+  /** The active message of the day, if one is published (set once at startup). */
+  motd = $state<MotdMessage | null>(null);
+  /** True when the user asked never to see `motd.id` again — the window still
+   *  opens on demand, with the box pre-ticked. */
+  motdDismissed = $state(false);
+  /** True while the message window is open. */
+  motdOpen = $state(false);
+  /** The id shown unprompted in this session, so it opens once per launch. */
+  private motdSeen: string | null = null;
   private toastId = 0;
   private logId = 0;
 
@@ -122,6 +132,51 @@ class AppStore {
       }
     } catch {
       // Backend command failed — nothing to show.
+    }
+  }
+
+  /**
+   * Background message-of-the-day check: silent on failure, and the window
+   * opens on its own only for an id the user never asked to forget, once per
+   * session. Called once at startup — never blocks the UI.
+   */
+  async checkForMotd() {
+    try {
+      const view = await checkMotd();
+      if (!view) {
+        this.motd = null;
+        return;
+      }
+      this.motd = view.message;
+      this.motdDismissed = view.dismissed;
+      if (shouldOpenMotdAtStartup(view.message, view.dismissed ? view.message.id : null, this.motdSeen)) {
+        this.motdSeen = view.message.id;
+        this.motdOpen = true;
+      }
+    } catch {
+      // Offline or server error — the nominal case, nothing to show.
+    }
+  }
+
+  /** Reopen the current message on demand (sidebar button). */
+  openMotd() {
+    if (this.motd) this.motdOpen = true;
+  }
+
+  /**
+   * Close the message window. `remember` persists the id so it never opens
+   * unprompted again; unticking it on a reopened window clears that choice.
+   */
+  async closeMotd(remember: boolean) {
+    this.motdOpen = false;
+    const message = this.motd;
+    if (!message) return;
+    if (remember === this.motdDismissed) return;
+    this.motdDismissed = remember;
+    try {
+      await setMotdDismissed(remember ? message.id : null);
+    } catch (e) {
+      this.toast("error", String(e));
     }
   }
 

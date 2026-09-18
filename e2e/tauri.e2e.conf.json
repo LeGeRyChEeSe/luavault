@@ -1,0 +1,18 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "LuaVault",
+        "width": 1200,
+        "height": 780,
+        "minWidth": 880,
+        "minHeight": 560,
+        "center": true,
+        "dragDropEnabled": true,
+        "backgroundColor": "#eaf3fa",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --remote-debugging-port=0"
+      }
+    ]
+  }
+}
