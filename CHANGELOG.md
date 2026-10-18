@@ -15,6 +15,20 @@ Two rules to follow when editing this file, because the script depends on them:
   publish script then places them separately in `notes_i18n`, with French kept as
   the `notes` fallback for older clients.
 
+## 1.1.1 - 2026-10-18
+
+### fr
+- Steam : le correctif en un clic. Quand une mise à jour de Steam casse SteamTools, le message du jour peut maintenant proposer des boutons, dont le retour à une version de Steam qui fonctionne, vérifiée avant d'être appliquée. L'onglet Steam & Outils garde le bouton qui annule ce retour, même sans message.
+- Quand le correctif est nécessaire sur votre PC, l'application vous le rappelle : un bandeau reste affiché et le message se rouvre au démarrage. Rien n'est jamais imposé, et rien n'est bloqué : chaque action demande votre confirmation.
+- Notifications Windows, si vous les activez : le message du jour et les nouvelles versions de l'application vous parviennent même quand elle est fermée, avec des boutons qui agissent sans ouvrir la fenêtre. Vérification à l'ouverture de session puis toutes les 6 heures, désactivable dans Réglages. Rien n'est lancé pendant qu'un jeu tourne.
+- Correctif : les jeux ajoutés à Steam à la main ne bloquent plus l'affichage du temps de jeu.
+
+### en
+- Steam: the one-click fix. When a Steam update breaks SteamTools, the message of the day can now offer buttons, including a return to a working Steam version, checked before it is applied. The Steam & Tools tab keeps the button that undoes it, even without a message.
+- When the fix is needed on your PC, the app reminds you: a banner stays up and the message reopens at startup. Nothing is ever forced and nothing is blocked: every action asks for your confirmation.
+- Windows notifications, if you turn them on: the message of the day and new app versions reach you even when the app is closed, with buttons that act without opening the window. Checked at logon then every 6 hours, can be turned off in Settings. Nothing runs while a game is running.
+- Fix: games added to Steam by hand no longer prevent playtime from showing.
+
 ## 1.1.0 - 2026-09-16
 
 ### fr
