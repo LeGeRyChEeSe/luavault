@@ -10,11 +10,15 @@ mod discover;
 mod fixes;
 pub mod hmac;
 mod i18n_log;
+mod headless;
 mod install;
 mod library;
 mod motd;
+mod motd_run;
+mod notify;
 mod reachability;
 mod stats;
+mod steam_downgrade;
 mod steamstore;
 pub use update::RELEASE_PUBLIC_KEYS;
 mod update;
@@ -23,7 +27,7 @@ mod wipe;
 mod exchange;
 mod encrypted_backup;
 
-use log::info;
+use log::{info, warn};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -44,6 +48,9 @@ pub struct AppState {
     pub artwork_http: artwork::ArtworkClient,
     pub config: Mutex<config::AppConfig>,
     /// Set to `true` to ask the running bulk operation to stop after the current game.
+    /// The last notice whose signature was verified, actions included. A button's
+    /// parameters are looked up here, never taken from the frontend.
+    pub motd_current: Mutex<Option<motd::MotdMessage>>,
     pub bulk_cancel: AtomicBool,
     /// Cached Steam store details — `app_id:lang` key, 5-minute TTL.
     pub steam_details: cache::TtlCache<String, steamstore::SteamDetails>,
@@ -74,6 +81,11 @@ pub struct AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // A start by Windows without a window (`--notify-check`, a clicked toast) runs
+    // and exits before anything of the app exists.
+    if let Some(code) = headless::run_if_requested() {
+        std::process::exit(code);
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -95,6 +107,19 @@ pub fn run() {
                 eprintln!("config load failed, using defaults: {e}");
                 config::AppConfig::default()
             });
+
+            // The registrations of the background notifications point at this exact
+            // executable: re-write them at every launch, so an update or a move
+            // cannot leave Windows starting something that no longer exists.
+            if cfg.background_notify == Some(true) && !config::is_portable() {
+                std::thread::spawn(|| {
+                    if let Ok(exe) = std::env::current_exe() {
+                        if let Err(e) = notify::register(&exe) {
+                            warn!("notifications en arrière-plan : réenregistrement impossible ({e})");
+                        }
+                    }
+                });
+            }
 
             // Remove the stale .old executable left by a previous update.
             // A failure is harmless — it's just a leftover file.
@@ -125,6 +150,7 @@ pub fn run() {
                 update_http: update::UpdateClient::new(),
                 artwork_http: artwork::ArtworkClient::new(),
                 config: Mutex::new(cfg),
+                motd_current: Mutex::new(None),
                 bulk_cancel: AtomicBool::new(false),
                 steam_details: cache::TtlCache::new(std::time::Duration::from_secs(300)),
                 steam_details_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -205,6 +231,12 @@ pub fn run() {
             commands::check_update,
             commands::check_motd,
             commands::set_motd_dismissed,
+            commands::run_motd_action,
+            commands::steam_pin_status,
+            commands::motd_workaround,
+            commands::steam_unpin,
+            commands::get_background_notify,
+            commands::set_background_notify,
             commands::download_update,
             commands::install_update,
             commands::mark_update_notified,

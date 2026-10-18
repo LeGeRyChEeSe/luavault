@@ -13,8 +13,8 @@
 
 import { parseMotd, parseInline, parseColorName, isSafeHref, plainText } from "../src/lib/motd-markdown";
 import type { Block, Inline } from "../src/lib/motd-markdown";
-import { motdSeverity, resolveMotdText, shouldOpenMotdAtStartup } from "../src/lib/motd";
-import type { MotdMessage } from "../src/lib/api";
+import { actionLabel, actionNeedsConfirm, isForced, motdSeverity, resolveMotdText, shouldOpenMotdAtStartup, steamDowngradeOffer } from "../src/lib/motd";
+import type { MotdAction, MotdActionKind, MotdMessage, Workaround } from "../src/lib/api";
 
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -41,7 +41,7 @@ const assert = {
 };
 
 let cases = 0;
-const EXPECTED_CASES = 32;
+const EXPECTED_CASES = 37;
 function label(name: string): void {
   cases++;
   console.log(`  ✓ ${name}`);
@@ -58,6 +58,8 @@ const message = (id: string): MotdMessage => ({
   severity: "info",
   title: { fr: "Titre" },
   body: { fr: "Corps" },
+  actions: [],
+  persistent: false,
 });
 
 export const motdSuite: Promise<void> = (async () => {
@@ -244,6 +246,47 @@ export const motdSuite: Promise<void> = (async () => {
     assert.equal(shouldOpenMotdAtStartup(message("m1"), null, "m1"), false);
     assert.equal(shouldOpenMotdAtStartup(message("m2"), null, "m1"), true);
     label("shouldOpenMotdAtStartup : jamais l'id oublié, jamais deux fois par session");
+
+    // ── boutons d'action ──
+
+    const KINDS: MotdActionKind[] = ["steam_downgrade", "steam_undo", "restart_steam", "repair_tools", "open_url"];
+    assert.deep(
+      KINDS.map((k) => actionNeedsConfirm(k)),
+      [true, true, true, true, false],
+    );
+    label("actionNeedsConfirm : tout ce qui ferme ou relance Steam demande un second clic, pas l'ouverture d'une page");
+
+    const act = (id: string, kind: MotdActionKind, labelMap: Record<string, string> = {}): MotdAction => ({ id, kind, label: labelMap });
+    assert.equal(actionLabel(act("a", "restart_steam", { fr: "Relancer", en: "Restart" }), "en"), "Restart");
+    assert.equal(actionLabel(act("a", "restart_steam", { fr: "Relancer" }), "en"), "Relancer");
+    assert.equal(actionLabel(act("a", "restart_steam"), "fr"), "", "vide : l'interface met le libellé par défaut du type");
+    label("actionLabel : langue, repli, ou vide pour le libellé par défaut");
+
+    const withActions = (...a: MotdAction[]): MotdMessage => ({ ...message("m1"), actions: a });
+    assert.equal(steamDowngradeOffer(null), null);
+    assert.equal(steamDowngradeOffer(message("m1")), null);
+    assert.equal(steamDowngradeOffer(withActions(act("r", "restart_steam"), act("o", "open_url"))), null);
+    assert.equal(steamDowngradeOffer(withActions(act("r", "restart_steam"), act("d", "steam_downgrade")))?.id, "d");
+    label("steamDowngradeOffer : la carte Outils n'existe que si le message en cours porte le correctif");
+
+    // ── message persistant et diagnostiqué ──
+
+    const need = (needed: boolean): Workaround => ({ action_id: "fix", needed, pinned: !needed, installed_version: "1791918634" });
+    const persistent: MotdMessage = { ...message("m1"), persistent: true };
+    assert.equal(isForced(persistent, need(true)), true);
+    assert.equal(isForced(persistent, need(false)), false, "correctif déjà appliqué ou inutile : message ordinaire");
+    assert.equal(isForced(persistent, null), false, "aucun correctif proposé");
+    assert.equal(isForced({ ...message("m1"), persistent: false }, need(true)), false, "non persistant : jamais forcé");
+    assert.equal(isForced(null, need(true)), false);
+    label("isForced : seulement un message persistant dont le correctif reste nécessaire ici");
+
+    // « Ne plus afficher » est retiré tant que le message est forcé, et seulement alors.
+    assert.equal(shouldOpenMotdAtStartup(persistent, "m1", null, true), true, "forcé : l'id écarté ne le fait pas taire");
+    assert.equal(shouldOpenMotdAtStartup(persistent, "m1", null, false), false, "plus nécessaire : le choix passé tient");
+    assert.equal(shouldOpenMotdAtStartup(persistent, "m1", "m1", true), false, "mais jamais deux fois par session");
+    assert.equal(shouldOpenMotdAtStartup(persistent, null, null, true), true);
+    assert.equal(shouldOpenMotdAtStartup(null, "m1", null, true), false);
+    label("shouldOpenMotdAtStartup : forcé, l'id écarté ne compte plus, mais une seule ouverture par session");
 
     console.log(`── MOTD : ${cases} cas ──`);
   } catch (e) {

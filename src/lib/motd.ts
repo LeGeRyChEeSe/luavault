@@ -4,7 +4,7 @@
  * valeur dans `scripts/test-motd-markdown.ts`.
  */
 
-import type { MotdMessage } from "./api";
+import type { MotdAction, MotdActionKind, MotdMessage, Workaround } from "./api";
 
 export type MotdSeverity = "info" | "warning" | "critical";
 
@@ -40,9 +40,52 @@ export function shouldOpenMotdAtStartup(
   message: MotdMessage | null,
   dismissedId: string | null,
   seenThisSession: string | null,
+  forced = false,
 ): boolean {
   if (!message) return false;
-  if (dismissedId === message.id) return false;
+  // A persistent message about a fix this machine still needs cannot be silenced
+  // for good: "do not show again" is withdrawn while `forced`.
+  if (dismissedId === message.id && !forced) return false;
   if (seenThisSession === message.id) return false;
   return true;
+}
+
+/**
+ * Does this button close or relaunch Steam, or run a script? Those ask for a
+ * second click; opening a web page does not. A kind written down as an exhaustive
+ * record, so adding one to `MotdActionKind` fails the type-check until it decides.
+ */
+const CONFIRMS: Record<MotdActionKind, boolean> = {
+  steam_downgrade: true,
+  steam_undo: true,
+  restart_steam: true,
+  repair_tools: true,
+  open_url: false,
+};
+
+export function actionNeedsConfirm(kind: MotdActionKind): boolean {
+  return CONFIRMS[kind];
+}
+
+/** The button's own text in the interface language, or `""` for the default of its kind. */
+export function actionLabel(action: MotdAction, locale: string): string {
+  return resolveMotdText(action.label, locale);
+}
+
+/**
+ * The live message's Steam downgrade button, if it carries one. The tools tab
+ * offers its card only while this is non-null: once the author withdraws the
+ * message — the add-on works with current Steam again — the card goes with it,
+ * and nothing about the workaround stays compiled into the app.
+ */
+export function steamDowngradeOffer(message: MotdMessage | null): MotdAction | null {
+  return message?.actions?.find((a) => a.kind === "steam_downgrade") ?? null;
+}
+
+/**
+ * Is this notice insisting? Only a persistent message whose fix this machine still
+ * needs: for everyone else it is an ordinary, dismissible notice.
+ */
+export function isForced(message: MotdMessage | null, workaround: Workaround | null): boolean {
+  return !!message?.persistent && !!workaround?.needed;
 }

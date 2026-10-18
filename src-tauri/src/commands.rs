@@ -1,6 +1,6 @@
 use crate::{
     archive, artwork, backup, cache, config, defender, detect, discover, encrypted_backup,
-    exchange, fixes, hmac, i18n_log, install, library, motd, reachability, stats, steamstore, update, vdf, wipe, AppState,
+    exchange, fixes, hmac, i18n_log, install, library, motd, motd_run, notify, reachability, stats, steam_downgrade, steamstore, update, vdf, wipe, AppState,
 };
 use log::{debug, info, warn};
 use serde::Serialize;
@@ -2426,17 +2426,134 @@ pub async fn check_update(state: State<'_, AppState>) -> Result<Option<update::U
 #[tauri::command]
 pub async fn check_motd(state: State<'_, AppState>) -> Result<Option<motd::MotdView>, String> {
     let http = state.update_http.clone();
+    // Offline or unpublished: keep what was last verified, so a window left open
+    // can still run its buttons. Only a verified "nothing to show" clears it.
     let doc = match motd::fetch_verified_motd(&http, &motd::base_url()).await {
         Some(d) => d,
         None => return Ok(None),
     };
     let Some(message) = motd::evaluate(doc, chrono::Utc::now()) else {
+        *state.motd_current.lock().unwrap() = None;
         return Ok(None);
     };
-    let dismissed_id = state.config.lock().unwrap().motd_dismissed_id.clone();
-    let dismissed = motd::is_dismissed(&message, dismissed_id.as_deref());
-    info!("check_motd: message {} actif (écarté : {dismissed})", message.id);
-    Ok(Some(motd::MotdView { message, dismissed }))
+    *state.motd_current.lock().unwrap() = Some(message.clone());
+    // The window is about to show it: no toast for this id afterwards.
+    notify::mark_notified(&message.id);
+    let cfg = state.config.lock().unwrap().clone();
+    let dismissed = motd::is_dismissed(&message, cfg.motd_dismissed_id.as_deref());
+    let workaround = motd::workaround(&message, &motd::SteamFacts::read(resolve_steam(&cfg).as_deref()));
+    info!(
+        "check_motd: message {} actif (écarté : {dismissed}, correctif requis : {})",
+        message.id,
+        workaround.as_ref().is_some_and(|w| w.needed)
+    );
+    Ok(Some(motd::MotdView { message, dismissed, workaround }))
+}
+
+/// Re-read what the Steam fix means for this machine, from the message already
+/// verified and the files on disk. No network: the banner calls it after applying
+/// the fix to know whether it can go away. A pure read.
+#[tauri::command]
+pub fn motd_workaround(state: State<'_, AppState>) -> Option<motd::Workaround> {
+    let message = state.motd_current.lock().unwrap().clone()?;
+    let cfg = state.config.lock().unwrap().clone();
+    motd::workaround(&message, &motd::SteamFacts::read(resolve_steam(&cfg).as_deref()))
+}
+
+/// Run one button of the current message. The frontend names the message and the
+/// button; **the parameters never travel from it** — the backend looks the action
+/// up in the message it verified itself and re-checks that it has not expired.
+/// Every kind but `open_url` closes or relaunches Steam, so the window confirms
+/// before calling this.
+#[tauri::command]
+pub async fn run_motd_action(
+    state: State<'_, AppState>,
+    message_id: String,
+    action_id: String,
+) -> Result<String, String> {
+    let message = state.motd_current.lock().unwrap().clone();
+    let resolved = message
+        .filter(|m| m.id == message_id)
+        .and_then(|m| motd::find_action(&m, &action_id, chrono::Utc::now()))
+        .ok_or("Ce message n'est plus actif : fermez cette fenêtre et rouvrez-la.")?;
+    info!("run_motd_action: message {message_id}, action {action_id}");
+    let cfg = state.config.lock().unwrap().clone();
+    let result = motd_run::execute(&state.update_http, resolve_steam(&cfg), resolved).await;
+    // Steam rewrote its own files: the VDF caches are stale whatever the outcome.
+    vdf::clear_caches();
+    result
+}
+
+/// Is Steam told not to update itself, and which client version is installed?
+/// A pure read of `steam.cfg` and Steam's own manifest.
+#[tauri::command]
+pub fn steam_pin_status(state: State<'_, AppState>) -> Result<steam_downgrade::Status, String> {
+    let cfg = state.config.lock().unwrap().clone();
+    let steam = resolve_steam(&cfg).ok_or("Steam introuvable")?;
+    Ok(steam_downgrade::status(&steam))
+}
+
+/// Let Steam update itself again (the way back from the downgrade): remove the
+/// block and relaunch it. Not tied to any message, so it is always reachable
+/// from the tools tab for whoever pinned Steam.
+#[tauri::command]
+pub async fn steam_unpin(state: State<'_, AppState>) -> Result<String, String> {
+    let cfg = state.config.lock().unwrap().clone();
+    let steam = resolve_steam(&cfg).ok_or("Steam introuvable : indiquez son dossier dans Réglages")?;
+    steam_downgrade::undo(&steam).await.map_err(|e| e.to_string())?;
+    vdf::clear_caches();
+    Ok("Les mises à jour de Steam sont rétablies. Steam redémarre et se mettra à jour.".to_string())
+}
+
+/// What the settings and the one-time offer need to know about background
+/// notifications.
+#[derive(Debug, Clone, Serialize)]
+pub struct BackgroundNotify {
+    /// `None` = never asked.
+    pub enabled: Option<bool>,
+    /// False in portable mode (the folder may move) and off Windows.
+    pub supported: bool,
+}
+
+fn background_notify_view(cfg: &config::AppConfig) -> BackgroundNotify {
+    BackgroundNotify {
+        enabled: cfg.background_notify,
+        supported: cfg!(windows) && !config::is_portable(),
+    }
+}
+
+#[tauri::command]
+pub fn get_background_notify(state: State<'_, AppState>) -> BackgroundNotify {
+    background_notify_view(&state.config.lock().unwrap())
+}
+
+/// Switch the background notifications on or off: write or remove the logon
+/// entry, the URL handler, the toast identity and the scheduled task, then
+/// remember the choice. Never called on its own — only from the offer shown once
+/// or from the switch in Settings.
+#[tauri::command]
+pub async fn set_background_notify(state: State<'_, AppState>, enabled: bool) -> Result<BackgroundNotify, String> {
+    if enabled {
+        if config::is_portable() {
+            return Err("Indisponible en mode portable : le dossier de l'application peut être déplacé.".to_string());
+        }
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || notify::register(&exe))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+    } else {
+        tauri::async_runtime::spawn_blocking(notify::unregister)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    let mut cfg = state.config.lock().unwrap().clone();
+    cfg.background_notify = Some(enabled);
+    cfg.save().map_err(|e| e.to_string())?;
+    let view = background_notify_view(&cfg);
+    *state.config.lock().unwrap() = cfg;
+    info!("set_background_notify: {enabled}");
+    Ok(view)
 }
 
 /// Remember — or forget — the "do not show again" choice for one message id.
@@ -2831,6 +2948,7 @@ mod tests {
             update_http: update::UpdateClient::new(),
             artwork_http: artwork::ArtworkClient::new(),
             config: std::sync::Mutex::new(config::AppConfig::default()),
+            motd_current: std::sync::Mutex::new(None),
             bulk_cancel: AtomicBool::new(false),
             steam_details: cache::TtlCache::new(std::time::Duration::from_secs(300)),
             steam_details_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),

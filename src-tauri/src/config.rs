@@ -36,6 +36,12 @@ pub struct AppConfig {
     /// only: a newer publication shows regardless (`motd::is_dismissed`).
     #[serde(default)]
     pub motd_dismissed_id: Option<String>,
+    /// Background notifications of the message of the day (`notify.rs`): `None` =
+    /// never asked, `Some(true)` = this machine is registered to check at logon and
+    /// every few hours, `Some(false)` = declined or switched off. A fact about
+    /// THIS machine's registry and scheduler: never imported from a backup.
+    #[serde(default)]
+    pub background_notify: Option<bool>,
 }
 
 /// Result of merging an imported config into a local one.
@@ -123,6 +129,8 @@ pub fn merge_imported(
                 .clone()
                 .or_else(|| local.default_archive_password.clone()),
             motd_dismissed_id: imported.motd_dismissed_id.clone(),
+            // Registrations live in this machine's registry, not in the backup.
+            background_notify: local.background_notify,
         },
         kept_local,
     }
@@ -211,6 +219,7 @@ mod tests {
             update_from_version: None,
             default_archive_password: None,
             motd_dismissed_id: None,
+            background_notify: None,
         }
     }
 
@@ -308,6 +317,19 @@ mod tests {
     }
 
     /// Démonstration 4 : un champ non-chemin (theme) est importé dans tous les cas
+    #[test]
+    fn merge_imported_never_imports_background_notify() {
+        // The registrations live in THIS machine's registry and task scheduler: a
+        // backup saying "enabled" must neither switch it on here nor undo a refusal.
+        let imported = AppConfig { background_notify: Some(true), ..Default::default() };
+        let declined = AppConfig { background_notify: Some(false), ..Default::default() };
+        let merged = merge_imported(&declined, &imported, |_| true).merged;
+        assert_eq!(merged.background_notify, Some(false));
+        let never_asked = AppConfig::default();
+        let merged = merge_imported(&never_asked, &imported, |_| true).merged;
+        assert_eq!(merged.background_notify, None, "never asked here stays never asked");
+    }
+
     #[test]
     fn merge_imported_always_imports_non_path_fields() {
         let local = local_cfg();
@@ -492,6 +514,7 @@ mod tests {
             update_from_version: None,
             default_archive_password: None,
             motd_dismissed_id: None,
+            background_notify: None,
         };
         let imported = AppConfig {
             steam_dir: Some(PathBuf::from("Z:\\NonExistent")),
@@ -505,6 +528,7 @@ mod tests {
             update_from_version: None,
             default_archive_password: Some("secret".to_string()),
             motd_dismissed_id: Some("m-import".to_string()),
+            background_notify: None,
         };
         let result = merge_imported(&local, &imported, exists_false);
         // Les chemins locaux survivent.

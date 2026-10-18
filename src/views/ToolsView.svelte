@@ -5,8 +5,11 @@
   import ConfirmButton from "../components/ConfirmButton.svelte";
   import StatusBadge from "../components/StatusBadge.svelte";
   import { appState } from "../lib/app-state.svelte";
-  import { installSteam, installSteamtools, restartSteam, setSteamDir } from "../lib/api";
+  import { onMount } from "svelte";
+  import { installSteam, installSteamtools, restartSteam, runMotdAction, setSteamDir, steamPinStatus, steamUnpin } from "../lib/api";
+  import type { SteamPinStatus } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
+  import { steamDowngradeOffer } from "../lib/motd";
   import { openFolder } from "../lib/open-folder";
 
   const report = $derived(appState.report);
@@ -43,6 +46,35 @@
       await appState.refreshStatuses();
       return t("tools.steam.saved");
     });
+  }
+
+  // The compatibility card exists only while a signed message offers the fix, or
+  // for whoever already applied it (the way back must never depend on a message).
+  const offer = $derived(steamDowngradeOffer(appState.motd));
+  let pin = $state<SteamPinStatus | null>(null);
+
+  async function readPin() {
+    try {
+      pin = await steamPinStatus();
+    } catch {
+      pin = null;
+    }
+  }
+  onMount(() => void readPin());
+
+  async function doApplyPin() {
+    const message = appState.motd;
+    if (!message || !offer) return;
+    await run("pin", () => runMotdAction(message.id, offer.id));
+    await readPin();
+    await appState.refreshWorkaround();
+    await appState.refresh();
+  }
+
+  async function doUnpin() {
+    await run("unpin", steamUnpin);
+    await readPin();
+    await appState.refresh();
   }
 
   const doInstallSteam = () => run("steam", installSteam);
@@ -145,6 +177,50 @@
         </div>
       {/if}
     </div>
+
+    <!-- Steam compatibility: a signed message offers the fix, or Steam is already pinned -->
+    {#if steam && (offer || pin?.pinned)}
+      <div class="glass enter-up flex flex-col gap-4 rounded-xl2 p-5 col-span-2 max-xl:col-span-1" data-tools-pin>
+        <div class="flex flex-wrap items-center gap-2">
+          <h3 class="flex items-center gap-2 font-semibold">
+            <Icon name="steam" size={18} />
+            {t("tools.pin.title")}
+          </h3>
+          {#if pin?.pinned}
+            <StatusBadge label={t("tools.pin.badge")} icon="alert" tone="action" compact tip={t("tools.pin.badge_tip")} />
+          {:else if appState.workaround?.needed}
+            <StatusBadge label={t("tools.pin.required")} icon="alert" tone="action" compact />
+          {/if}
+        </div>
+        {#if pin?.pinned}
+          <p class="text-sm text-azure-900/70">{t("tools.pin.note")}</p>
+          {#if pin.installed_version}
+            <p class="text-xs text-azure-900/50">{t("tools.pin.version", { version: pin.installed_version })}</p>
+          {/if}
+          <div class="mt-auto flex flex-wrap gap-2">
+            <ConfirmButton
+              label={t("tools.pin.undo")}
+              confirmLabel={t("tools.pin.undo_confirm")}
+              onconfirm={doUnpin}
+              disabled={busy !== null}
+              title={t("tools.pin.undo_tip")}
+            />
+          </div>
+        {:else}
+          <p class="text-sm text-azure-900/70">{t("tools.pin.offer")}</p>
+          <div class="mt-auto flex flex-wrap gap-2">
+            <ConfirmButton
+              label={t("tools.pin.apply")}
+              confirmLabel={t("tools.pin.apply_confirm")}
+              onconfirm={doApplyPin}
+              disabled={busy !== null}
+              primary
+              title={t("tools.pin.apply_tip")}
+            />
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     <!-- SteamTools -->
     <div class="glass enter-up flex flex-col gap-4 rounded-xl2 p-5">

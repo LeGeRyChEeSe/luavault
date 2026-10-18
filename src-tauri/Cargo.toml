@@ -45,6 +45,9 @@ dirs = "6"
 urlencoding = "2"
 unrar = "0.5"
 sha2 = "0.10"
+# Wayback stores some captures gzipped and serves them so whatever the request
+# says; `steam_downgrade` inflates by hand, under a cap (`gunzip_capped`).
+flate2 = "1"
 ed25519-dalek = "2"
 walkdir = "2"
 zip = { version = "8", default-features = false, features = ["deflate", "aes-crypto", "bzip2", "lzma", "zstd", "deflate64"] }
@@ -63,6 +66,11 @@ windows = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging",
   "Win32_System_Com",
   "Win32_System_Threading",
+  # Toast notifications of the message of the day (`notify.rs`).
+  "Win32_System_WinRT",
+  "UI_Notifications",
+  "Data_Xml_Dom",
+  "Foundation",
 ] }
 
 [dev-dependencies]

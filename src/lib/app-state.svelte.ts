@@ -1,9 +1,9 @@
-import { checkMotd, checkUpdate, detectAll, getReachability, getUpdateNotified, libraryStatus, listLibrary, markUpdateNotified, setMotdDismissed, syncFromSteam, takeUpdateResult } from "./api";
-import type { DetectionReport, GameStatus, LibraryEntry, MotdMessage, Reachability, UpdateAvailable, UpdateResult } from "./api";
+import { checkMotd, checkUpdate, detectAll, getBackgroundNotify, getReachability, getUpdateNotified, libraryStatus, listLibrary, markUpdateNotified, motdWorkaround, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeUpdateResult } from "./api";
+import type { DetectionReport, GameStatus, LibraryEntry, MotdMessage, Reachability, Workaround, UpdateAvailable, UpdateResult } from "./api";
 import { themeStore } from "./theme.svelte";
 import { i18n, t } from "./i18n.svelte";
 import { LONG_TOAST_MS, resolveToastDuration } from "./toast-duration";
-import { shouldOpenMotdAtStartup } from "./motd";
+import { isForced, shouldOpenMotdAtStartup } from "./motd";
 
 export interface Toast {
   id: number;
@@ -145,16 +145,67 @@ class AppStore {
       const view = await checkMotd();
       if (!view) {
         this.motd = null;
+        this.workaround = null;
         return;
       }
       this.motd = view.message;
       this.motdDismissed = view.dismissed;
-      if (shouldOpenMotdAtStartup(view.message, view.dismissed ? view.message.id : null, this.motdSeen)) {
+      this.workaround = view.workaround;
+      if (
+        shouldOpenMotdAtStartup(
+          view.message,
+          view.dismissed ? view.message.id : null,
+          this.motdSeen,
+          isForced(view.message, view.workaround),
+        )
+      ) {
         this.motdSeen = view.message.id;
         this.motdOpen = true;
       }
     } catch {
       // Offline or server error — the nominal case, nothing to show.
+    }
+  }
+
+  /**
+   * What the Steam fix means for this machine (`motd::workaround`): the banner and
+   * the insisting window read `needed`. Refreshed after applying the fix, without
+   * the network.
+   */
+  workaround = $state<Workaround | null>(null);
+
+  async refreshWorkaround() {
+    try {
+      this.workaround = await motdWorkaround();
+    } catch {
+      // Keep the last verdict: a failed read must not make the banner flicker away.
+    }
+  }
+
+  /**
+   * The one-time offer to be warned by a system notification even with the app
+   * closed. Shown when the choice was never made and this install can honour it
+   * (not portable); `App.svelte` holds it back behind the onboarding and the
+   * message window, so it never stacks on another dialog.
+   */
+  notifyOffer = $state(false);
+
+  async checkNotifyOffer() {
+    try {
+      const s = await getBackgroundNotify();
+      this.notifyOffer = s.supported && s.enabled === null;
+    } catch {
+      this.notifyOffer = false;
+    }
+  }
+
+  /** Answer the offer. Declining is remembered too: it is asked once. */
+  async answerNotifyOffer(enable: boolean) {
+    this.notifyOffer = false;
+    try {
+      await setBackgroundNotify(enable);
+    } catch (e) {
+      this.toast("error", String(e));
     }
   }
 

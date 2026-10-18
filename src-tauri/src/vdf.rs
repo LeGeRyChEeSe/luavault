@@ -309,6 +309,14 @@ pub fn parse_playtimes(raw: &str) -> HashMap<String, PlaytimeRecord> {
         let KvNode::Block(entries) = node else {
             continue;
         };
+        // Steam notes the games added by hand (« non-Steam shortcuts ») under a
+        // NEGATIVE 32-bit id, `-1466633556` on the author's account — found by the
+        // live test, which asserts every key is an AppID. They can never be a library
+        // game, and an id that is not plain digits must not travel further (the
+        // project's rule for AppIDs everywhere): drop them here, once.
+        if app_id.is_empty() || !app_id.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
         let mut record = PlaytimeRecord {
             minutes: None,
             last_played: None,
@@ -997,6 +1005,22 @@ mod tests {
         assert!(parse_playtimes("\"UserLocalConfigStore\" { }").is_empty());
         // An apps block without the full ancestry is not ours to read.
         assert!(parse_playtimes("\"apps\" { \"42\" { \"Playtime\" \"9\" } }").is_empty());
+    }
+
+    /// Games added to Steam by hand are stored under a NEGATIVE 32-bit id. The key
+    /// below is the real one from the author's `localconfig.vdf`, with its siblings:
+    /// a numeric AppID must survive, the shortcut must not become an "AppID".
+    #[test]
+    fn parse_playtimes_drops_non_steam_shortcut_ids() {
+        let raw = r#""UserLocalConfigStore" { "Software" { "Valve" { "Steam" { "apps" {
+            "42" { "Playtime" "90" "LastPlayed" "1700000000" }
+            "-1466633556" { "Playtime" "600" "LastPlayed" "1700000001" }
+            "12abc" { "Playtime" "5" }
+        } } } } }"#;
+        let map = parse_playtimes(raw);
+        assert_eq!(map.len(), 1, "{map:?}");
+        assert_eq!(map["42"].minutes, Some(90));
+        assert!(!map.contains_key("-1466633556"));
     }
 
     /// Root key `"users"` — the spelling Steam actually writes (a fixture

@@ -7,12 +7,21 @@
    * publication, même du même texte, réapparaît. C'est ce qui permet à
    * l'auteur d'insister sans jamais pouvoir contourner un choix passé — le
    * choix portait sur un message, pas sur la fonctionnalité.
+   *
+   * Les boutons sous le texte font la chose recommandée en un clic. Ils ne
+   * portent aucun paramètre : on rend au backend « ce message, ce bouton », et
+   * c'est lui qui retrouve l'action dans le message qu'il a vérifié. Ceux qui
+   * ferment ou relancent Steam demandent un second clic (`ConfirmButton`).
    */
   import { focusTrap } from "../lib/focus-trap";
   import { t, i18n } from "../lib/i18n.svelte";
-  import { motdSeverity, resolveMotdText } from "../lib/motd";
+  import { actionLabel, actionNeedsConfirm, isForced, motdSeverity, resolveMotdText } from "../lib/motd";
   import type { MotdSeverity } from "../lib/motd";
-  import type { MotdMessage } from "../lib/api";
+  import { runMotdAction } from "../lib/api";
+  import type { MotdAction, MotdMessage } from "../lib/api";
+  import { appState } from "../lib/app-state.svelte";
+  import ActionButton from "./ActionButton.svelte";
+  import ConfirmButton from "./ConfirmButton.svelte";
   import { formatUnixDate } from "../lib/format";
   import Icon from "./Icons.svelte";
   import MotdMarkdown from "./MotdMarkdown.svelte";
@@ -45,8 +54,39 @@
     critical: { icon: "error", badge: "bg-rose-soft/60 text-rose-deep" },
   };
 
+  const actions = $derived(message.actions ?? []);
+
+  // Une seule action à la fois : relancer Steam deux fois de suite n'aide personne.
+  let busyAction = $state<string | null>(null);
+  let outcome = $state<{ ok: boolean; text: string } | null>(null);
+
+  // Le libellé par défaut est `motd.action.${kind}` : le gabarit est typé par
+  // l'union `MotdActionKind`, comme `motd.severity.*` plus haut.
+  function labelOf(action: MotdAction): string {
+    return actionLabel(action, i18n.locale) || t(`motd.action.${action.kind}`);
+  }
+
+  async function run(action: MotdAction): Promise<void> {
+    busyAction = action.id;
+    outcome = null;
+    try {
+      const text = await runMotdAction(message.id, action.id);
+      if (text) outcome = { ok: true, text };
+      // Steam and the add-on may have changed under the app: read them again.
+      if (action.kind !== "open_url") void appState.refresh();
+    } catch (e) {
+      outcome = { ok: false, text: String(e) };
+    } finally {
+      busyAction = null;
+    }
+  }
+
+  // A persistent notice about a fix still needed here cannot be silenced for good:
+  // the box is withdrawn, and closing the window leaves the choice where it was.
+  const forced = $derived(isForced(message, appState.workaround));
+
   function close(): void {
-    onclose(remember);
+    onclose(forced ? dismissed : remember);
   }
 </script>
 
@@ -87,11 +127,53 @@
       <MotdMarkdown source={body} />
     </div>
 
+    {#if actions.length > 0}
+      <div class="mt-4 flex flex-wrap gap-2" data-motd-actions>
+        {#each actions as action, i (action.id)}
+          <div class="contents" data-motd-action={action.id} data-motd-kind={action.kind}>
+          {#if actionNeedsConfirm(action.kind)}
+            <ConfirmButton
+              label={labelOf(action)}
+              confirmLabel={t("motd.action.confirm")}
+              onconfirm={() => run(action)}
+              disabled={busyAction !== null}
+              primary={i === 0}
+            />
+          {:else}
+            <ActionButton
+              label={labelOf(action)}
+              icon="arrow-right"
+              variant={i === 0 ? "primary" : "ghost"}
+              disabled={busyAction !== null}
+              busy={busyAction === action.id}
+              onclick={() => run(action)}
+            />
+          {/if}
+          </div>
+        {/each}
+      </div>
+      {#if outcome}
+        <p
+          role="status"
+          data-motd-outcome={outcome.ok ? "ok" : "error"}
+          class="mt-3 rounded-xl px-3 py-2 text-sm {outcome.ok
+            ? 'bg-mint-soft/55 text-mint-deep'
+            : 'bg-rose-soft/55 text-rose-deep'}"
+        >
+          {outcome.text}
+        </p>
+      {/if}
+    {/if}
+
     <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
-      <label class="flex cursor-pointer items-center gap-2 text-xs text-azure-900/70">
-        <input type="checkbox" bind:checked={remember} class="accent-azure-500" data-motd-remember />
-        <span>{t("motd.remember")}</span>
-      </label>
+      {#if forced}
+        <span class="text-xs text-azure-900/60" data-motd-forced>{t("motd.persistent_note")}</span>
+      {:else}
+        <label class="flex cursor-pointer items-center gap-2 text-xs text-azure-900/70">
+          <input type="checkbox" bind:checked={remember} class="accent-azure-500" data-motd-remember />
+          <span>{t("motd.remember")}</span>
+        </label>
+      {/if}
       <button
         onclick={close}
         data-motd-close

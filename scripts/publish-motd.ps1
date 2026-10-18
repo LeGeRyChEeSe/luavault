@@ -5,6 +5,7 @@
 #   .\scripts\publish-motd.ps1 -File motd.md -Days 3 -Severity warning
 #   .\scripts\publish-motd.ps1 -Fr "…" -En "…"          # sans durée : affiché jusqu'à -Clear
 #   .\scripts\publish-motd.ps1 -Clear
+#   .\scripts\publish-motd.ps1 -Fr "…" -En "…" -Actions steam_downgrade,restart_steam -Snapshot 20261006145653
 #   .\scripts\publish-motd.ps1                # sans argument : mode interactif (questions)
 #   ... -DryRun          écrit et signe releases\motd\motd.json sans rien publier
 #
@@ -36,6 +37,29 @@
 #   # Ongoing outage
 #   The server is {red}unavailable{/} until 6 pm.
 #
+# BOUTONS (-Actions) : sous le texte, l'application affiche un bouton par action,
+# qui fait la chose recommandée en un clic. L'ensemble est FERMÉ, il vit dans le
+# binaire (motd.rs, ResolvedAction) : le document signé choisit parmi lui, il ne
+# peut rien demander que l'application ne connaisse déjà. Un type inconnu d'un
+# client plus ancien fait disparaître le bouton, jamais le message.
+#
+#   steam_downgrade  remet Steam à une version archivée, bloque sa mise à jour
+#                    (-Snapshot obligatoire ; l'empreinte du manifeste est calculée
+#                    ici et portée par la signature, ou imposée avec -ManifestSha256)
+#   steam_undo       laisse Steam se mettre à jour de nouveau (le retour arrière)
+#   restart_steam    ferme et relance Steam
+#   repair_tools     lance la réparation de l'extension Steam de l'application
+#   open_url         ouvre une page https (-OpenUrl)
+#   -Persistent      le message ne peut plus être réduit au silence tant que le correctif
+#                    reste nécessaire sur la machine (la case « Ne plus afficher » disparaît,
+#                    une banniere reste sur tous les onglets). Sans effet pour qui n'a pas
+#                    besoin du correctif : il lit un message ordinaire.
+#   -AffectsFrom     avec steam_downgrade : la version du paquet client Steam (un nombre, ex.
+#                    1791918634) à partir de laquelle SteamTools ne marche plus. L'application
+#                    la compare à la version installee : un Steam antérieur n'est pas concerne.
+#                    Sans elle, le correctif est jugé nécessaire dès que Steam n'est pas figé.
+# 4 boutons au plus. Retirer le correctif : republier sans steam_downgrade, ou -Clear.
+#
 # Chaque publication porte un identifiant neuf (-Id, sinon horodatage) : c'est
 # lui que mémorise « Ne plus afficher ». Republier = réafficher chez tout le monde.
 
@@ -51,6 +75,15 @@ param(
     [int]$Days = 0,
     [ValidateSet('info', 'warning', 'critical')][string]$Severity = 'info',
     [string]$Id = '',
+    # Boutons du message (voir plus haut), dans l'ordre d'affichage.
+    [ValidateSet('steam_downgrade', 'steam_undo', 'restart_steam', 'repair_tools', 'open_url')][string[]]$Actions = @(),
+    # Capture Wayback du manifeste Steam (14 chiffres) pour steam_downgrade.
+    [string]$Snapshot = '',
+    [string]$ManifestSha256 = '',
+    [string]$OpenUrl = '',
+    # Message persistant et diagnostique (voir plus haut).
+    [switch]$Persistent,
+    [string]$AffectsFrom = '',
     # Retire le message : publie `message: null`, signé. Les assets restent en
     # place pour que le client lise un document valide plutôt qu'un 404.
     [switch]$Clear,
@@ -110,6 +143,50 @@ function Read-MotdFile([string]$Path) {
     return @{ titles = $titles; bodies = $bodies }
 }
 
+# --------------------------------------------------------------- boutons
+#
+# Télécharge le manifeste archivé, lit sa version et calcule l'empreinte : c'est
+# elle que le client exigera, et la signature de ce document la rend infalsifiable.
+# Invoke-WebRequest décompresse le gzip de Wayback, comme le fait le client.
+function Get-SteamManifestPin([string]$Snap, [string]$Expected) {
+    if ($Snap -notmatch '^\d{14}$') { throw "-Snapshot attend 14 chiffres (AAAAMMJJhhmmss) : '$Snap'." }
+    $url = "https://web.archive.org/web/${Snap}id_/https://media.steampowered.com/client/steam_client_win64"
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "lv-manifest-$Snap.bin"
+    Invoke-WebRequest $url -OutFile $tmp -TimeoutSec 90
+    $text = [System.IO.File]::ReadAllText($tmp)
+    if ($text -notmatch '"version"\s+"(\d+)"') { throw "ce n'est pas un manifeste Steam : $url" }
+    $version = $Matches[1]
+    $sha = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower()
+    Remove-Item $tmp -ErrorAction SilentlyContinue
+    if ($Expected -and $Expected.ToLower() -ne $sha) { throw "empreinte différente : attendue $Expected, calculée $sha" }
+    Write-Host "manifeste Steam $version (capture $Snap), sha256 $sha" -ForegroundColor Green
+    return @{ snapshot = $Snap; manifest_sha256 = $sha }
+}
+
+function New-MotdActions([string[]]$Kinds) {
+    if ($Kinds.Count -gt 4) { throw "4 boutons au plus." }
+    $list = @()
+    foreach ($kind in $Kinds) {
+        $a = [ordered]@{ id = $kind; kind = $kind }
+        if ($kind -eq 'steam_downgrade') {
+            if (-not $Snapshot) { throw "steam_downgrade demande -Snapshot (14 chiffres)." }
+            $pin = Get-SteamManifestPin $Snapshot $ManifestSha256
+            $a['snapshot'] = $pin.snapshot
+            $a['manifest_sha256'] = $pin.manifest_sha256
+            if ($AffectsFrom) {
+                if ($AffectsFrom -notmatch '^\d+$') { throw "-AffectsFrom attend un nombre (version du paquet client Steam, ex. 1791918634)." }
+                $a['affects_from'] = $AffectsFrom
+            }
+        }
+        if ($kind -eq 'open_url') {
+            if ($OpenUrl -notmatch '^https://[^\s/@]+(/\S*)?$') { throw "open_url demande -OpenUrl en https:// sans identifiants." }
+            $a['url'] = $OpenUrl
+        }
+        $list += $a
+    }
+    return $list
+}
+
 # --------------------------------------------------------------- mode interactif
 #
 # Lancé sans argument, le script pose les questions une à une. Un message
@@ -158,6 +235,12 @@ if ($interactive) {
         if ($sev -eq '') { $sev = 'info' }
         if ($sev -notin @('info', 'warning', 'critical')) { throw "sévérité inconnue : $sev" }
         $Severity = $sev
+        $raw = (Read-Host "Boutons (ex. steam_downgrade,restart_steam ; vide = aucun)").Trim()
+        if ($raw) {
+            $Actions = @($raw -split '[,\s]+' | Where-Object { $_ })
+            if ($Actions -contains 'steam_downgrade') { $Snapshot = (Read-Host "Capture Wayback du manifeste (14 chiffres)").Trim() }
+            if ($Actions -contains 'open_url') { $OpenUrl = (Read-Host "Adresse https").Trim() }
+        }
         $duration = Read-Duration
         $Days = $duration.Days
         $Hours = $duration.Hours
@@ -209,12 +292,17 @@ else {
     $message['severity'] = $Severity
     $message['title'] = $titles
     $message['body'] = $bodies
+    if ($Actions.Count -gt 0) { $message['actions'] = @(New-MotdActions $Actions) }
+    if ($Persistent) {
+        if ($Actions -notcontains 'steam_downgrade') { Write-Warning "-Persistent sans steam_downgrade : l'application n'a rien a diagnostiquer, le message restera ordinaire." }
+        $message['persistent'] = $true
+    }
     $document = [ordered]@{ schema = 1; message = $message }
 }
 
 New-Item -ItemType Directory -Force $dir | Out-Null
 $docPath = Join-Path $dir 'motd.json'
-$json = $document | ConvertTo-Json -Depth 6
+$json = $document | ConvertTo-Json -Depth 8
 [System.IO.File]::WriteAllText($docPath, $json, $utf8NoBom)
 
 Write-Host "message écrit : $docPath"

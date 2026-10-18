@@ -583,16 +583,75 @@ export interface MotdMessage {
   title: Record<string, string>;
   /** locale → markdown body (see lib/motd-markdown.ts). */
   body: Record<string, string>;
+  /** Buttons under the text — only the kinds this build can run (the backend
+   *  drops the rest). Their parameters never reach the UI: the backend looks
+   *  them up in the message it verified, from `(message id, action id)` alone. */
+  actions: MotdAction[];
+  /** The notice cannot be silenced for good while the Steam fix is still needed
+   *  on this machine (see `Workaround.needed`). */
+  persistent: boolean;
+}
+
+/** The closed set of things a message's button can do (`motd::ResolvedAction`). */
+export type MotdActionKind = "steam_downgrade" | "steam_undo" | "restart_steam" | "repair_tools" | "open_url";
+
+export interface MotdAction {
+  id: string;
+  kind: MotdActionKind;
+  /** locale → text; empty means "use the default label of the kind". */
+  label: Record<string, string>;
+}
+
+/** What the Steam fix means for THIS machine, decided by the backend from what is
+ *  on disk: the fix is `needed` only with SteamTools installed, Steam not already
+ *  pinned and a client at or past the version that breaks it. */
+export interface Workaround {
+  /** The button that applies it; `runMotdAction` takes it back. */
+  action_id: string;
+  needed: boolean;
+  pinned: boolean;
+  installed_version: string | null;
 }
 
 export interface MotdView {
   message: MotdMessage;
   /** True when the user asked never to see this exact id again. */
   dismissed: boolean;
+  /** Null when the message offers no Steam fix. */
+  workaround: Workaround | null;
 }
 
 export const checkMotd = () => invoke<MotdView | null>("check_motd");
 export const setMotdDismissed = (id: string | null) => invoke<void>("set_motd_dismissed", { id });
+/** Run one button of the current message; resolves to the sentence to show. */
+export const runMotdAction = (messageId: string, actionId: string) =>
+  invoke<string>("run_motd_action", { messageId, actionId });
+
+export interface SteamPinStatus {
+  /** Steam is told not to update itself (`steam.cfg`). */
+  pinned: boolean;
+  installed_version: string | null;
+}
+/** A pure read of `steam.cfg` and Steam's own manifest. */
+export const steamPinStatus = () => invoke<SteamPinStatus>("steam_pin_status");
+/** The way back from the downgrade: Steam updates itself again. */
+export const steamUnpin = () => invoke<string>("steam_unpin");
+/** Re-read the verdict after applying the fix: no network, the message already
+ *  verified plus the files on disk. */
+export const motdWorkaround = () => invoke<Workaround | null>("motd_workaround");
+
+export interface BackgroundNotify {
+  /** `null` = never asked; `true` = registered with Windows; `false` = declined or off. */
+  enabled: boolean | null;
+  /** False in portable mode (the folder may move) and off Windows. */
+  supported: boolean;
+}
+/** A pure read of the config. */
+export const getBackgroundNotify = () => invoke<BackgroundNotify>("get_background_notify");
+/** Register (or remove) the logon entry, the toast buttons' URL handler and the
+ *  scheduled check. Only from the one-time offer or the Settings switch. */
+export const setBackgroundNotify = (enabled: boolean) =>
+  invoke<BackgroundNotify>("set_background_notify", { enabled });
 export const downloadUpdate = (version: string, file: string, sha256: string, size: number) =>
   invoke<string>("download_update", { version, file, sha256, size });
 export const installUpdate = (path: string) => invoke<void>("install_update", { path });

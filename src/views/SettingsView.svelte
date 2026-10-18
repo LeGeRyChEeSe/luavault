@@ -16,6 +16,8 @@
     exportBackup,
     exportLibrary,
     getAppInfo,
+    getBackgroundNotify,
+    setBackgroundNotify,
     importBackup,
     installUpdate,
     listBackups,
@@ -29,7 +31,7 @@
     wipePreview,
     wipeProtectedPaths,
   } from "../lib/api";
-  import type { BackupProbe, ImportCandidate, ImportPreview } from "../lib/api";
+  import type { BackgroundNotify, BackupProbe, ImportCandidate, ImportPreview } from "../lib/api";
   import type {
     AppInfo,
     ArtworkCacheInfo,
@@ -58,6 +60,21 @@
   }
 
   let appInfo = $state<AppInfo | null>(null);
+  // Background notifications of the message of the day. `supported` is false in
+  // portable mode; `enabled` is null until the user answers the one-time offer.
+  let notify = $state<BackgroundNotify | null>(null);
+  let notifyBusy = $state(false);
+
+  async function toggleNotify(enable: boolean) {
+    notifyBusy = true;
+    try {
+      notify = await setBackgroundNotify(enable);
+    } catch (e) {
+      appState.toast("error", String(e));
+    } finally {
+      notifyBusy = false;
+    }
+  }
   let importPassword = $state("");
   let showPasswordDialog = $state(false);
   let importPendingPath = $state<string | null>(null);
@@ -316,6 +333,9 @@
   const anySelected = $derived(Object.values(plan).some(Boolean));
 
   $effect(() => {
+    void getBackgroundNotify()
+      .then((n) => (notify = n))
+      .catch(() => {});
     void getAppInfo()
       .then((i) => (appInfo = i))
       .catch(() => {});
@@ -1422,6 +1442,35 @@
       </div>
     {/if}
   </section>
+
+  <!-- ------------------------------------------- background notifications -->
+  {#if notify}
+    <section class="glass enter-up flex flex-col gap-3 rounded-xl2 p-5" data-settings-notify>
+      <div class="min-w-0">
+        <h3 class="flex items-center gap-2 text-sm font-semibold">
+          <Icon name="info" size={16} />
+          {t("settings.notify.title")}
+        </h3>
+        <p class="mt-0.5 text-xs text-azure-900/55">{t("settings.notify.desc")}</p>
+      </div>
+      {#if notify.supported}
+        <label class="flex cursor-pointer items-center gap-3 rounded-xl bg-surface/55 px-4 py-2.5 text-sm">
+          <input
+            type="checkbox"
+            class="accent-azure-500"
+            data-settings-notify-switch
+            checked={notify.enabled === true}
+            disabled={notifyBusy}
+            onchange={(e) => void toggleNotify(e.currentTarget.checked)}
+          />
+          <span class="min-w-0 flex-1">{t("settings.notify.switch")}</span>
+        </label>
+        <p class="text-xs text-azure-900/45">{t("settings.notify.how")}</p>
+      {:else}
+        <p class="text-xs text-azure-900/55">{t("settings.notify.unsupported")}</p>
+      {/if}
+    </section>
+  {/if}
 
   <!-- --------------------------------------------------------------- update -->
   <section class="glass enter-up flex flex-col gap-4 rounded-xl2 p-5">

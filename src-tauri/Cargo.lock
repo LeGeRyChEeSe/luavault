@@ -2485,6 +2485,7 @@ dependencies = [
  "chrono",
  "dirs",
  "ed25519-dalek",
+ "flate2",
  "hmac 0.12.1",
  "log",
  "rand 0.9.5",

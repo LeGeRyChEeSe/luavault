@@ -42,6 +42,7 @@
 <button
   {disabled}
   data-tip={title || null}
+  data-confirm={armed ? "armed" : "idle"}
   onclick={handleClick}
   class="lift inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-45 {armed
     ? 'border border-peach/40 bg-peach-soft text-peach-deep shadow-sm'

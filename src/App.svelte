@@ -14,6 +14,8 @@
   import Icon from "./components/Icons.svelte";
   import UpdateModal from "./components/UpdateModal.svelte";
   import MotdModal from "./components/MotdModal.svelte";
+  import NotifyOffer from "./components/NotifyOffer.svelte";
+  import WorkaroundBanner from "./components/WorkaroundBanner.svelte";
   import { appState } from "./lib/app-state.svelte";
   import { listen } from "@tauri-apps/api/event";
   import {
@@ -89,6 +91,7 @@
       // The message of the day rides the same priority: a notice about an
       // outage is exactly what must not wait behind a minute of adoption.
       void appState.checkForMotd();
+      void appState.checkNotifyOffer();
       // Games already sitting in {Steam}\config\lua join the library on their own.
       await appState.adoptFromSteam();
       try {
@@ -301,7 +304,11 @@
     </div>
   </aside>
 
-  <main class="min-w-0 flex-1 overflow-hidden rounded-xl2">
+  <div class="flex min-w-0 flex-1 flex-col gap-3">
+    {#if appState.workaround?.needed && appState.motd && !showOnboarding}
+      <WorkaroundBanner />
+    {/if}
+    <main class="min-h-0 flex-1 overflow-hidden rounded-xl2">
     {#key view}
       <div class="enter-fade h-full">
         {#if view === "library"}
@@ -322,6 +329,7 @@
       </div>
     {/key}
   </main>
+  </div>
 </div>
 
 {#if showOnboarding}
@@ -377,6 +385,12 @@
   <UpdateModal
     update={appState.updateAvailable}
     onclose={() => (showUpdateModal = false)}
+  />
+{/if}
+
+{#if appState.notifyOffer && !appState.motdOpen && !showOnboarding}
+  <NotifyOffer
+    onanswer={(enable) => void appState.answerNotifyOffer(enable)}
   />
 {/if}
 
