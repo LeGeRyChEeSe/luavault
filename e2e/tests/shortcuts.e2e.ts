@@ -26,7 +26,14 @@ export default defineSuite({
 
     '« ? » ouvre l’aide, et Échap la referme': async (app) => {
       const s = app.session;
-      await s.keys(['?']);
+      // The event a « ? » produces, dispatched as is. Typing the character through
+      // WebDriver depends on the keyboard layout of whoever runs the bench: on an
+      // AZERTY machine msedgedriver cannot switch to the US layout (its log says so)
+      // and never sends `?`. What the case settles is the wiring — window listener,
+      // `resolveShortcut`, the dialog — and the layout is not part of it.
+      await s.execute(
+        `document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '?', code: 'Slash', shiftKey: true, bubbles: true, cancelable: true }))`,
+      );
       const dialog = await s.waitFor('[role="dialog"][aria-modal="true"]');
       assert.includes(await dialog.text(), 'Raccourcis');
       await s.keys([Key.Escape]);

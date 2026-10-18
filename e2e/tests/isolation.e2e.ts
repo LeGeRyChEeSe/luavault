@@ -35,6 +35,11 @@ export default defineSuite({
   name: 'isolation',
   cases: {
     "l'application tourne en mode portable dans le bac à sable": async (app) => {
+      // First call after the session opens: wait for the interface, or the call can
+      // land on a page that has not loaded yet and hang until the script timeout
+      // (the failure screenshot is the bare background gradient). Every other
+      // suite begins with a `waitFor`; this one did not.
+      await app.session.waitFor('nav button[data-tip="Bibliothèque"]', 30_000);
       const report = await app.session.invoke<DetectionReport>('detect_all');
       assert.ok(
         typeof report === 'object' && report !== null,

@@ -173,6 +173,9 @@ export class App {
     // have to dismiss it before reaching the screen it actually tests.
     const config = {
       first_run_done: true,
+      // The one-time offer of background notifications is a dialog like the
+      // onboarding: a suite that is not about it must not have to dismiss it.
+      background_notify: false,
       steam_dir: steamDir,
       defender_exclusions: false,
       locale: "fr",

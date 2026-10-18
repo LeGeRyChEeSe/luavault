@@ -110,6 +110,16 @@ export default defineSuite({
       });
     },
 
+    "sans bouton dans le message, l'onglet Outils n'offre ni la carte de compatibilité ni la bannière": async (app) => {
+      const s = app.session;
+      await (await s.waitFor('nav button[data-tip="Steam & Outils"]')).click();
+      await s.waitFor('main h2');
+      assert.equal(await s.maybeFind('[data-tools-pin]'), null, "la carte n'existe que pour un message qui porte le correctif");
+      assert.equal(await s.maybeFind('[data-workaround-banner]'), null, "un message ordinaire n'affiche aucune bannière");
+      // Back to where the next case expects to be.
+      await (await s.waitFor('nav button[data-tip="Bibliothèque"]')).click();
+    },
+
     'Échap ferme la fenêtre sans toucher au choix': async (app) => {
       const s = app.session;
       await (await s.waitFor('aside button[data-motd-open]')).click();
