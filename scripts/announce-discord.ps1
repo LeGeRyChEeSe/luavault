@@ -74,9 +74,13 @@ if ("$Title`n$Body" -match '@(everyone|here)\b|<@[&!]?\d+>') {
     throw "le texte contient une mention : utilise -Everyone, jamais une mention écrite à la main."
 }
 
+# Un tableau typé : une sous-expression `$(...)` déroule un élément unique en simple chaîne,
+# et Discord refuse `parse: "everyone"` (il attend une liste).
+[string[]]$parse = if ($Everyone) { @('everyone') } else { @() }
+
 $colors = @{ release = 0x4F8EF7; important = 0xF5A623; info = 0x8E9AAF }
 $payload = [ordered]@{
-    allowed_mentions = @{ parse = $(if ($Everyone) { @('everyone') } else { @() }) }
+    allowed_mentions = @{ parse = $parse }
     embeds = @(
         [ordered]@{
             title       = $Title
