@@ -505,6 +505,56 @@ mod win {
             .map_err(|e| fail("notification", e))
     }
 
+    /// Same toast, but under a tag: a new one with the tag replaces the old one in the
+    /// notification centre instead of piling up. `silent` updates the entry without
+    /// raising a banner (the retry counter moving is not worth interrupting for).
+    pub fn show_toast_tagged(xml: &str, tag: &str, silent: bool) -> Result<(), RegisterError> {
+        use windows::core::HSTRING;
+        use windows::Data::Xml::Dom::XmlDocument;
+        use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+        use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
+
+        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+        let doc = XmlDocument::new().map_err(|e| fail("notification", e))?;
+        doc.LoadXml(&HSTRING::from(xml)).map_err(|e| fail("notification", e))?;
+        let toast = ToastNotification::CreateToastNotification(&doc).map_err(|e| fail("notification", e))?;
+        toast.SetTag(&HSTRING::from(tag)).map_err(|e| fail("notification", e))?;
+        toast.SetGroup(&HSTRING::from(aumid())).map_err(|e| fail("notification", e))?;
+        if silent {
+            toast.SetSuppressPopup(true).map_err(|e| fail("notification", e))?;
+        }
+        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(aumid()))
+            .and_then(|n| n.Show(&toast))
+            .map_err(|e| fail("notification", e))
+    }
+
+    /// The sender identity alone (the name Windows shows on a toast), without the
+    /// URL handler and the scheduled task the message notifications need.
+    pub fn ensure_toast_identity() -> Result<(), RegisterError> {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (ident, _) = hkcu
+            .create_subkey(format!(r"Software\Classes\AppUserModelId\{}", aumid()))
+            .map_err(|e| fail("identité de notification", e))?;
+        ident.set_value("DisplayName", &display_name()).map_err(|e| fail("identité de notification", e))
+    }
+
+    fn guard_run_value() -> String {
+        format!("{} (background)", display_name())
+    }
+
+    /// The logon entry that starts the resident process, window hidden.
+    pub fn set_guard_autostart(exe: &Path, on: bool) -> Result<(), RegisterError> {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (run, _) = hkcu.create_subkey_with_flags(RUN_KEY, KEY_WRITE).map_err(|e| fail("clé de démarrage", e))?;
+        if on {
+            run.set_value(guard_run_value(), &format!("\"{}\" --background", exe.display()))
+                .map_err(|e| fail("clé de démarrage", e))
+        } else {
+            let _ = run.delete_value(guard_run_value());
+            Ok(())
+        }
+    }
+
     /// The system language tag (`fr-FR`), from the user's regional settings.
     pub fn system_locale() -> Option<String> {
         RegKey::predef(HKEY_CURRENT_USER)
@@ -516,7 +566,7 @@ mod win {
 }
 
 #[cfg(windows)]
-pub use win::{register, show_toast, system_locale, unregister};
+pub use win::{ensure_toast_identity, register, set_guard_autostart, show_toast, show_toast_tagged, system_locale, unregister};
 #[cfg(all(windows, test))]
 use win::{register_as, unregister_as};
 
@@ -528,6 +578,18 @@ pub fn register(_exe: &Path) -> Result<(), RegisterError> {
 pub fn unregister() {}
 #[cfg(not(windows))]
 pub fn show_toast(_xml: &str) -> Result<(), RegisterError> {
+    Err(RegisterError::Failed("Windows uniquement".into()))
+}
+#[cfg(not(windows))]
+pub fn show_toast_tagged(_xml: &str, _tag: &str, _silent: bool) -> Result<(), RegisterError> {
+    Err(RegisterError::Failed("Windows uniquement".into()))
+}
+#[cfg(not(windows))]
+pub fn ensure_toast_identity() -> Result<(), RegisterError> {
+    Err(RegisterError::Failed("Windows uniquement".into()))
+}
+#[cfg(not(windows))]
+pub fn set_guard_autostart(_exe: &Path, _on: bool) -> Result<(), RegisterError> {
     Err(RegisterError::Failed("Windows uniquement".into()))
 }
 #[cfg(not(windows))]

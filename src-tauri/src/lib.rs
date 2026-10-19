@@ -10,6 +10,7 @@ mod discover;
 mod fixes;
 pub mod hmac;
 mod i18n_log;
+mod guard_service;
 mod headless;
 mod install;
 mod library;
@@ -19,6 +20,7 @@ mod notify;
 mod reachability;
 mod stats;
 mod steam_downgrade;
+mod source_guard;
 mod steamtools_source;
 mod steamstore;
 pub use update::RELEASE_PUBLIC_KEYS;
@@ -87,7 +89,19 @@ pub fn run() {
     if let Some(code) = headless::run_if_requested() {
         std::process::exit(code);
     }
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // One resident process: a second launch (the logon entry, a shortcut) shows the
+    // first. Release only: the bench starts debug binaries beside a running app.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        use tauri::Manager;
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+        }
+    }));
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
@@ -103,6 +117,13 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" && guard_service::on_close_requested(window.app_handle()) {
+                    api.prevent_close();
+                }
+            }
+        })
         .setup(|app| {
             let cfg = config::AppConfig::load().unwrap_or_else(|e| {
                 eprintln!("config load failed, using defaults: {e}");
@@ -120,6 +141,20 @@ pub fn run() {
                         }
                     }
                 });
+            }
+
+            // The window starts hidden (tauri.conf.json): shown here unless this start is
+            // the resident one from the logon entry, which only wants the tray icon.
+            let background = std::env::args().any(|a| a == "--background");
+            let guard_on = guard_service::wanted(&cfg);
+            if background && !guard_on {
+                // A stale logon entry for a guard switched off: nothing to do here.
+                std::process::exit(0);
+            }
+            if !background {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                }
             }
 
             // Remove the stale .old executable left by a previous update.
@@ -171,6 +206,10 @@ pub fn run() {
             );
             // Clean up orphaned temporary files left by previous runs.
             backup::cleanup_orphan_temps(&config::data_dir());
+            if guard_on {
+                guard_service::set_running(app.handle(), true);
+                std::thread::spawn(|| guard_service::sync_autostart(true));
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -239,6 +278,8 @@ pub fn run() {
             commands::steam_unpin,
             commands::get_background_notify,
             commands::set_background_notify,
+            commands::get_background_guard,
+            commands::set_background_guard,
             commands::download_update,
             commands::install_update,
             commands::mark_update_notified,

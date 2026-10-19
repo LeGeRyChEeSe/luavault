@@ -42,6 +42,11 @@ pub struct AppConfig {
     /// THIS machine's registry and scheduler: never imported from a backup.
     #[serde(default)]
     pub background_notify: Option<bool>,
+    /// The resident download guard (`guard_service.rs`): `None` = never touched, which
+    /// means ON; `Some(false)` = switched off in Settings. A fact about THIS machine's
+    /// startup entries: never imported from a backup.
+    #[serde(default)]
+    pub background_guard: Option<bool>,
     /// Which message buttons were pressed and went through on this machine
     /// (`motd::record_run`): what lets a button say "already done" instead of
     /// leaving the user to wonder. A fact about THIS machine, like the registry
@@ -137,6 +142,7 @@ pub fn merge_imported(
             motd_dismissed_id: imported.motd_dismissed_id.clone(),
             // Registrations live in this machine's registry, not in the backup.
             background_notify: local.background_notify,
+            background_guard: local.background_guard,
             motd_actions_done: local.motd_actions_done.clone(),
         },
         kept_local,
@@ -227,6 +233,7 @@ mod tests {
             default_archive_password: None,
             motd_dismissed_id: None,
             background_notify: None,
+            background_guard: None,
             motd_actions_done: Vec::new(),
         }
     }
@@ -523,6 +530,7 @@ mod tests {
             default_archive_password: None,
             motd_dismissed_id: None,
             background_notify: None,
+            background_guard: None,
             motd_actions_done: Vec::new(),
         };
         let imported = AppConfig {
@@ -538,6 +546,7 @@ mod tests {
             default_archive_password: Some("secret".to_string()),
             motd_dismissed_id: Some("m-import".to_string()),
             background_notify: None,
+            background_guard: None,
             motd_actions_done: Vec::new(),
         };
         let result = merge_imported(&local, &imported, exists_false);

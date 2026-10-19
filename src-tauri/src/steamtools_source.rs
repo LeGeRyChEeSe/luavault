@@ -22,6 +22,16 @@ use anyhow::{bail, Context, Result};
 pub const SOURCES: [&str; 3] = ["opensteamtool", "steamrun", "wudrm"];
 pub const DEFAULT_SOURCE: &str = "opensteamtool";
 
+/// The other one of the pair the guard alternates between (the two upstreams the
+/// repair script itself alternates). Anything else, the default included, moves to the
+/// first of the pair.
+pub fn next_source(current: &str) -> &'static str {
+    match current {
+        "wudrm" => "steamrun",
+        _ => "wudrm",
+    }
+}
+
 pub fn is_known(source: &str) -> bool {
     SOURCES.contains(&source)
 }
@@ -237,6 +247,17 @@ mod tests {
         assert!(apply(&d, "").is_err());
         assert!(!config_path(&d).exists());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_guard_alternates_between_the_pair_and_always_names_a_known_source() {
+        assert_eq!(next_source("wudrm"), "steamrun");
+        assert_eq!(next_source("steamrun"), "wudrm");
+        assert_eq!(next_source(DEFAULT_SOURCE), "wudrm");
+        assert_eq!(next_source("anything"), "wudrm");
+        for s in SOURCES {
+            assert!(is_known(next_source(s)));
+        }
     }
 
     #[test]

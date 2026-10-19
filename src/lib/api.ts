@@ -665,6 +665,17 @@ export const getBackgroundNotify = () => invoke<BackgroundNotify>("get_backgroun
  *  scheduled check. Only from the one-time offer or the Settings switch. */
 export const setBackgroundNotify = (enabled: boolean) =>
   invoke<BackgroundNotify>("set_background_notify", { enabled });
+export interface BackgroundGuard {
+  /** What the user chose: on unless switched off. */
+  enabled: boolean;
+  /** Whether it can also start with Windows (not in portable mode). */
+  autostart: boolean;
+}
+/** A pure read of the config. */
+export const getBackgroundGuard = () => invoke<BackgroundGuard>("get_background_guard");
+/** Start or stop the resident download guard (tray icon, surveillance, logon entry). */
+export const setBackgroundGuard = (enabled: boolean) =>
+  invoke<BackgroundGuard>("set_background_guard", { enabled });
 export const downloadUpdate = (version: string, file: string, sha256: string, size: number) =>
   invoke<string>("download_update", { version, file, sha256, size });
 export const installUpdate = (path: string) => invoke<void>("install_update", { path });

@@ -15,6 +15,16 @@ Two rules to follow when editing this file, because the script depends on them:
   publish script then places them separately in `notes_i18n`, with French kept as
   the `notes` fallback for older clients.
 
+## 1.1.4 - 2026-10-19
+
+### fr
+- L'application suit maintenant les téléchargements en arrière-plan. Quand un téléchargement échoue avec « Pas de connexion Internet », elle le voit, vous prévient par une notification et change de serveur toute seule, sans rien redémarrer. Quand aucun serveur ne répond, elle laisse des pauses de plus en plus longues entre deux séries d'essais.
+- Une icône près de l'horloge montre l'état des serveurs de téléchargement (en ligne, dégradé, hors ligne) et le prochain essai. Fermer la fenêtre garde l'application active, « Quitter » dans le menu de l'icône l'arrête. Elle démarre avec Windows, et un réglage permet de la couper.
+
+### en
+- The app now watches downloads in the background. When a download fails with "No internet connection", it sees it, tells you with a notification and switches servers by itself, with nothing to restart. When no server answers, it leaves longer and longer pauses between rounds of attempts.
+- An icon next to the clock shows the state of the download servers (online, degraded, offline) and the next attempt. Closing the window keeps the app running, "Quit" in the icon's menu stops it. It starts with Windows, and a setting turns it off.
+
 ## 1.1.3 - 2026-10-19
 
 ### fr

@@ -18,6 +18,8 @@
     getAppInfo,
     getBackgroundNotify,
     setBackgroundNotify,
+    getBackgroundGuard,
+    setBackgroundGuard,
     importBackup,
     installUpdate,
     listBackups,
@@ -31,7 +33,7 @@
     wipePreview,
     wipeProtectedPaths,
   } from "../lib/api";
-  import type { BackgroundNotify, BackupProbe, ImportCandidate, ImportPreview } from "../lib/api";
+  import type { BackgroundGuard, BackgroundNotify, BackupProbe, ImportCandidate, ImportPreview } from "../lib/api";
   import type {
     AppInfo,
     ArtworkCacheInfo,
@@ -64,6 +66,20 @@
   // portable mode; `enabled` is null until the user answers the one-time offer.
   let notify = $state<BackgroundNotify | null>(null);
   let notifyBusy = $state(false);
+  // The resident download guard: a tray icon that follows a failing download.
+  let guard = $state<BackgroundGuard | null>(null);
+  let guardBusy = $state(false);
+
+  async function toggleGuard(enable: boolean) {
+    guardBusy = true;
+    try {
+      guard = await setBackgroundGuard(enable);
+    } catch (e) {
+      appState.toast("error", String(e));
+    } finally {
+      guardBusy = false;
+    }
+  }
 
   async function toggleNotify(enable: boolean) {
     notifyBusy = true;
@@ -335,6 +351,9 @@
   $effect(() => {
     void getBackgroundNotify()
       .then((n) => (notify = n))
+      .catch(() => {});
+    void getBackgroundGuard()
+      .then((g) => (guard = g))
       .catch(() => {});
     void getAppInfo()
       .then((i) => (appInfo = i))
@@ -1442,6 +1461,33 @@
       </div>
     {/if}
   </section>
+
+  <!-- ------------------------------------------------ download guard -->
+  {#if guard}
+    <section class="glass enter-up flex flex-col gap-3 rounded-xl2 p-5" data-settings-guard>
+      <div class="min-w-0">
+        <h3 class="flex items-center gap-2 text-sm font-semibold">
+          <Icon name="info" size={16} />
+          {t("settings.guard.title")}
+        </h3>
+        <p class="mt-0.5 text-xs text-azure-900/55">{t("settings.guard.desc")}</p>
+      </div>
+      <label class="flex cursor-pointer items-center gap-3 rounded-xl bg-surface/55 px-4 py-2.5 text-sm">
+        <input
+          type="checkbox"
+          class="accent-azure-500"
+          data-settings-guard-switch
+          checked={guard.enabled}
+          disabled={guardBusy}
+          onchange={(e) => void toggleGuard(e.currentTarget.checked)}
+        />
+        <span class="min-w-0 flex-1">{t("settings.guard.switch")}</span>
+      </label>
+      <p class="text-xs text-azure-900/45">
+        {guard.autostart ? t("settings.guard.how") : t("settings.guard.howPortable")}
+      </p>
+    </section>
+  {/if}
 
   <!-- ------------------------------------------- background notifications -->
   {#if notify}

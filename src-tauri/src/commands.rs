@@ -1,4 +1,5 @@
 use crate::{
+    guard_service,
     archive, artwork, backup, cache, config, defender, detect, discover, encrypted_backup,
     exchange, fixes, hmac, i18n_log, install, library, motd, motd_run, notify, reachability, stats, steam_downgrade, steamstore, update, vdf, wipe, AppState,
 };
@@ -2577,6 +2578,47 @@ pub async fn set_background_notify(state: State<'_, AppState>, enabled: bool) ->
     let view = background_notify_view(&cfg);
     *state.config.lock().unwrap() = cfg;
     info!("set_background_notify: {enabled}");
+    Ok(view)
+}
+
+#[derive(Serialize)]
+pub struct BackgroundGuard {
+    /// What the user chose (on unless switched off).
+    pub enabled: bool,
+    /// Whether it can also start with Windows (not in portable mode).
+    pub autostart: bool,
+}
+
+fn background_guard_view(cfg: &config::AppConfig) -> BackgroundGuard {
+    BackgroundGuard {
+        enabled: cfg.background_guard != Some(false),
+        autostart: cfg!(windows) && !config::is_portable(),
+    }
+}
+
+#[tauri::command]
+pub fn get_background_guard(state: State<'_, AppState>) -> BackgroundGuard {
+    background_guard_view(&state.config.lock().unwrap())
+}
+
+/// Switch the resident download guard on or off: the tray icon and the surveillance
+/// start or stop now, and the logon entry follows. Only from the switch in Settings.
+#[tauri::command]
+pub async fn set_background_guard(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<BackgroundGuard, String> {
+    let mut cfg = state.config.lock().unwrap().clone();
+    cfg.background_guard = Some(enabled);
+    cfg.save().map_err(|e| e.to_string())?;
+    let view = background_guard_view(&cfg);
+    *state.config.lock().unwrap() = cfg;
+    guard_service::set_running(&app, enabled && guard_service::wanted(&config::AppConfig { background_guard: Some(true), ..Default::default() }));
+    tauri::async_runtime::spawn_blocking(move || guard_service::sync_autostart(enabled))
+        .await
+        .map_err(|e| e.to_string())?;
+    info!("set_background_guard: {enabled}");
     Ok(view)
 }
 
