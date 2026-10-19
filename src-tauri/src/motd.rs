@@ -187,6 +187,8 @@ pub struct MotdView {
     pub dismissed: bool,
     /// What the Steam fix means for THIS machine, when the message offers one.
     pub workaround: Option<Workaround>,
+    /// Where each button stands on THIS machine, by action id (`statuses`).
+    pub statuses: HashMap<String, ActionStatus>,
 }
 
 // -------------------------------------------------------------------- the diagnosis
@@ -266,6 +268,157 @@ pub fn workaround(message: &MotdMessage, facts: &SteamFacts) -> Option<Workaroun
 /// SteamTools, nor for someone already fixed. Anything else notifies as usual.
 pub fn relevant_for_toast(message: &MotdMessage, facts: &SteamFacts) -> bool {
     workaround(message, facts).is_none_or(|w| w.needed)
+}
+
+// -------------------------------------------------------------------- what a button has done
+//
+// A button that needs pressing once must say, afterwards, that it was: nobody should
+// have to wonder whether they already clicked it, nor press it twice "to be sure".
+// Two independent sources feed that answer, and neither is enough alone:
+//
+// - the ledger (`ActionRun`): this machine pressed it and it went through. Says
+//   nothing about whether the effect is still there;
+// - a probe of the effect itself (`probe`), per kind: is the thing still in place?
+//   It also catches what the ledger cannot, e.g. a Steam someone pinned by hand.
+//
+// A new action kind decides its own probe in `probe`'s exhaustive `match`, so it
+// cannot ship without saying what "done" means for it.
+
+/// One button pressed and gone through, on this machine.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActionRun {
+    pub message_id: String,
+    pub action_id: String,
+    /// Unix seconds.
+    pub at: i64,
+}
+
+/// Runs remembered. A notice is replaced every few days; this is a ledger, not a log.
+pub const MAX_RUNS_KEPT: usize = 64;
+
+/// The ledger with `(message_id, action_id)` recorded at `at`. Pressing again
+/// replaces the old entry rather than stacking a second one; the oldest go first.
+pub fn record_run(runs: &[ActionRun], message_id: &str, action_id: &str, at: i64) -> Vec<ActionRun> {
+    let mut kept: Vec<ActionRun> = runs
+        .iter()
+        .filter(|r| !(r.message_id == message_id && r.action_id == action_id))
+        .cloned()
+        .collect();
+    kept.push(ActionRun { message_id: message_id.to_string(), action_id: action_id.to_string(), at });
+    if kept.len() > MAX_RUNS_KEPT {
+        kept.drain(..kept.len() - MAX_RUNS_KEPT);
+    }
+    kept
+}
+
+/// When `(message_id, action_id)` last went through here, if ever.
+pub fn last_run(runs: &[ActionRun], message_id: &str, action_id: &str) -> Option<i64> {
+    runs.iter()
+        .filter(|r| r.message_id == message_id && r.action_id == action_id)
+        .map(|r| r.at)
+        .max()
+}
+
+/// What the interface should make of a button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionState {
+    /// Not done: press it.
+    Todo,
+    /// Done and verified still in place (pressed here, or already true without us).
+    Done,
+    /// Pressed here, and nothing can confirm the effect: the button steps back.
+    Recorded,
+    /// Pressed here before, no longer in place: press it again.
+    Lost,
+    /// Nothing to do on this machine.
+    NotNeeded,
+    /// A gesture rather than a state (restart, open a page): always available.
+    Repeatable,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ActionStatus {
+    pub state: ActionState,
+    /// Unix seconds of the last press that went through here, when there is one.
+    pub ran_at: Option<i64>,
+}
+
+/// What looking at the machine says about one action's effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Probe {
+    /// The effect is there.
+    Holds,
+    /// The effect is not there.
+    Absent,
+    /// The effect is not wanted here.
+    NotNeeded,
+    /// No way to tell from the machine.
+    Unknown,
+    /// Not a state: pressing it again is always legitimate.
+    Gesture,
+}
+
+/// Look at the machine for the effect of `action`. Exhaustive on purpose.
+pub fn probe(action: &MotdAction, resolved: &ResolvedAction, facts: &SteamFacts) -> Probe {
+    match resolved {
+        ResolvedAction::SteamDowngrade(_) => {
+            let from = action.affects_from_number();
+            let installed = facts.installed_version.as_deref().and_then(|v| v.trim().parse::<u64>().ok());
+            // Known to be at or past the build that breaks SteamTools. Unknown is not "broken":
+            // a pin with no way to compare is taken as the fix being there.
+            let broken = matches!((from, installed), (Some(f), Some(i)) if i >= f);
+            let below = matches!((from, installed), (Some(f), Some(i)) if i < f);
+            if facts.pinned && !broken {
+                Probe::Holds
+            } else if facts.pinned {
+                Probe::Absent
+            } else if (facts.steam_present && !facts.steamtools_installed) || below {
+                Probe::NotNeeded
+            } else {
+                Probe::Absent
+            }
+        }
+        ResolvedAction::SteamUndo if !facts.steam_present => Probe::Unknown,
+        ResolvedAction::SteamUndo => {
+            if facts.pinned {
+                Probe::Absent
+            } else {
+                Probe::Holds
+            }
+        }
+        // Repairing SteamTools has no signature on disk that tells a repaired one from a
+        // broken one: the ledger is all there is.
+        ResolvedAction::RepairTools => Probe::Unknown,
+        ResolvedAction::RestartSteam | ResolvedAction::OpenUrl(_) => Probe::Gesture,
+    }
+}
+
+/// Combine the probe and the ledger. Pure, one test per row.
+pub fn status_of(probe: Probe, ran_at: Option<i64>) -> ActionStatus {
+    let state = match probe {
+        Probe::Gesture => ActionState::Repeatable,
+        Probe::Holds => ActionState::Done,
+        Probe::NotNeeded => ActionState::NotNeeded,
+        Probe::Absent if ran_at.is_some() => ActionState::Lost,
+        Probe::Absent => ActionState::Todo,
+        Probe::Unknown if ran_at.is_some() => ActionState::Recorded,
+        Probe::Unknown => ActionState::Todo,
+    };
+    ActionStatus { state, ran_at }
+}
+
+/// Where every button of `message` stands on this machine, by action id.
+pub fn statuses(message: &MotdMessage, facts: &SteamFacts, runs: &[ActionRun]) -> HashMap<String, ActionStatus> {
+    message
+        .actions
+        .iter()
+        .filter_map(|a| {
+            let resolved = a.resolve()?;
+            let ran_at = last_run(runs, &message.id, &a.id);
+            Some((a.id.clone(), status_of(probe(a, &resolved, facts), ran_at)))
+        })
+        .collect()
 }
 
 // -------------------------------------------------------------------- base URL
@@ -815,7 +968,7 @@ mod tests {
             at("2026-10-17T12:00:00Z"),
         )
         .unwrap();
-        let sent = serde_json::to_string(&MotdView { message: m, dismissed: false, workaround: None }).unwrap();
+        let sent = serde_json::to_string(&MotdView { message: m, dismissed: false, workaround: None, statuses: HashMap::new() }).unwrap();
         for leaked in ["20261006145653", SHA, "example.org"] {
             assert!(!sent.contains(leaked), "{leaked} serialised to the UI");
         }
@@ -938,5 +1091,130 @@ mod tests {
         // A message that offers no Steam fix notifies everyone, as before.
         let plain = msg_with(r#"[{"id":"r","kind":"restart_steam"}]"#, false);
         assert!(relevant_for_toast(&plain, &SteamFacts::default()));
+    }
+
+    // ---------------------------------------------------------- what a button has done
+
+    fn downgrade_action(affects_from: Option<&str>) -> MotdAction {
+        MotdAction {
+            id: "fix".into(),
+            kind: "steam_downgrade".into(),
+            label: HashMap::new(),
+            snapshot: Some("20261006145653".into()),
+            manifest_sha256: Some("0".repeat(64)),
+            url: None,
+            affects_from: affects_from.map(String::from),
+        }
+    }
+
+    fn plain_action(id: &str, kind: &str) -> MotdAction {
+        MotdAction {
+            id: id.into(),
+            kind: kind.into(),
+            label: HashMap::new(),
+            snapshot: None,
+            manifest_sha256: None,
+            url: None,
+            affects_from: None,
+        }
+    }
+
+    fn probe_of(a: &MotdAction, f: &SteamFacts) -> Probe {
+        probe(a, &a.resolve().expect("resolvable"), f)
+    }
+
+    fn steam(installed: Option<&str>, pinned: bool, steamtools: bool) -> SteamFacts {
+        SteamFacts {
+            steam_present: true,
+            installed_version: installed.map(String::from),
+            pinned,
+            steamtools_installed: steamtools,
+        }
+    }
+
+    #[test]
+    fn status_of_covers_every_row() {
+        use ActionState::*;
+        let at = Some(1_700_000_000);
+        assert_eq!(status_of(Probe::Gesture, None).state, Repeatable);
+        assert_eq!(status_of(Probe::Gesture, at).state, Repeatable, "a gesture never locks");
+        assert_eq!(status_of(Probe::Holds, None).state, Done, "already true without us");
+        assert_eq!(status_of(Probe::Holds, at).state, Done);
+        assert_eq!(status_of(Probe::NotNeeded, at).state, NotNeeded);
+        assert_eq!(status_of(Probe::Absent, None).state, Todo);
+        assert_eq!(status_of(Probe::Absent, at).state, Lost, "pressed, but gone");
+        assert_eq!(status_of(Probe::Unknown, None).state, Todo);
+        assert_eq!(status_of(Probe::Unknown, at).state, Recorded);
+        assert_eq!(status_of(Probe::Unknown, at).ran_at, at, "the date travels with the state");
+    }
+
+    #[test]
+    fn the_steam_fix_probe_reads_the_machine() {
+        let a = downgrade_action(Some("1791918634"));
+        assert_eq!(probe_of(&a, &steam(Some("1788652215"), true, true)), Probe::Holds, "pinned on the old build");
+        assert_eq!(probe_of(&a, &steam(Some("1791918634"), true, true)), Probe::Absent, "pinned on the broken build");
+        assert_eq!(probe_of(&a, &steam(Some("1791918634"), false, true)), Probe::Absent, "the problem case");
+        assert_eq!(probe_of(&a, &steam(Some("1788652215"), false, true)), Probe::NotNeeded, "an older Steam is not concerned");
+        assert_eq!(probe_of(&a, &steam(None, false, true)), Probe::Absent, "unreadable version: cannot say it is fine");
+        assert_eq!(probe_of(&a, &steam(Some("1791918634"), false, false)), Probe::NotNeeded, "no SteamTools");
+        // Without a threshold a pin is simply taken as the fix being there.
+        let bare = downgrade_action(None);
+        assert_eq!(probe_of(&bare, &steam(Some("1791918634"), true, true)), Probe::Holds);
+        assert_eq!(probe_of(&bare, &steam(Some("1791918634"), false, true)), Probe::Absent);
+    }
+
+    #[test]
+    fn every_kind_decides_what_done_means_for_it() {
+        let free = steam(Some("1"), false, true);
+        let pinned = steam(Some("1"), true, true);
+        let undo = plain_action("u", "steam_undo");
+        assert_eq!(probe_of(&undo, &free), Probe::Holds, "not pinned = updates are on");
+        assert_eq!(probe_of(&undo, &pinned), Probe::Absent);
+        assert_eq!(probe_of(&undo, &SteamFacts::default()), Probe::Unknown, "no Steam to look at");
+        assert_eq!(probe_of(&plain_action("r", "repair_tools"), &free), Probe::Unknown);
+        assert_eq!(probe_of(&plain_action("s", "restart_steam"), &free), Probe::Gesture);
+        let mut url = plain_action("o", "open_url");
+        url.url = Some("https://example.org/".into());
+        assert_eq!(probe_of(&url, &free), Probe::Gesture);
+    }
+
+    #[test]
+    fn the_ledger_replaces_rather_than_stacks_and_is_capped() {
+        let one = record_run(&[], "m1", "a", 10);
+        let again = record_run(&one, "m1", "a", 20);
+        assert_eq!(again.len(), 1);
+        assert_eq!(last_run(&again, "m1", "a"), Some(20));
+        assert_eq!(last_run(&again, "m1", "b"), None, "another button");
+        assert_eq!(last_run(&again, "m2", "a"), None, "another message: republishing starts afresh");
+        let mut runs = Vec::new();
+        for i in 0..(MAX_RUNS_KEPT as i64 + 10) {
+            runs = record_run(&runs, &format!("m{i}"), "a", i);
+        }
+        assert_eq!(runs.len(), MAX_RUNS_KEPT);
+        assert_eq!(last_run(&runs, "m0", "a"), None, "the oldest went first");
+        assert!(last_run(&runs, &format!("m{}", MAX_RUNS_KEPT as i64 + 9), "a").is_some());
+    }
+
+    #[test]
+    fn statuses_are_keyed_by_action_id_and_follow_the_ledger() {
+        let m = MotdMessage {
+            id: "msg".into(),
+            published_at: "2026-10-19T00:00:00Z".into(),
+            expires_at: None,
+            severity: None,
+            title: HashMap::new(),
+            body: HashMap::new(),
+            actions: vec![plain_action("repair", "repair_tools"), downgrade_action(None)],
+            persistent: false,
+        };
+        let facts = steam(None, false, true);
+        let none = statuses(&m, &facts, &[]);
+        assert_eq!(none["repair"].state, ActionState::Todo);
+        assert_eq!(none["fix"].state, ActionState::Todo);
+        let runs = record_run(&[], "msg", "repair", 5);
+        let after = statuses(&m, &facts, &runs);
+        assert_eq!(after["repair"].state, ActionState::Recorded);
+        assert_eq!(after["repair"].ran_at, Some(5));
+        assert_eq!(statuses(&m, &steam(None, true, true), &runs)["fix"].state, ActionState::Done);
     }
 }

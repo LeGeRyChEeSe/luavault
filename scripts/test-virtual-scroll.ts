@@ -1100,7 +1100,7 @@ await import("./test-keyboard-shortcuts");
 
 // ── MOTD: le dialecte markdown et les décisions pures du message du jour ──
 // Même contrat que les suites ci-dessus : promesse attendue, compte exact.
-const MOTD_CASES = 37;
+const MOTD_CASES = 39;
 {
   const mod = (await import("./test-motd-markdown")) as unknown as {
     __motdRan: boolean;

@@ -4,7 +4,7 @@
  * valeur dans `scripts/test-motd-markdown.ts`.
  */
 
-import type { MotdAction, MotdActionKind, MotdMessage, Workaround } from "./api";
+import type { MotdAction, MotdActionKind, MotdActionStatus, MotdMessage, Workaround } from "./api";
 
 export type MotdSeverity = "info" | "warning" | "critical";
 
@@ -88,4 +88,41 @@ export function steamDowngradeOffer(message: MotdMessage | null): MotdAction | n
  */
 export function isForced(message: MotdMessage | null, workaround: Workaround | null): boolean {
   return !!message?.persistent && !!workaround?.needed;
+}
+
+/**
+ * What a button looks like once the backend has said where it stands. The rule is
+ * the same for every kind: a button that needs pressing once says, afterwards, that
+ * it was, and does not invite a second press.
+ *
+ * - `button`: not done (or a gesture such as a restart): the button, as before;
+ * - `done`: in place and verified (or already true without us): a status line, no button;
+ * - `not_needed`: nothing to do on this machine: a status line, no button;
+ * - `recorded`: pressed here, nothing can verify the effect: a status line with the
+ *   date, and a discreet « Refaire », since a failed repair must not be a dead end;
+ * - `lost`: pressed here, no longer in place: the status line and the button again.
+ *
+ * An unknown state, or none (an older backend), reads as `button`: a missing answer
+ * must never hide a button that may be needed.
+ */
+export type ActionPresentation = "button" | "done" | "not_needed" | "recorded" | "lost";
+
+export function presentationOf(status: MotdActionStatus | null | undefined): ActionPresentation {
+  switch (status?.state) {
+    case "done":
+      return "done";
+    case "not_needed":
+      return "not_needed";
+    case "recorded":
+      return "recorded";
+    case "lost":
+      return "lost";
+    default:
+      return "button";
+  }
+}
+
+/** Does this presentation show the button (as the main gesture)? */
+export function showsMainButton(p: ActionPresentation): boolean {
+  return p === "button" || p === "lost";
 }

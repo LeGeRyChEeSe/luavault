@@ -63,3 +63,9 @@ release-backup.key
 # (Reddit promo posts, Discord FAQ drafts) is posted by hand and stays local.
 /docs/*
 !/docs/screenshots
+
+# Discord announcement webhook — a secret: anyone holding it can post in the channel
+discord-webhook.url
+
+# Discord announcement drafts — they go to Discord only, never to GitHub
+announcements/

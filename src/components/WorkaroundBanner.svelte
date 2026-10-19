@@ -26,6 +26,7 @@
       failure = String(e);
     }
     await appState.refreshWorkaround();
+    await appState.refreshMotdStatuses();
     void appState.refresh();
   }
 </script>

@@ -2441,13 +2441,15 @@ pub async fn check_motd(state: State<'_, AppState>) -> Result<Option<motd::MotdV
     notify::mark_notified(&message.id);
     let cfg = state.config.lock().unwrap().clone();
     let dismissed = motd::is_dismissed(&message, cfg.motd_dismissed_id.as_deref());
-    let workaround = motd::workaround(&message, &motd::SteamFacts::read(resolve_steam(&cfg).as_deref()));
+    let facts = motd::SteamFacts::read(resolve_steam(&cfg).as_deref());
+    let workaround = motd::workaround(&message, &facts);
+    let statuses = motd::statuses(&message, &facts, &cfg.motd_actions_done);
     info!(
         "check_motd: message {} actif (écarté : {dismissed}, correctif requis : {})",
         message.id,
         workaround.as_ref().is_some_and(|w| w.needed)
     );
-    Ok(Some(motd::MotdView { message, dismissed, workaround }))
+    Ok(Some(motd::MotdView { message, dismissed, workaround, statuses }))
 }
 
 /// Re-read what the Steam fix means for this machine, from the message already
@@ -2458,6 +2460,18 @@ pub fn motd_workaround(state: State<'_, AppState>) -> Option<motd::Workaround> {
     let message = state.motd_current.lock().unwrap().clone()?;
     let cfg = state.config.lock().unwrap().clone();
     motd::workaround(&message, &motd::SteamFacts::read(resolve_steam(&cfg).as_deref()))
+}
+
+/// Where each button of the current message stands on this machine, re-read from
+/// the files on disk and the ledger, without the network. The window calls it after
+/// a press, so the button that was just used turns into its "done" state at once.
+#[tauri::command]
+pub fn motd_action_statuses(state: State<'_, AppState>) -> std::collections::HashMap<String, motd::ActionStatus> {
+    let Some(message) = state.motd_current.lock().unwrap().clone() else {
+        return Default::default();
+    };
+    let cfg = state.config.lock().unwrap().clone();
+    motd::statuses(&message, &motd::SteamFacts::read(resolve_steam(&cfg).as_deref()), &cfg.motd_actions_done)
 }
 
 /// Run one button of the current message. The frontend names the message and the
@@ -2481,6 +2495,16 @@ pub async fn run_motd_action(
     let result = motd_run::execute(&state.update_http, resolve_steam(&cfg), resolved).await;
     // Steam rewrote its own files: the VDF caches are stale whatever the outcome.
     vdf::clear_caches();
+    if result.is_ok() {
+        // Only a press that went through is remembered: a refusal changed nothing.
+        let mut cfg = state.config.lock().unwrap().clone();
+        cfg.motd_actions_done =
+            motd::record_run(&cfg.motd_actions_done, &message_id, &action_id, chrono::Utc::now().timestamp());
+        match cfg.save() {
+            Ok(()) => *state.config.lock().unwrap() = cfg,
+            Err(e) => warn!("run_motd_action: registre des boutons non écrit ({e})"),
+        }
+    }
     result
 }
 

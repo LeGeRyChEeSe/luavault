@@ -42,6 +42,12 @@ pub struct AppConfig {
     /// THIS machine's registry and scheduler: never imported from a backup.
     #[serde(default)]
     pub background_notify: Option<bool>,
+    /// Which message buttons were pressed and went through on this machine
+    /// (`motd::record_run`): what lets a button say "already done" instead of
+    /// leaving the user to wonder. A fact about THIS machine, like the registry
+    /// entries above: never imported from a backup.
+    #[serde(default)]
+    pub motd_actions_done: Vec<crate::motd::ActionRun>,
 }
 
 /// Result of merging an imported config into a local one.
@@ -131,6 +137,7 @@ pub fn merge_imported(
             motd_dismissed_id: imported.motd_dismissed_id.clone(),
             // Registrations live in this machine's registry, not in the backup.
             background_notify: local.background_notify,
+            motd_actions_done: local.motd_actions_done.clone(),
         },
         kept_local,
     }
@@ -220,6 +227,7 @@ mod tests {
             default_archive_password: None,
             motd_dismissed_id: None,
             background_notify: None,
+            motd_actions_done: Vec::new(),
         }
     }
 
@@ -515,6 +523,7 @@ mod tests {
             default_archive_password: None,
             motd_dismissed_id: None,
             background_notify: None,
+            motd_actions_done: Vec::new(),
         };
         let imported = AppConfig {
             steam_dir: Some(PathBuf::from("Z:\\NonExistent")),
@@ -529,6 +538,7 @@ mod tests {
             default_archive_password: Some("secret".to_string()),
             motd_dismissed_id: Some("m-import".to_string()),
             background_notify: None,
+            motd_actions_done: Vec::new(),
         };
         let result = merge_imported(&local, &imported, exists_false);
         // Les chemins locaux survivent.

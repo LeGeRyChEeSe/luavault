@@ -234,6 +234,7 @@ pub fn run() {
             commands::run_motd_action,
             commands::steam_pin_status,
             commands::motd_workaround,
+            commands::motd_action_statuses,
             commands::steam_unpin,
             commands::get_background_notify,
             commands::set_background_notify,

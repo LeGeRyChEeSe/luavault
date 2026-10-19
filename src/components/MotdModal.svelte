@@ -15,7 +15,7 @@
    */
   import { focusTrap } from "../lib/focus-trap";
   import { t, i18n } from "../lib/i18n.svelte";
-  import { actionLabel, actionNeedsConfirm, isForced, motdSeverity, resolveMotdText } from "../lib/motd";
+  import { actionLabel, actionNeedsConfirm, isForced, motdSeverity, presentationOf, resolveMotdText, showsMainButton } from "../lib/motd";
   import type { MotdSeverity } from "../lib/motd";
   import { runMotdAction } from "../lib/api";
   import type { MotdAction, MotdMessage } from "../lib/api";
@@ -72,8 +72,10 @@
     try {
       const text = await runMotdAction(message.id, action.id);
       if (text) outcome = { ok: true, text };
-      // Steam and the add-on may have changed under the app: read them again.
+      // Steam and the add-on may have changed under the app: read them again, and
+      // let the button say it was pressed instead of inviting a second press.
       if (action.kind !== "open_url") void appState.refresh();
+      await appState.refreshMotdStatuses();
     } catch (e) {
       outcome = { ok: false, text: String(e) };
     } finally {
@@ -128,27 +130,60 @@
     </div>
 
     {#if actions.length > 0}
-      <div class="mt-4 flex flex-wrap gap-2" data-motd-actions>
+      <div class="mt-4 flex flex-col gap-2" data-motd-actions>
         {#each actions as action, i (action.id)}
-          <div class="contents" data-motd-action={action.id} data-motd-kind={action.kind}>
-          {#if actionNeedsConfirm(action.kind)}
-            <ConfirmButton
-              label={labelOf(action)}
-              confirmLabel={t("motd.action.confirm")}
-              onconfirm={() => run(action)}
-              disabled={busyAction !== null}
-              primary={i === 0}
-            />
-          {:else}
-            <ActionButton
-              label={labelOf(action)}
-              icon="arrow-right"
-              variant={i === 0 ? "primary" : "ghost"}
-              disabled={busyAction !== null}
-              busy={busyAction === action.id}
-              onclick={() => run(action)}
-            />
+          {@const status = appState.motdStatuses[action.id]}
+          {@const view = presentationOf(status)}
+          {#if view !== "button"}
+            <p
+              class="flex items-start gap-2 rounded-xl px-3 py-2 text-sm {view === 'lost'
+                ? 'bg-peach-soft/55 text-peach-deep'
+                : 'bg-mint-soft/55 text-mint-deep'}"
+              data-motd-status={action.id}
+              data-motd-state={view}
+            >
+              <span class="mt-0.5 shrink-0"><Icon name={view === "lost" ? "alert" : "check"} size={16} /></span>
+              <span>
+                {t(`motd.state.${view}`, {
+                  label: labelOf(action),
+                  date: formatUnixDate(status?.ran_at),
+                })}
+              </span>
+            </p>
           {/if}
+          <div class="flex flex-wrap gap-2">
+            {#if showsMainButton(view)}
+              <div class="contents" data-motd-action={action.id} data-motd-kind={action.kind}>
+                {#if actionNeedsConfirm(action.kind)}
+                  <ConfirmButton
+                    label={labelOf(action)}
+                    confirmLabel={t("motd.action.confirm")}
+                    onconfirm={() => run(action)}
+                    disabled={busyAction !== null}
+                    primary={i === 0}
+                  />
+                {:else}
+                  <ActionButton
+                    label={labelOf(action)}
+                    icon="arrow-right"
+                    variant={i === 0 ? "primary" : "ghost"}
+                    disabled={busyAction !== null}
+                    busy={busyAction === action.id}
+                    onclick={() => run(action)}
+                  />
+                {/if}
+              </div>
+            {:else if view === "recorded"}
+              <!-- Pressed before and nothing can verify it: a way to redo, never the main gesture. -->
+              <div class="contents" data-motd-redo={action.id} data-motd-kind={action.kind}>
+                <ConfirmButton
+                  label={t("motd.action.redo")}
+                  confirmLabel={t("motd.action.confirm")}
+                  onconfirm={() => run(action)}
+                  disabled={busyAction !== null}
+                />
+              </div>
+            {/if}
           </div>
         {/each}
       </div>

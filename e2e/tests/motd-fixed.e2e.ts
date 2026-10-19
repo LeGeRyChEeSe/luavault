@@ -45,6 +45,14 @@ export default defineSuite({
       assert.equal(await s.maybeFind('[data-motd-forced]'), null, 'rien ne dit que le message insiste');
     },
 
+    "Steam déjà figé : le bouton dit que c'est fait et n'invite pas à recommencer": async (app) => {
+      const s = app.session;
+      const status = await s.waitFor('[data-motd-status="steam_downgrade"]');
+      assert.equal(await status.attribute('data-motd-state'), 'done', 'état vérifié sur le disque, pas deviné');
+      assert.includes(await status.text(), 'déjà en place', 'la phrase le dit');
+      assert.equal(await s.maybeFind('[data-motd-action="steam_downgrade"]'), null, 'plus de bouton à presser deux fois');
+    },
+
     "aucune bannière, et les Outils offrent le retour arrière": async (app) => {
       const s = app.session;
       await (await s.waitFor('[data-motd-close]')).click();

@@ -89,7 +89,10 @@ param(
     [switch]$Clear,
     [string]$SigningKey,
     [string]$Tag = 'motd',
-    [switch]$DryRun
+    [switch]$DryRun,
+    # Annonce Discord écrite à la main (scripts/announce-discord.ps1), postée une fois
+    # le message publié : pour une info importante comme une panne ou un correctif.
+    [string]$AnnounceFile = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -329,6 +332,7 @@ Write-Host "signature : $($signature.Trim())"
 
 if ($DryRun) {
     Write-Host "-DryRun : rien n'est publié."
+    if ($AnnounceFile) { & (Join-Path $PSScriptRoot 'announce-discord.ps1') -File $AnnounceFile -Kind important -DryRun }
     exit 0
 }
 
@@ -355,3 +359,7 @@ elseif ($openEnded) { Write-Host "publié : message $Id, sans expiration — ret
 else { Write-Host "publié : message $Id, jusqu'au $($expires.ToString('yyyy-MM-dd HH:mm')) UTC" }
 Write-Host "vérifie depuis l'extérieur :"
 Write-Host "  curl -sL https://github.com/LeGeRyChEeSe/luavault/releases/download/$Tag/motd.json"
+
+if ($AnnounceFile -and -not $Clear) {
+    & (Join-Path $PSScriptRoot 'announce-discord.ps1') -File $AnnounceFile -Kind important
+}

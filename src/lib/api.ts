@@ -613,12 +613,23 @@ export interface Workaround {
   installed_version: string | null;
 }
 
+/** Where one button stands on THIS machine (`motd::ActionState`). */
+export type MotdActionState = "todo" | "done" | "recorded" | "lost" | "not_needed" | "repeatable";
+
+export interface MotdActionStatus {
+  state: MotdActionState;
+  /** Unix seconds of the last press that went through here, or null. */
+  ran_at: number | null;
+}
+
 export interface MotdView {
   message: MotdMessage;
   /** True when the user asked never to see this exact id again. */
   dismissed: boolean;
   /** Null when the message offers no Steam fix. */
   workaround: Workaround | null;
+  /** By action id: pressed already? still in place? Decided by the backend. */
+  statuses: Record<string, MotdActionStatus>;
 }
 
 export const checkMotd = () => invoke<MotdView | null>("check_motd");
@@ -639,6 +650,8 @@ export const steamUnpin = () => invoke<string>("steam_unpin");
 /** Re-read the verdict after applying the fix: no network, the message already
  *  verified plus the files on disk. */
 export const motdWorkaround = () => invoke<Workaround | null>("motd_workaround");
+/** Re-read where each button stands (files + ledger), no network. A pure read. */
+export const motdActionStatuses = () => invoke<Record<string, MotdActionStatus>>("motd_action_statuses");
 
 export interface BackgroundNotify {
   /** `null` = never asked; `true` = registered with Windows; `false` = declined or off. */

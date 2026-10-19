@@ -208,6 +208,13 @@ async fn motd_action(raw: &str) -> i32 {
     match motd_run::execute(&http, steam_dir, resolved).await {
         Ok(text) => {
             log_line(&format!("action {action_id} effectuée"));
+            // The window reads this ledger to say "already done" instead of offering the button again.
+            let mut done = cfg.clone();
+            done.motd_actions_done =
+                motd::record_run(&done.motd_actions_done, &pending.message_id, action_id, Utc::now().timestamp());
+            if let Err(e) = done.save() {
+                log_line(&format!("registre des boutons non écrit : {e}"));
+            }
             if !text.is_empty() {
                 report(lang, true, &text);
             }

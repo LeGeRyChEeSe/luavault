@@ -13,8 +13,8 @@
 
 import { parseMotd, parseInline, parseColorName, isSafeHref, plainText } from "../src/lib/motd-markdown";
 import type { Block, Inline } from "../src/lib/motd-markdown";
-import { actionLabel, actionNeedsConfirm, isForced, motdSeverity, resolveMotdText, shouldOpenMotdAtStartup, steamDowngradeOffer } from "../src/lib/motd";
-import type { MotdAction, MotdActionKind, MotdMessage, Workaround } from "../src/lib/api";
+import { actionLabel, actionNeedsConfirm, isForced, motdSeverity, presentationOf, resolveMotdText, shouldOpenMotdAtStartup, showsMainButton, steamDowngradeOffer } from "../src/lib/motd";
+import type { MotdAction, MotdActionKind, MotdActionState, MotdMessage, Workaround } from "../src/lib/api";
 
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -41,7 +41,7 @@ const assert = {
 };
 
 let cases = 0;
-const EXPECTED_CASES = 37;
+const EXPECTED_CASES = 39;
 function label(name: string): void {
   cases++;
   console.log(`  ✓ ${name}`);
@@ -287,6 +287,26 @@ export const motdSuite: Promise<void> = (async () => {
     assert.equal(shouldOpenMotdAtStartup(persistent, null, null, true), true);
     assert.equal(shouldOpenMotdAtStartup(null, "m1", null, true), false);
     label("shouldOpenMotdAtStartup : forcé, l'id écarté ne compte plus, mais une seule ouverture par session");
+
+    // Un bouton qui ne sert qu'une fois dit, après coup, qu'il a servi : valable pour tout type d'action.
+    const st = (state: string) => ({ state: state as MotdActionState, ran_at: null });
+    assert.equal(presentationOf(st("todo")), "button");
+    assert.equal(presentationOf(st("repeatable")), "button", "un geste (relancer, ouvrir) reste toujours disponible");
+    assert.equal(presentationOf(st("done")), "done");
+    assert.equal(presentationOf(st("not_needed")), "not_needed");
+    assert.equal(presentationOf(st("recorded")), "recorded");
+    assert.equal(presentationOf(st("lost")), "lost");
+    assert.equal(presentationOf(undefined), "button", "pas de réponse : jamais de bouton caché");
+    assert.equal(presentationOf(null), "button");
+    assert.equal(presentationOf(st("something_new")), "button", "un état inconnu d'un vieux client ne cache rien");
+    label("presentationOf : l'état de chaque bouton décide de son affichage, l'inconnu retombe sur le bouton");
+
+    assert.equal(showsMainButton("button"), true);
+    assert.equal(showsMainButton("lost"), true, "plus en place : on peut le refaire");
+    for (const p of ["done", "not_needed", "recorded"] as const) {
+      assert.equal(showsMainButton(p), false, `${p} : pas de second appui sur le bouton principal`);
+    }
+    label("showsMainButton : seuls « à faire » et « n'est plus en place » montrent le bouton");
 
     console.log(`── MOTD : ${cases} cas ──`);
   } catch (e) {

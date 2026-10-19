@@ -12,7 +12,11 @@ param(
     [string]$ProjectRoot,
     # A dry-run fixture has no release key or lvrelease binary. Never allow
     # this escape hatch for a real publication.
-    [switch]$SkipSigning
+    [switch]$SkipSigning,
+    # Annonce Discord écrite à la main (voir scripts/announce-discord.ps1), postée
+    # une fois la release publiée. Sans ce fichier, rien n'est annoncé : le texte
+    # des notes de version est technique, une annonce se rédige.
+    [string]$AnnounceFile = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -222,6 +226,7 @@ if (-not $SkipSigning) {
 }
 
 if ($DryRun) {
+    if ($AnnounceFile) { & (Join-Path $PSScriptRoot 'announce-discord.ps1') -File $AnnounceFile -Kind release -DryRun }
     $result = if ($SkipSigning) { 'manifeste créé (signature simulée)' } else { 'manifeste et signature créés' }
     Write-Host "Dry-run réussi : $result dans $releaseDir"
     exit 0
@@ -276,3 +281,10 @@ foreach ($asset in $assets) {
 }
 
 Write-Host "Release GitHub $tag publiée avec $($artifacts.Count) artefact(s), manifest.json et manifest.json.sig."
+
+# Une release en brouillon n'est pas visible : l'annoncer maintenant serait mentir.
+if ($AnnounceFile -and -not $Draft) {
+    & (Join-Path $PSScriptRoot 'announce-discord.ps1') -File $AnnounceFile -Kind release
+} elseif ($AnnounceFile) {
+    Write-Host "Brouillon : l'annonce Discord n'est pas envoyée. Publie la release, puis lance announce-discord.ps1."
+}

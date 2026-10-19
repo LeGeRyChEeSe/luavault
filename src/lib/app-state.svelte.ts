@@ -1,5 +1,5 @@
-import { checkMotd, checkUpdate, detectAll, getBackgroundNotify, getReachability, getUpdateNotified, libraryStatus, listLibrary, markUpdateNotified, motdWorkaround, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeUpdateResult } from "./api";
-import type { DetectionReport, GameStatus, LibraryEntry, MotdMessage, Reachability, Workaround, UpdateAvailable, UpdateResult } from "./api";
+import { checkMotd, checkUpdate, detectAll, getBackgroundNotify, getReachability, getUpdateNotified, libraryStatus, listLibrary, markUpdateNotified, motdActionStatuses, motdWorkaround, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeUpdateResult } from "./api";
+import type { DetectionReport, GameStatus, LibraryEntry, MotdActionStatus, MotdMessage, Reachability, Workaround, UpdateAvailable, UpdateResult } from "./api";
 import { themeStore } from "./theme.svelte";
 import { i18n, t } from "./i18n.svelte";
 import { LONG_TOAST_MS, resolveToastDuration } from "./toast-duration";
@@ -146,11 +146,13 @@ class AppStore {
       if (!view) {
         this.motd = null;
         this.workaround = null;
+        this.motdStatuses = {};
         return;
       }
       this.motd = view.message;
       this.motdDismissed = view.dismissed;
       this.workaround = view.workaround;
+      this.motdStatuses = view.statuses ?? {};
       if (
         shouldOpenMotdAtStartup(
           view.message,
@@ -173,6 +175,18 @@ class AppStore {
    * the network.
    */
   workaround = $state<Workaround | null>(null);
+
+  /** Where each button of the current message stands (`motd::statuses`), by action id. */
+  motdStatuses = $state<Record<string, MotdActionStatus>>({});
+
+  /** Re-read the buttons' state after one was pressed. No network; keeps the last on failure. */
+  async refreshMotdStatuses() {
+    try {
+      this.motdStatuses = await motdActionStatuses();
+    } catch {
+      // A failed read must not turn a "done" button back into a pending one.
+    }
+  }
 
   async refreshWorkaround() {
     try {
