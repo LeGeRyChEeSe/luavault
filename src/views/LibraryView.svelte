@@ -11,6 +11,7 @@
   import TagEditor from "../components/TagEditor.svelte";
   import GameCard from "./GameCard.svelte";
   import { appState } from "../lib/app-state.svelte";
+  import { downloadsState, WATCH_MINUTES } from "../lib/downloads-state.svelte";
   import { t } from "../lib/i18n.svelte";
   import { menuItemsFor } from "../lib/game-menu";
   import {
@@ -916,6 +917,31 @@
         onclick={() => void pickPatchFiles()}
         tip={t("library.patch.import.tip")}
       />
+      {#if downloadsState.watch.active && downloadsState.watch.ends_in_secs === null}
+        <ActionButton
+          label={t("downloads.watch.permanent")}
+          icon="download"
+          disabled
+          onclick={() => {}}
+          tip={t("downloads.watch.permanent.tip")}
+        />
+      {:else if downloadsState.watch.active}
+        <ActionButton
+          label={t("downloads.watch.stop")}
+          icon="x"
+          variant="soft"
+          onclick={() => void downloadsState.stop()}
+          tip={t("downloads.watch.stop.tip")}
+        />
+      {:else}
+        <ActionButton
+          label={t("downloads.watch.start")}
+          icon="download"
+          disabled={busy !== null}
+          onclick={() => void downloadsState.start()}
+          tip={t("downloads.watch.start.tip", { minutes: WATCH_MINUTES })}
+        />
+      {/if}
       <ActionButton
         label={t("library.refresh")}
         icon="refresh"

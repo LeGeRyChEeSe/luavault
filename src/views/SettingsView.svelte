@@ -17,6 +17,8 @@
     exportLibrary,
     getAppInfo,
     getBackgroundNotify,
+    getDownloadsWatch,
+    setDownloadsWatch,
     setBackgroundNotify,
     getBackgroundGuard,
     setBackgroundGuard,
@@ -33,7 +35,7 @@
     wipePreview,
     wipeProtectedPaths,
   } from "../lib/api";
-  import type { BackgroundGuard, BackgroundNotify, BackupProbe, ImportCandidate, ImportPreview } from "../lib/api";
+  import type { BackgroundGuard, BackgroundNotify, DownloadsWatch, BackupProbe, ImportCandidate, ImportPreview } from "../lib/api";
   import type {
     AppInfo,
     ArtworkCacheInfo,
@@ -68,6 +70,20 @@
   let notifyBusy = $state(false);
   // The resident download guard: a tray icon that follows a failing download.
   let guard = $state<BackgroundGuard | null>(null);
+  // Permanent listening to the downloads folder (offers what lands there).
+  let downloadsWatch = $state<DownloadsWatch | null>(null);
+  let downloadsBusy = $state(false);
+
+  async function toggleDownloads(enable: boolean) {
+    downloadsBusy = true;
+    try {
+      downloadsWatch = await setDownloadsWatch(enable);
+    } catch (e) {
+      appState.toast("error", String(e));
+    } finally {
+      downloadsBusy = false;
+    }
+  }
   let guardBusy = $state(false);
 
   async function toggleGuard(enable: boolean) {
@@ -354,6 +370,9 @@
       .catch(() => {});
     void getBackgroundGuard()
       .then((g) => (guard = g))
+      .catch(() => {});
+    void getDownloadsWatch()
+      .then((d) => (downloadsWatch = d))
       .catch(() => {});
     void getAppInfo()
       .then((i) => (appInfo = i))
@@ -1486,6 +1505,31 @@
       <p class="text-xs text-azure-900/45">
         {guard.autostart ? t("settings.guard.how") : t("settings.guard.howPortable")}
       </p>
+    </section>
+  {/if}
+
+  <!-- ------------------------------------------------ downloads folder -->
+  {#if downloadsWatch}
+    <section class="glass enter-up flex flex-col gap-3 rounded-xl2 p-5" data-settings-downloads>
+      <div class="min-w-0">
+        <h3 class="flex items-center gap-2 text-sm font-semibold">
+          <Icon name="download" size={16} />
+          {t("settings.downloads.title")}
+        </h3>
+        <p class="mt-0.5 text-xs text-azure-900/55">{t("settings.downloads.desc")}</p>
+      </div>
+      <label class="flex cursor-pointer items-center gap-3 rounded-xl bg-surface/55 px-4 py-2.5 text-sm">
+        <input
+          type="checkbox"
+          class="accent-azure-500"
+          data-settings-downloads-switch
+          checked={downloadsWatch.enabled}
+          disabled={downloadsBusy}
+          onchange={(e) => void toggleDownloads(e.currentTarget.checked)}
+        />
+        <span class="min-w-0 flex-1">{t("settings.downloads.switch")}</span>
+      </label>
+      <p class="text-xs text-azure-900/45">{t("settings.downloads.how")}</p>
     </section>
   {/if}
 

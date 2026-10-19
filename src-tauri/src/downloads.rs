@@ -23,6 +23,19 @@ pub enum Verdict {
     Ignore,
 }
 
+impl Verdict {
+    /// What the user is shown, if anything. An archive whose name carries no
+    /// AppID is not offered: any `.zip` fetched during the window would
+    /// otherwise raise a popup, and the import could not place it anyway.
+    pub fn offer(self) -> Option<(&'static str, String)> {
+        match self {
+            Verdict::Lua { app_id } => Some(("lua", app_id)),
+            Verdict::Archive { app_id: Some(app_id) } => Some(("archive", app_id)),
+            Verdict::Archive { app_id: None } | Verdict::Incomplete | Verdict::Ignore => None,
+        }
+    }
+}
+
 fn extension(name: &str) -> Option<String> {
     Path::new(name)
         .extension()
@@ -353,17 +366,13 @@ pub fn start(app: &AppHandle, state: &AppState, dir: PathBuf, window: Window) ->
                     .filter_map(|seen| {
                         let path = directory.join(&seen.name);
                         let (kind, app_id) =
-                            match classify(&seen.name, seen.size, |max| read_head(&path, max)) {
-                                Verdict::Lua { app_id } => ("lua", Some(app_id)),
-                                Verdict::Archive { app_id } => ("archive", app_id),
-                                Verdict::Incomplete | Verdict::Ignore => return None,
-                            };
+                            classify(&seen.name, seen.size, |max| read_head(&path, max)).offer()?;
                         Some(DownloadFound {
                             path: path.display().to_string(),
                             name: seen.name,
                             size: seen.size,
                             kind: kind.to_string(),
-                            app_id,
+                            app_id: Some(app_id),
                         })
                     })
                     .collect()
@@ -456,6 +465,21 @@ mod tests {
             classify("x.7z", 10, |_| panic!("7z is not read")),
             Verdict::Ignore
         );
+    }
+
+    #[test]
+    fn only_recognisable_files_are_offered() {
+        assert_eq!(
+            Verdict::Lua { app_id: "7".into() }.offer(),
+            Some(("lua", "7".to_string()))
+        );
+        assert_eq!(
+            Verdict::Archive { app_id: Some("440".into()) }.offer(),
+            Some(("archive", "440".to_string()))
+        );
+        assert_eq!(Verdict::Archive { app_id: None }.offer(), None, "a random zip is not offered");
+        assert_eq!(Verdict::Incomplete.offer(), None);
+        assert_eq!(Verdict::Ignore.offer(), None);
     }
 
     fn old(name: &str, size: u64) -> Seen {

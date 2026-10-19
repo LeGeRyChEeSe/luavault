@@ -665,6 +665,33 @@ export const getBackgroundNotify = () => invoke<BackgroundNotify>("get_backgroun
  *  scheduled check. Only from the one-time offer or the Settings switch. */
 export const setBackgroundNotify = (enabled: boolean) =>
   invoke<BackgroundNotify>("set_background_notify", { enabled });
+/** One file the downloads watcher recognised. Nothing has been imported yet. */
+export interface DownloadFound {
+  path: string;
+  name: string;
+  size: number;
+  kind: "lua" | "archive";
+  /** The AppID the file announces (a `.lua`) or carries in its name (an archive). */
+  app_id: string | null;
+}
+export interface DownloadsWatchStatus {
+  active: boolean;
+  /** Seconds left in a timed listening; `null` for the permanent one. */
+  ends_in_secs: number | null;
+}
+export interface DownloadsWatch {
+  enabled: boolean;
+}
+export const DOWNLOADS_FOUND_EVENT = "downloads://found";
+export const DOWNLOADS_STATE_EVENT = "downloads://state";
+export const downloadsWatchStart = (minutes?: number) =>
+  invoke<DownloadsWatchStatus>("downloads_watch_start", { minutes: minutes ?? null });
+export const downloadsWatchStop = () => invoke<DownloadsWatchStatus>("downloads_watch_stop");
+export const downloadsWatchStatus = () => invoke<DownloadsWatchStatus>("downloads_watch_status");
+/** A pure read of the config: is the permanent listening switched on? */
+export const getDownloadsWatch = () => invoke<DownloadsWatch>("get_downloads_watch");
+export const setDownloadsWatch = (enabled: boolean) =>
+  invoke<DownloadsWatch>("set_downloads_watch", { enabled });
 export interface BackgroundGuard {
   /** What the user chose: on unless switched off. */
   enabled: boolean;

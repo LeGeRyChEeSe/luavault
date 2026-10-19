@@ -1163,6 +1163,19 @@ const PATCH_IMPORT_CASES = 22;
   assert.equal(mod.patchImportCases(), PATCH_IMPORT_CASES, `IMPORT-01: la suite doit aller au bout de ses ${PATCH_IMPORT_CASES} cas`);
 }
 
+// ── DETECT-02: downloads popup decisions and "closing is never a yes" ───
+const DOWNLOADS_CASES = 12;
+{
+  const mod = (await import("./test-downloads")) as unknown as {
+    __downloadsRan: boolean;
+    downloadsSuite: Promise<void>;
+    downloadsCases: () => number;
+  };
+  assert.ok(mod.__downloadsRan === true, "DETECT-02: la suite doit être importée par le runner");
+  await mod.downloadsSuite;
+  assert.equal(mod.downloadsCases(), DOWNLOADS_CASES, `DETECT-02: la suite doit aller au bout de ses ${DOWNLOADS_CASES} cas`);
+}
+
 // ── PATCH-01: secondary install-patch action decision and delegation ──
 const PATCH_STATUS_CASES = 5;
 {
