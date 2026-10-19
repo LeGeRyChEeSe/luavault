@@ -15,6 +15,14 @@ Two rules to follow when editing this file, because the script depends on them:
   publish script then places them separately in `notes_i18n`, with French kept as
   the `notes` fallback for older clients.
 
+## 1.1.3 - 2026-10-19
+
+### fr
+- Le message du jour peut maintenant proposer de changer la source que SteamTools interroge pour télécharger les jeux. C'est ce qui corrige l'erreur « Pas de connexion Internet » qui apparaît à l'installation d'un jeu, puis disparaît au bout de plusieurs essais. Un clic, rien n'est redémarré, et le bouton indique s'il est déjà appliqué.
+
+### en
+- The message of the day can now offer to change the source SteamTools asks when downloading games. It is what fixes the "No internet connection" error that shows up when installing a game and then goes away after several tries. One click, nothing restarts, and the button says whether it is already applied.
+
 ## 1.1.2 - 2026-10-19
 
 ### fr
