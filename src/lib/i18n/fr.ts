@@ -409,6 +409,8 @@ export const fr = {
   "motd.action.restart_steam": "Redémarrer Steam",
   "motd.action.repair_tools": "Réparer SteamTools",
   "motd.action.open_url": "Ouvrir la page",
+  "motd.action.steamtools_source": "Utiliser la source de manifestes stable",
+  "motd.action.confirm_light": "Confirmer ?",
   "motd.action.redo": "Refaire",
   "motd.state.done": "{label} : déjà en place, rien à refaire.",
   "motd.state.not_needed": "{label} : sans objet sur cet ordinateur.",

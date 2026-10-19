@@ -19,6 +19,7 @@ mod notify;
 mod reachability;
 mod stats;
 mod steam_downgrade;
+mod steamtools_source;
 mod steamstore;
 pub use update::RELEASE_PUBLIC_KEYS;
 mod update;

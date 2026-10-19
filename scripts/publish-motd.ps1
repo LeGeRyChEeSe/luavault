@@ -49,6 +49,8 @@
 #   steam_undo       laisse Steam se mettre à jour de nouveau (le retour arrière)
 #   restart_steam    ferme et relance Steam
 #   repair_tools     lance la réparation de l'extension Steam de l'application
+#   steamtools_source  change l'amont ou SteamTools demande les codes de manifeste (-Source), sans
+#                    redemarrer Steam : la valeur est relue a chaud. Un nom connu, jamais une URL.
 #   open_url         ouvre une page https (-OpenUrl)
 #   -Persistent      le message ne peut plus être réduit au silence tant que le correctif
 #                    reste nécessaire sur la machine (la case « Ne plus afficher » disparaît,
@@ -76,11 +78,13 @@ param(
     [ValidateSet('info', 'warning', 'critical')][string]$Severity = 'info',
     [string]$Id = '',
     # Boutons du message (voir plus haut), dans l'ordre d'affichage.
-    [ValidateSet('steam_downgrade', 'steam_undo', 'restart_steam', 'repair_tools', 'open_url')][string[]]$Actions = @(),
+    [ValidateSet('steam_downgrade', 'steam_undo', 'restart_steam', 'repair_tools', 'open_url', 'steamtools_source')][string[]]$Actions = @(),
     # Capture Wayback du manifeste Steam (14 chiffres) pour steam_downgrade.
     [string]$Snapshot = '',
     [string]$ManifestSha256 = '',
     [string]$OpenUrl = '',
+    # steamtools_source : l'amont des codes de manifeste de SteamTools (un nom, jamais une URL).
+    [ValidateSet('opensteamtool', 'steamrun', 'wudrm')][string]$Source = '',
     # Message persistant et diagnostique (voir plus haut).
     [switch]$Persistent,
     [string]$AffectsFrom = '',
@@ -181,6 +185,10 @@ function New-MotdActions([string[]]$Kinds) {
                 $a['affects_from'] = $AffectsFrom
             }
         }
+        if ($kind -eq 'steamtools_source') {
+            if (-not $Source) { throw "steamtools_source demande -Source (opensteamtool, steamrun ou wudrm)." }
+            $a['source'] = $Source
+        }
         if ($kind -eq 'open_url') {
             if ($OpenUrl -notmatch '^https://[^\s/@]+(/\S*)?$') { throw "open_url demande -OpenUrl en https:// sans identifiants." }
             $a['url'] = $OpenUrl
@@ -243,6 +251,7 @@ if ($interactive) {
             $Actions = @($raw -split '[,\s]+' | Where-Object { $_ })
             if ($Actions -contains 'steam_downgrade') { $Snapshot = (Read-Host "Capture Wayback du manifeste (14 chiffres)").Trim() }
             if ($Actions -contains 'open_url') { $OpenUrl = (Read-Host "Adresse https").Trim() }
+            if ($Actions -contains 'steamtools_source') { $Source = (Read-Host "Source des manifestes (opensteamtool, steamrun, wudrm)").Trim() }
         }
         $duration = Read-Duration
         $Days = $duration.Days

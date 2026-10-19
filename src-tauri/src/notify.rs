@@ -187,6 +187,7 @@ pub fn default_label(kind: &str, lang: &str) -> &'static str {
         "restart_steam" => if fr { "Redémarrer Steam" } else { "Restart Steam" },
         "repair_tools" => if fr { "Réparer SteamTools" } else { "Repair SteamTools" },
         "open_url" => if fr { "Ouvrir la page" } else { "Open the page" },
+        "steamtools_source" => if fr { "Utiliser la source de manifestes stable" } else { "Use the stable manifest source" },
         _ => if fr { "Ouvrir" } else { "Open" },
     }
 }

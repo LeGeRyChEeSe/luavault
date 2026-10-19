@@ -13,7 +13,7 @@
 
 import { parseMotd, parseInline, parseColorName, isSafeHref, plainText } from "../src/lib/motd-markdown";
 import type { Block, Inline } from "../src/lib/motd-markdown";
-import { actionLabel, actionNeedsConfirm, isForced, motdSeverity, presentationOf, resolveMotdText, shouldOpenMotdAtStartup, showsMainButton, steamDowngradeOffer } from "../src/lib/motd";
+import { actionLabel, actionNeedsConfirm, confirmKeyOf, isForced, motdSeverity, presentationOf, resolveMotdText, shouldOpenMotdAtStartup, showsMainButton, steamDowngradeOffer } from "../src/lib/motd";
 import type { MotdAction, MotdActionKind, MotdActionState, MotdMessage, Workaround } from "../src/lib/api";
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -41,7 +41,7 @@ const assert = {
 };
 
 let cases = 0;
-const EXPECTED_CASES = 39;
+const EXPECTED_CASES = 40;
 function label(name: string): void {
   cases++;
   console.log(`  ✓ ${name}`);
@@ -249,12 +249,19 @@ export const motdSuite: Promise<void> = (async () => {
 
     // ── boutons d'action ──
 
-    const KINDS: MotdActionKind[] = ["steam_downgrade", "steam_undo", "restart_steam", "repair_tools", "open_url"];
+    const KINDS: MotdActionKind[] = ["steam_downgrade", "steam_undo", "restart_steam", "repair_tools", "open_url", "steamtools_source"];
     assert.deep(
       KINDS.map((k) => actionNeedsConfirm(k)),
-      [true, true, true, true, false],
+      [true, true, true, true, false, true],
     );
-    label("actionNeedsConfirm : tout ce qui ferme ou relance Steam demande un second clic, pas l'ouverture d'une page");
+    label("actionNeedsConfirm : tout ce qui ferme, relance ou réécrit demande un second clic, pas l'ouverture d'une page");
+
+    // La phrase du second clic ne dit « Steam sera fermé » que pour ce qui le ferme vraiment.
+    assert.deep(
+      KINDS.map((k) => confirmKeyOf(k)),
+      ["motd.action.confirm", "motd.action.confirm", "motd.action.confirm", "motd.action.confirm", "motd.action.confirm_light", "motd.action.confirm_light"],
+    );
+    label("confirmKeyOf : seuls les gestes qui ferment Steam promettent de le fermer");
 
     const act = (id: string, kind: MotdActionKind, labelMap: Record<string, string> = {}): MotdAction => ({ id, kind, label: labelMap });
     assert.equal(actionLabel(act("a", "restart_steam", { fr: "Relancer", en: "Restart" }), "en"), "Restart");

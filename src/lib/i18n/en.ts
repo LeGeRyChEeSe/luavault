@@ -403,6 +403,8 @@ export const en: Record<Key, string> = {
   "motd.action.restart_steam": "Restart Steam",
   "motd.action.repair_tools": "Repair SteamTools",
   "motd.action.open_url": "Open the page",
+  "motd.action.steamtools_source": "Use the stable manifest source",
+  "motd.action.confirm_light": "Confirm?",
   "motd.action.redo": "Do it again",
   "motd.state.done": "{label}: already in place, nothing to redo.",
   "motd.state.not_needed": "{label}: not applicable on this computer.",

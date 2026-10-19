@@ -593,7 +593,7 @@ export interface MotdMessage {
 }
 
 /** The closed set of things a message's button can do (`motd::ResolvedAction`). */
-export type MotdActionKind = "steam_downgrade" | "steam_undo" | "restart_steam" | "repair_tools" | "open_url";
+export type MotdActionKind = "steam_downgrade" | "steam_undo" | "restart_steam" | "repair_tools" | "open_url" | "steamtools_source";
 
 export interface MotdAction {
   id: string;

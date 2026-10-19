@@ -16,7 +16,8 @@ use crate::{install, steam_downgrade};
 
 /// Does this action close, relaunch or reinstall Steam?
 pub fn closes_steam(action: &ResolvedAction) -> bool {
-    !matches!(action, ResolvedAction::OpenUrl(_))
+    // Changing the manifest source is read live by SteamTools: Steam stays open.
+    !matches!(action, ResolvedAction::OpenUrl(_) | ResolvedAction::SteamToolsSource(_))
 }
 
 /// Steam keeps the AppID of the game it is running in `RunningAppID`; `0` or
@@ -86,6 +87,20 @@ pub async fn execute(
             install::run_elevated(program, &args).map_err(|e| e.to_string())?;
             Ok("Script SteamTools lancé dans une fenêtre PowerShell élevée (Steam sera fermé par le script).".to_string())
         }
+        ResolvedAction::SteamToolsSource(source) => {
+            let dir = steam()?;
+            if !crate::detect::inspect_steamtools(&dir).installed {
+                return Err("SteamTools est introuvable dans le dossier de Steam : rien n'a été modifié.".to_string());
+            }
+            let name = source.clone();
+            tauri::async_runtime::spawn_blocking(move || crate::steamtools_source::apply(&dir, &name))
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+            Ok(format!(
+                "La source des manifestes de SteamTools est maintenant « {source} ». Steam n'a pas besoin d'être redémarré : relancez l'installation du jeu."
+            ))
+        }
         ResolvedAction::OpenUrl(url) => {
             tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())?;
             Ok(String::new())
@@ -105,13 +120,14 @@ mod tests {
             ResolvedAction::RestartSteam,
             ResolvedAction::RepairTools,
             ResolvedAction::OpenUrl("https://example.org/".into()),
+            ResolvedAction::SteamToolsSource("wudrm".into()),
         ]
     }
 
     #[test]
-    fn only_opening_a_page_leaves_steam_alone() {
+    fn only_opening_a_page_or_editing_a_config_leaves_steam_alone() {
         let closers: Vec<bool> = all_actions().iter().map(closes_steam).collect();
-        assert_eq!(closers, [true, true, true, true, false]);
+        assert_eq!(closers, [true, true, true, true, false, false]);
     }
 
     #[test]

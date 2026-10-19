@@ -82,6 +82,10 @@ pub struct MotdAction {
     /// number, the button is dropped: a typo must not turn a diagnosis into "always".
     #[serde(default, skip_serializing)]
     pub affects_from: Option<String>,
+    /// `steamtools_source`: which upstream SteamTools asks for manifest request codes
+    /// (`steamtools_source::SOURCES`). A name, never a URL: the binary knows the rest.
+    #[serde(default, skip_serializing)]
+    pub source: Option<String>,
 }
 
 /// What an action does, once its parameters are checked. The only thing the
@@ -96,6 +100,8 @@ pub enum ResolvedAction {
     /// This app's own "repair the Steam add-on" gesture.
     RepairTools,
     OpenUrl(String),
+    /// Point SteamTools at another upstream for manifest request codes (a known name).
+    SteamToolsSource(String),
 }
 
 impl MotdAction {
@@ -113,6 +119,10 @@ impl MotdAction {
             "steam_undo" => Some(ResolvedAction::SteamUndo),
             "restart_steam" => Some(ResolvedAction::RestartSteam),
             "repair_tools" => Some(ResolvedAction::RepairTools),
+            "steamtools_source" => {
+                let name = self.source.as_deref()?.trim();
+                crate::steamtools_source::is_known(name).then(|| ResolvedAction::SteamToolsSource(name.to_string()))
+            }
             "open_url" => safe_https_url(self.url.as_deref()?).map(ResolvedAction::OpenUrl),
             _ => None,
         }
@@ -204,6 +214,8 @@ pub struct SteamFacts {
     /// `steam.cfg` already blocks Steam's own updates.
     pub pinned: bool,
     pub steamtools_installed: bool,
+    /// `[manifest] url` of `opensteamtool.toml` (`None` = not read, taken as the default).
+    pub manifest_source: Option<String>,
 }
 
 impl SteamFacts {
@@ -214,6 +226,7 @@ impl SteamFacts {
                 installed_version: steam_downgrade::installed_version(dir),
                 pinned: steam_downgrade::is_pinned(dir),
                 steamtools_installed: crate::detect::inspect_steamtools(dir).installed,
+                manifest_source: Some(crate::steamtools_source::current(dir)),
             },
             None => Self::default(),
         }
@@ -390,6 +403,17 @@ pub fn probe(action: &MotdAction, resolved: &ResolvedAction, facts: &SteamFacts)
         // Repairing SteamTools has no signature on disk that tells a repaired one from a
         // broken one: the ledger is all there is.
         ResolvedAction::RepairTools => Probe::Unknown,
+        // The file says which upstream is configured: that is the effect, verifiable.
+        ResolvedAction::SteamToolsSource(_) if !facts.steam_present => Probe::Unknown,
+        ResolvedAction::SteamToolsSource(_) if !facts.steamtools_installed => Probe::NotNeeded,
+        ResolvedAction::SteamToolsSource(want) => {
+            let now = facts.manifest_source.as_deref().unwrap_or(crate::steamtools_source::DEFAULT_SOURCE);
+            if now == want {
+                Probe::Holds
+            } else {
+                Probe::Absent
+            }
+        }
         ResolvedAction::RestartSteam | ResolvedAction::OpenUrl(_) => Probe::Gesture,
     }
 }
@@ -1009,6 +1033,7 @@ mod tests {
             installed_version: version.map(str::to_string),
             pinned,
             steamtools_installed: st,
+            manifest_source: None,
         }
     }
 
@@ -1104,6 +1129,7 @@ mod tests {
             manifest_sha256: Some("0".repeat(64)),
             url: None,
             affects_from: affects_from.map(String::from),
+            source: None,
         }
     }
 
@@ -1116,6 +1142,7 @@ mod tests {
             manifest_sha256: None,
             url: None,
             affects_from: None,
+            source: None,
         }
     }
 
@@ -1129,6 +1156,7 @@ mod tests {
             installed_version: installed.map(String::from),
             pinned,
             steamtools_installed: steamtools,
+            manifest_source: None,
         }
     }
 
@@ -1216,5 +1244,65 @@ mod tests {
         assert_eq!(after["repair"].state, ActionState::Recorded);
         assert_eq!(after["repair"].ran_at, Some(5));
         assert_eq!(statuses(&m, &steam(None, true, true), &runs)["fix"].state, ActionState::Done);
+    }
+
+    // ---------------------------------------------------------- the manifest source action
+
+    fn source_action(source: Option<&str>) -> MotdAction {
+        MotdAction { source: source.map(String::from), ..plain_action("src", "steamtools_source") }
+    }
+
+    #[test]
+    fn steamtools_source_resolves_only_a_known_name() {
+        for name in ["wudrm", "steamrun", "opensteamtool"] {
+            assert_eq!(source_action(Some(name)).resolve(), Some(ResolvedAction::SteamToolsSource(name.to_string())));
+        }
+        assert_eq!(source_action(Some(" wudrm ")).resolve(), Some(ResolvedAction::SteamToolsSource("wudrm".into())), "trimmed");
+        // A signed message picks a NAME. It can never hand the app a URL to fetch from.
+        for bad in [None, Some(""), Some("WUDRM"), Some("http://gmrc.example/manifest/%llu"), Some("../wudrm"), Some("wudrm,steamrun")] {
+            assert_eq!(source_action(bad).resolve(), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_source_never_reaches_the_frontend() {
+        let m = evaluate(with_actions(r#"[{"id":"s","kind":"steamtools_source","source":"wudrm"}]"#), at("2026-10-19T12:00:00Z")).unwrap();
+        assert_eq!(m.actions.len(), 1, "a valid action is kept");
+        let sent = serde_json::to_string(&MotdView { message: m, dismissed: false, workaround: None, statuses: HashMap::new() }).unwrap();
+        assert!(sent.contains("steamtools_source") && !sent.contains("wudrm"), "{sent}");
+    }
+
+    #[test]
+    fn an_unknown_source_drops_the_button_not_the_message() {
+        let m = evaluate(with_actions(r#"[{"id":"s","kind":"steamtools_source","source":"nope"}]"#), at("2026-10-19T12:00:00Z")).unwrap();
+        assert!(m.actions.is_empty());
+    }
+
+    #[test]
+    fn the_source_probe_reads_the_configuration() {
+        let a = source_action(Some("wudrm"));
+        let with = |installed: bool, source: Option<&str>| SteamFacts {
+            steam_present: true,
+            installed_version: None,
+            pinned: false,
+            steamtools_installed: installed,
+            manifest_source: source.map(String::from),
+        };
+        assert_eq!(probe_of(&a, &with(true, Some("wudrm"))), Probe::Holds, "already configured");
+        assert_eq!(probe_of(&a, &with(true, Some("steamrun"))), Probe::Absent, "the common case");
+        assert_eq!(probe_of(&a, &with(true, None)), Probe::Absent, "nothing written = the default upstream");
+        assert_eq!(probe_of(&source_action(Some("opensteamtool")), &with(true, None)), Probe::Holds, "the default is a source too");
+        assert_eq!(probe_of(&a, &with(false, Some("steamrun"))), Probe::NotNeeded, "no SteamTools to configure");
+        assert_eq!(probe_of(&a, &SteamFacts::default()), Probe::Unknown, "no Steam folder");
+    }
+
+    #[test]
+    fn a_source_flipped_back_by_a_repair_comes_back_as_lost() {
+        // The repair script alternates the upstream on every run: once pressed here, a later
+        // repair can undo it, and the button must offer itself again, saying so.
+        let st = status_of(Probe::Absent, Some(10));
+        assert_eq!(st.state, ActionState::Lost);
+        let st = status_of(Probe::Holds, Some(10));
+        assert_eq!(st.state, ActionState::Done);
     }
 }

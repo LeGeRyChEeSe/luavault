@@ -15,7 +15,7 @@
    */
   import { focusTrap } from "../lib/focus-trap";
   import { t, i18n } from "../lib/i18n.svelte";
-  import { actionLabel, actionNeedsConfirm, isForced, motdSeverity, presentationOf, resolveMotdText, showsMainButton } from "../lib/motd";
+  import { actionLabel, actionNeedsConfirm, confirmKeyOf, isForced, motdSeverity, presentationOf, resolveMotdText, showsMainButton } from "../lib/motd";
   import type { MotdSeverity } from "../lib/motd";
   import { runMotdAction } from "../lib/api";
   import type { MotdAction, MotdMessage } from "../lib/api";
@@ -157,7 +157,7 @@
                 {#if actionNeedsConfirm(action.kind)}
                   <ConfirmButton
                     label={labelOf(action)}
-                    confirmLabel={t("motd.action.confirm")}
+                    confirmLabel={t(confirmKeyOf(action.kind))}
                     onconfirm={() => run(action)}
                     disabled={busyAction !== null}
                     primary={i === 0}
@@ -178,7 +178,7 @@
               <div class="contents" data-motd-redo={action.id} data-motd-kind={action.kind}>
                 <ConfirmButton
                   label={t("motd.action.redo")}
-                  confirmLabel={t("motd.action.confirm")}
+                  confirmLabel={t(confirmKeyOf(action.kind))}
                   onconfirm={() => run(action)}
                   disabled={busyAction !== null}
                 />
