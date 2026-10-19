@@ -2586,8 +2586,17 @@ pub struct DownloadsWatch {
     pub enabled: bool,
 }
 
-fn downloads_dir() -> Result<PathBuf, String> {
-    let path = dirs::download_dir().ok_or("Dossier Téléchargements introuvable.".to_string())?;
+/// The folder browsers save into. `LV_DOWNLOADS_DIR` exists in debug builds only
+/// (the graphical bench drops files there): a release binary asks Windows, because
+/// whatever this points at is offered to the user for import.
+pub(crate) fn downloads_dir() -> Result<PathBuf, String> {
+    #[cfg(debug_assertions)]
+    let over = std::env::var_os("LV_DOWNLOADS_DIR").map(PathBuf::from);
+    #[cfg(not(debug_assertions))]
+    let over: Option<PathBuf> = None;
+    let path = over
+        .or_else(dirs::download_dir)
+        .ok_or("Dossier Téléchargements introuvable.".to_string())?;
     if path.is_dir() {
         Ok(path)
     } else {

@@ -218,7 +218,7 @@ pub fn run() {
                 std::thread::spawn(|| guard_service::sync_autostart(true));
             }
             if app.state::<AppState>().config.lock().map(|cfg| cfg.watch_downloads == Some(true)).unwrap_or(false) {
-                if let Some(downloads_dir) = dirs::download_dir().filter(|path| path.is_dir()) {
+                if let Ok(downloads_dir) = commands::downloads_dir() {
                     let state = app.state::<AppState>();
                     downloads::start(app.handle(), &state, downloads_dir, downloads::Window::permanent());
                 } else {

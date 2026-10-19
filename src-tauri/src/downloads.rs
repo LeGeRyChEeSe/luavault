@@ -73,108 +73,88 @@ pub fn classify(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FileKey(String);
-
-impl FileKey {
-    fn from_name(name: &str) -> Self {
-        Self(name.to_string())
-    }
-}
-
-impl From<&str> for FileKey {
-    fn from(name: &str) -> Self {
-        Self::from_name(name)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Seen {
     pub name: String,
     pub size: u64,
+    /// How long before the listening started the file was created. Only the
+    /// baseline uses it; a modification date is never consulted, because some
+    /// browsers stamp a download with the server's date.
     pub age_at_start: Option<Duration>,
 }
 
-#[derive(Debug, Clone, Default)]
+/// What `observe` knows about one file that is currently in the folder.
+#[derive(Debug, Clone)]
 struct Observation {
-    size: Option<u64>,
+    size: u64,
     equal_polls: u8,
-    present: bool,
     proposed: bool,
-    ignored: bool,
 }
 
 pub struct Tracker {
-    _started_at: Instant,
-    baseline: HashSet<FileKey>,
-    recent_baseline: HashSet<FileKey>,
-    observations: HashMap<FileKey, Observation>,
+    /// Names present at launch and older than `RECENT_SECS`: never proposed,
+    /// until the file leaves the folder and comes back.
+    old_baseline: HashSet<String>,
+    observations: HashMap<String, Observation>,
 }
 
+/// A file finished just before the user pressed the button is still theirs.
+const RECENT_SECS: u64 = 30;
+
 impl Tracker {
-    pub fn new(started_at: Instant, baseline: Vec<Seen>) -> Self {
-        let mut names = HashSet::new();
-        let mut recent = HashSet::new();
-        for seen in baseline {
-            let key = FileKey::from_name(&seen.name);
-            if seen
-                .age_at_start
-                .is_some_and(|age| age <= Duration::from_secs(30))
-            {
-                recent.insert(key.clone());
-            }
-            names.insert(key);
-        }
+    pub fn new(baseline: Vec<Seen>) -> Self {
+        let old_baseline = baseline
+            .into_iter()
+            .filter(|seen| {
+                !seen
+                    .age_at_start
+                    .is_some_and(|age| age <= Duration::from_secs(RECENT_SECS))
+            })
+            .map(|seen| seen.name)
+            .collect();
         Self {
-            _started_at: started_at,
-            baseline: names,
-            recent_baseline: recent,
+            old_baseline,
             observations: HashMap::new(),
         }
     }
 
+    /// One poll. Returns the files that are new and whose size has been the
+    /// same for `STABLE_POLLS` consecutive polls, each of them once.
     pub fn observe(&mut self, snapshot: Vec<Seen>) -> Vec<Seen> {
+        let present: HashSet<&str> = snapshot.iter().map(|seen| seen.name.as_str()).collect();
+        // A file that left the folder is forgotten: the same name coming back is a
+        // new download, whether it was in the baseline or was proposed earlier.
+        self.old_baseline.retain(|name| present.contains(name.as_str()));
+        self.observations.retain(|name, _| present.contains(name.as_str()));
+
         let mut ready = Vec::new();
-        let mut present = HashSet::new();
         for seen in snapshot {
-            let key = FileKey::from_name(&seen.name);
-            if self.baseline.contains(&key) && !self.recent_baseline.contains(&key) {
+            if self.old_baseline.contains(&seen.name) {
                 continue;
             }
-            present.insert(key.clone());
-            let observation = self.observations.entry(key).or_default();
-            if !observation.present && observation.size.is_some() {
-                observation.equal_polls = 1;
-            } else if observation.size == Some(seen.size) {
+            let observation = self
+                .observations
+                .entry(seen.name.clone())
+                .or_insert(Observation {
+                    size: seen.size,
+                    equal_polls: 0,
+                    proposed: false,
+                });
+            if observation.size == seen.size {
                 observation.equal_polls = observation.equal_polls.saturating_add(1);
             } else {
-                observation.size = Some(seen.size);
-                observation.equal_polls = 1;
-                observation.proposed = false;
-                observation.ignored = false;
+                *observation = Observation {
+                    size: seen.size,
+                    equal_polls: 1,
+                    proposed: false,
+                };
             }
-            observation.present = true;
-            if observation.equal_polls >= STABLE_POLLS
-                && !observation.proposed
-                && !observation.ignored
-            {
+            if observation.equal_polls >= STABLE_POLLS && !observation.proposed {
                 observation.proposed = true;
                 ready.push(seen);
             }
         }
-        for (key, observation) in &mut self.observations {
-            if !present.contains(key) {
-                observation.present = false;
-            }
-        }
         ready
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn ignore(&mut self, key: &FileKey) {
-        if let Some(observation) = self.observations.get_mut(key) {
-            observation.ignored = true;
-        }
     }
 }
 
@@ -331,7 +311,6 @@ pub fn start(app: &AppHandle, state: &AppState, dir: PathBuf, window: Window) ->
     emit_state(app, initial_status.clone());
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let started_at = Instant::now();
         let baseline = match tauri::async_runtime::spawn_blocking({
             let dir = dir.clone();
             move || scan(&dir)
@@ -344,7 +323,7 @@ pub fn start(app: &AppHandle, state: &AppState, dir: PathBuf, window: Window) ->
                 return;
             }
         };
-        let mut tracker = Tracker::new(started_at, baseline);
+        let mut tracker = Tracker::new(baseline);
         loop {
             let current = {
                 let state = app.state::<AppState>();
@@ -361,53 +340,31 @@ pub fn start(app: &AppHandle, state: &AppState, dir: PathBuf, window: Window) ->
                 return;
             }
             let directory = dir.clone();
-            let ready = match tauri::async_runtime::spawn_blocking(move || {
-                let snapshot = scan(&directory);
-                let files: Vec<(Seen, PathBuf)> = snapshot
-                    .iter()
-                    .cloned()
-                    .map(|seen| {
-                        let path = directory.join(&seen.name);
-                        (seen, path)
-                    })
-                    .collect();
-                (snapshot, files)
-            })
-            .await
-            {
-                Ok((snapshot, files)) => (snapshot, files),
-                Err(error) => {
-                    debug!("downloads scan task failed: {error}");
-                    return;
-                }
+            let polled = tauri::async_runtime::spawn_blocking(move || (scan(&directory), directory))
+                .await;
+            let Ok((snapshot, directory)) = polled else {
+                debug!("downloads scan task failed");
+                return;
             };
-            let ready_seen = tracker.observe(ready.0);
+            let ready = tracker.observe(snapshot);
             let found: Vec<DownloadFound> = tauri::async_runtime::spawn_blocking(move || {
-                ready_seen
+                ready
                     .into_iter()
                     .filter_map(|seen| {
-                        let path = ready
-                            .1
-                            .iter()
-                            .find(|(candidate, _)| candidate.name == seen.name)
-                            .map(|(_, path)| path)?;
-                        match classify(&seen.name, seen.size, |max| read_head(path, max)) {
-                            Verdict::Lua { app_id } => Some(DownloadFound {
-                                path: path.display().to_string(),
-                                name: seen.name,
-                                size: seen.size,
-                                kind: "lua".to_string(),
-                                app_id: Some(app_id),
-                            }),
-                            Verdict::Archive { app_id } => Some(DownloadFound {
-                                path: path.display().to_string(),
-                                name: seen.name,
-                                size: seen.size,
-                                kind: "archive".to_string(),
-                                app_id,
-                            }),
-                            Verdict::Incomplete | Verdict::Ignore => None,
-                        }
+                        let path = directory.join(&seen.name);
+                        let (kind, app_id) =
+                            match classify(&seen.name, seen.size, |max| read_head(&path, max)) {
+                                Verdict::Lua { app_id } => ("lua", Some(app_id)),
+                                Verdict::Archive { app_id } => ("archive", app_id),
+                                Verdict::Incomplete | Verdict::Ignore => return None,
+                            };
+                        Some(DownloadFound {
+                            path: path.display().to_string(),
+                            name: seen.name,
+                            size: seen.size,
+                            kind: kind.to_string(),
+                            app_id,
+                        })
                     })
                     .collect()
             })
@@ -485,9 +442,33 @@ mod tests {
     }
 
     #[test]
+    fn classify_refuses_an_oversized_lua_without_reading_it() {
+        assert_eq!(
+            classify("big.lua", MAX_LUA_BYTES + 1, |_| panic!("too large to read")),
+            Verdict::Ignore
+        );
+        assert_eq!(classify("empty.lua", 0, |_| panic!("empty")), Verdict::Incomplete);
+        assert_eq!(
+            classify("x.rar", 10, |_| Some(b"Rar! ".to_vec())),
+            Verdict::Archive { app_id: None }
+        );
+        assert_eq!(
+            classify("x.7z", 10, |_| panic!("7z is not read")),
+            Verdict::Ignore
+        );
+    }
+
+    fn old(name: &str, size: u64) -> Seen {
+        Seen {
+            name: name.to_string(),
+            size,
+            age_at_start: Some(Duration::from_secs(RECENT_SECS + 1)),
+        }
+    }
+
+    #[test]
     fn tracker_requires_stability_and_only_proposes_once() {
-        let start = Instant::now();
-        let mut tracker = Tracker::new(start, Vec::new());
+        let mut tracker = Tracker::new(Vec::new());
         assert!(
             tracker.observe(vec![seen("new.lua", 10)]).is_empty(),
             "a single observation is not stable"
@@ -505,45 +486,53 @@ mod tests {
     }
 
     #[test]
-    fn tracker_excludes_old_baseline_but_keeps_recent_downloads() {
-        let start = Instant::now();
-        let old = Seen {
-            name: "old.lua".to_string(),
-            size: 10,
-            age_at_start: Some(Duration::from_secs(31)),
-        };
+    fn tracker_never_proposes_an_old_baseline_file_but_keeps_a_recent_one() {
         let recent = Seen {
             name: "recent.lua".to_string(),
             size: 10,
-            age_at_start: Some(Duration::from_secs(29)),
+            age_at_start: Some(Duration::from_secs(RECENT_SECS - 1)),
         };
-        let mut tracker = Tracker::new(start, vec![old, recent]);
-        assert!(
-            tracker.observe(vec![seen("old.lua", 99)]).is_empty(),
-            "an old baseline file is never proposed"
-        );
-        assert!(
-            tracker.observe(vec![seen("old.lua", 99)]).is_empty(),
-            "an old baseline file stays excluded after becoming stable"
-        );
+        let mut tracker = Tracker::new(vec![old("old.lua", 10), recent]);
+        for _ in 0..3 {
+            assert!(
+                tracker.observe(vec![seen("old.lua", 99)]).is_empty(),
+                "an old baseline file is never proposed, whatever happens to its size"
+            );
+        }
         assert!(tracker.observe(vec![seen("recent.lua", 10)]).is_empty());
         assert_eq!(
             tracker.observe(vec![seen("recent.lua", 10)]).len(),
             1,
-            "a download completed just before start is eligible despite an old modification date"
+            "a download finished just before the start is eligible"
         );
     }
 
     #[test]
-    fn tracker_ignores_until_the_file_changes() {
-        let mut tracker = Tracker::new(Instant::now(), Vec::new());
-        let key = FileKey::from("new.lua");
-        assert!(tracker.observe(vec![seen("new.lua", 10)]).is_empty());
-        assert_eq!(tracker.observe(vec![seen("new.lua", 10)]).len(), 1);
-        tracker.ignore(&key);
-        assert!(tracker.observe(vec![seen("new.lua", 10)]).is_empty());
-        assert!(tracker.observe(vec![seen("new.lua", 11)]).is_empty());
-        assert_eq!(tracker.observe(vec![seen("new.lua", 11)]).len(), 1);
+    fn tracker_treats_a_file_that_comes_back_as_a_new_download() {
+        let mut tracker = Tracker::new(vec![old("123.lua", 10)]);
+        assert!(tracker.observe(vec![seen("123.lua", 10)]).is_empty());
+        // The user deletes it, then downloads the same name again.
+        assert!(tracker.observe(vec![]).is_empty());
+        assert!(tracker.observe(vec![seen("123.lua", 12)]).is_empty());
+        assert_eq!(
+            tracker.observe(vec![seen("123.lua", 12)]).len(),
+            1,
+            "a baseline name that left the folder is a new file when it returns"
+        );
+        // Proposed, deleted, downloaded again with other content: proposed again.
+        assert!(tracker.observe(vec![]).is_empty());
+        assert!(tracker.observe(vec![seen("123.lua", 20)]).is_empty());
+        assert_eq!(tracker.observe(vec![seen("123.lua", 20)]).len(), 1);
+    }
+
+    #[test]
+    fn tracker_does_not_propose_two_files_of_the_same_size_as_one() {
+        let mut tracker = Tracker::new(Vec::new());
+        assert!(tracker
+            .observe(vec![seen("a.lua", 10), seen("a (1).lua", 10)])
+            .is_empty());
+        let ready = tracker.observe(vec![seen("a.lua", 10), seen("a (1).lua", 10)]);
+        assert_eq!(ready.len(), 2, "a duplicate name is a separate download");
     }
 
     #[test]
