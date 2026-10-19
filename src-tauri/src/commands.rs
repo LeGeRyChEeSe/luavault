@@ -1,7 +1,7 @@
 use crate::{
     guard_service,
     archive, artwork, backup, cache, config, defender, detect, discover, encrypted_backup,
-    exchange, fixes, hmac, i18n_log, install, library, motd, motd_run, notify, reachability, stats, steam_downgrade, steamstore, update, vdf, wipe, AppState,
+    downloads, exchange, fixes, hmac, i18n_log, install, library, motd, motd_run, notify, reachability, stats, steam_downgrade, steamstore, update, vdf, wipe, AppState,
 };
 use log::{debug, info, warn};
 use serde::Serialize;
@@ -90,7 +90,7 @@ pub struct PatchImportResult {
 /// Extract an AppID only from a deliberate filename form: `440.zip`,
 /// `440_online_fix.zip`, or `Portal 2 (440).zip`. Bare digits elsewhere are
 /// intentionally ignored: `patch_v2_64bit.zip` must never select a game by accident.
-fn app_id_from_patch_filename(path: &Path) -> Option<String> {
+pub(crate) fn app_id_from_patch_filename(path: &Path) -> Option<String> {
     let stem = path.file_stem()?.to_str()?;
     if !stem.is_empty() && stem.bytes().all(|byte| byte.is_ascii_digit()) {
         return Some(stem.to_string());
@@ -2581,6 +2581,69 @@ pub async fn set_background_notify(state: State<'_, AppState>, enabled: bool) ->
     Ok(view)
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadsWatch {
+    pub enabled: bool,
+}
+
+fn downloads_dir() -> Result<PathBuf, String> {
+    let path = dirs::download_dir().ok_or("Dossier Téléchargements introuvable.".to_string())?;
+    if path.is_dir() {
+        Ok(path)
+    } else {
+        Err("Le dossier Téléchargements n'est pas disponible.".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn downloads_watch_start(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    minutes: Option<u32>,
+) -> Result<downloads::WatchStatus, String> {
+    let dir = downloads_dir()?;
+    Ok(downloads::start(
+        &app,
+        &state,
+        dir,
+        downloads::Window::timed(std::time::Instant::now(), minutes.unwrap_or(10)),
+    ))
+}
+
+#[tauri::command]
+pub fn downloads_watch_stop(app: AppHandle, state: State<'_, AppState>) -> downloads::WatchStatus {
+    downloads::stop(&app, &state)
+}
+
+#[tauri::command]
+pub fn downloads_watch_status(state: State<'_, AppState>) -> downloads::WatchStatus {
+    downloads::status(&state)
+}
+
+#[tauri::command]
+pub fn get_downloads_watch(state: State<'_, AppState>) -> DownloadsWatch {
+    DownloadsWatch { enabled: state.config.lock().map(|cfg| cfg.watch_downloads == Some(true)).unwrap_or(false) }
+}
+
+#[tauri::command]
+pub fn set_downloads_watch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<DownloadsWatch, String> {
+    if enabled {
+        let dir = downloads_dir()?;
+        downloads::start(&app, &state, dir, downloads::Window::permanent());
+    } else {
+        downloads::stop(&app, &state);
+    }
+    let mut cfg = state.config.lock().map_err(|_| "configuration indisponible".to_string())?.clone();
+    cfg.watch_downloads = Some(enabled);
+    cfg.save().map_err(|error| error.to_string())?;
+    *state.config.lock().map_err(|_| "configuration indisponible".to_string())? = cfg;
+    Ok(DownloadsWatch { enabled })
+}
+
 #[derive(Serialize)]
 pub struct BackgroundGuard {
     /// What the user chose (on unless switched off).
@@ -3014,6 +3077,8 @@ mod tests {
             update_http: update::UpdateClient::new(),
             artwork_http: artwork::ArtworkClient::new(),
             config: std::sync::Mutex::new(config::AppConfig::default()),
+            downloads_generation: std::sync::atomic::AtomicU64::new(0),
+            downloads_watch: std::sync::Mutex::new(downloads::WatchState::default()),
             motd_current: std::sync::Mutex::new(None),
             bulk_cancel: AtomicBool::new(false),
             steam_details: cache::TtlCache::new(std::time::Duration::from_secs(300)),

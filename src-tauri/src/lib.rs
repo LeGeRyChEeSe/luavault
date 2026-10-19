@@ -7,6 +7,7 @@ mod config;
 mod defender;
 mod detect;
 mod discover;
+mod downloads;
 mod fixes;
 pub mod hmac;
 mod i18n_log;
@@ -32,7 +33,7 @@ mod encrypted_backup;
 
 use log::{info, warn};
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -50,6 +51,10 @@ pub struct AppState {
     /// Dedicated client for the artwork CDNs (LOT-14).
     pub artwork_http: artwork::ArtworkClient,
     pub config: Mutex<config::AppConfig>,
+    /// Every new listener advances this generation; older tasks leave on their
+    /// next poll without requiring a join handle or an async mutex.
+    pub downloads_generation: AtomicU64,
+    pub downloads_watch: Mutex<downloads::WatchState>,
     /// Set to `true` to ask the running bulk operation to stop after the current game.
     /// The last notice whose signature was verified, actions included. A button's
     /// parameters are looked up here, never taken from the frontend.
@@ -186,6 +191,8 @@ pub fn run() {
                 update_http: update::UpdateClient::new(),
                 artwork_http: artwork::ArtworkClient::new(),
                 config: Mutex::new(cfg),
+                downloads_generation: AtomicU64::new(0),
+                downloads_watch: Mutex::new(downloads::WatchState::default()),
                 motd_current: Mutex::new(None),
                 bulk_cancel: AtomicBool::new(false),
                 steam_details: cache::TtlCache::new(std::time::Duration::from_secs(300)),
@@ -209,6 +216,14 @@ pub fn run() {
             if guard_on {
                 guard_service::set_running(app.handle(), true);
                 std::thread::spawn(|| guard_service::sync_autostart(true));
+            }
+            if app.state::<AppState>().config.lock().map(|cfg| cfg.watch_downloads == Some(true)).unwrap_or(false) {
+                if let Some(downloads_dir) = dirs::download_dir().filter(|path| path.is_dir()) {
+                    let state = app.state::<AppState>();
+                    downloads::start(app.handle(), &state, downloads_dir, downloads::Window::permanent());
+                } else {
+                    warn!("downloads watch not started: downloads directory unavailable");
+                }
             }
             Ok(())
         })
@@ -278,6 +293,11 @@ pub fn run() {
             commands::steam_unpin,
             commands::get_background_notify,
             commands::set_background_notify,
+            commands::downloads_watch_start,
+            commands::downloads_watch_stop,
+            commands::downloads_watch_status,
+            commands::get_downloads_watch,
+            commands::set_downloads_watch,
             commands::get_background_guard,
             commands::set_background_guard,
             commands::download_update,

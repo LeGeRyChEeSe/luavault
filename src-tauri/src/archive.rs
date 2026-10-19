@@ -21,8 +21,11 @@ pub fn detect_kind(path: &Path) -> ArchiveKind {
     let Ok(read) = file.read(&mut head) else {
         return ArchiveKind::Unknown;
     };
-    let head = &head[..read];
+    kind_from_head(&head[..read])
+}
 
+/// Identify an archive from its already-read leading bytes.
+pub fn kind_from_head(head: &[u8]) -> ArchiveKind {
     if head.starts_with(b"Rar!\x1a\x07") {
         ArchiveKind::Rar
     } else if head.starts_with(b"PK\x03\x04") || head.starts_with(b"PK\x05\x06") {
