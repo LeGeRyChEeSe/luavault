@@ -34,6 +34,12 @@ param(
     [string]$Body = '',
     [ValidateSet('release', 'important', 'info')][string]$Kind = 'info',
     [string]$WebhookFile = '',
+    # Message riche déjà composé (JSON Discord, composants V2 : conteneur, séparateurs,
+    # boutons-liens). Les mêmes garde-fous s'appliquent à tout son texte.
+    [string]$PayloadFile = '',
+    # Identifiant d'un message DE CE WEBHOOK à modifier sur place (pas de nouvelle
+    # notification) au lieu d'en poster un autre.
+    [string]$EditMessage = '',
     [switch]$Everyone,
     [switch]$Test,
     [switch]$DryRun
@@ -42,6 +48,52 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 if (-not $WebhookFile) { $WebhookFile = Join-Path $root 'discord-webhook.url' }
+
+if ($PayloadFile) {
+    $full = if ([System.IO.Path]::IsPathRooted($PayloadFile)) { $PayloadFile } else { [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $PayloadFile)) }
+    if (-not (Test-Path $full)) { throw "fichier introuvable : $full" }
+    $raw = [System.IO.File]::ReadAllText($full, [System.Text.Encoding]::UTF8)
+    $payload = $raw | ConvertFrom-Json
+    if ($raw -match '(?i)' + (@(('auto' + 'steamtools'), ('open' + 'lua'), ('ast' + 'release')) -join '|') -or $raw -cmatch '\bAST\b') {
+        throw "le texte nomme l'autre projet : annonce refusée."
+    }
+    if ($raw -match [char]0x2014) { throw 'le texte contient un tiret cadratin.' }
+    if (-not $Everyone -and $raw -match '@(everyone|here)') { throw 'mention sans -Everyone : refusé.' }
+    if ($raw -match '@here|<@[&!]?\d+>') { throw 'seule la mention @everyone est permise.' }
+    # Les mentions autorisées sont décidées ici, jamais par le fichier.
+    [string[]]$parse = if ($Everyone) { @('everyone') } else { @() }
+    $payload | Add-Member -NotePropertyName allowed_mentions -NotePropertyValue ([pscustomobject]@{ parse = $parse }) -Force
+    # Remplacer un message classique (texte + embed) par un message à composants : Discord
+    # refuse l'édition tant que l'ancien contenu et les anciens embeds ne sont pas vidés.
+    if ($EditMessage) {
+        $payload | Add-Member -NotePropertyName content -NotePropertyValue '' -Force
+        $payload | Add-Member -NotePropertyName embeds -NotePropertyValue @() -Force
+    }
+    $json = $payload | ConvertTo-Json -Depth 20 -Compress
+    if ($DryRun) { Write-Host "-DryRun : rien n'est envoyé. Message riche ($($json.Length) caractères JSON)."; exit 0 }
+    $url = if (Test-Path $WebhookFile) { ([System.IO.File]::ReadAllText($WebhookFile)).Trim() } else { $env:LUAVAULT_DISCORD_WEBHOOK }
+    if ($url -notmatch '^https://(?:discord|discordapp)\.com/api/webhooks/\d+/[\w-]+$') { throw "URL du webhook absente ou invalide." }
+    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($json)
+    try {
+        if ($EditMessage) {
+            if ($EditMessage -notmatch '^\d+$') { throw 'identifiant de message invalide.' }
+            Invoke-RestMethod -Uri "$url/messages/${EditMessage}?with_components=true" -Method Patch -ContentType 'application/json; charset=utf-8' -Body $bytes | Out-Null
+            Write-Host 'message modifié sur place.'
+        } elseif ($Test) {
+            $sent = Invoke-RestMethod -Uri "${url}?wait=true&with_components=true" -Method Post -ContentType 'application/json; charset=utf-8' -Body $bytes
+            Invoke-RestMethod -Uri "$url/messages/$($sent.id)" -Method Delete | Out-Null
+            Write-Host 'essai riche envoyé puis supprimé.'
+        } else {
+            Invoke-RestMethod -Uri "${url}?with_components=true" -Method Post -ContentType 'application/json; charset=utf-8' -Body $bytes | Out-Null
+            Write-Host 'annonce envoyée.'
+        }
+    } catch {
+        $detail = ''
+        try { $detail = (New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())).ReadToEnd() } catch { }
+        throw "envoi Discord refusé (HTTP $([int]$_.Exception.Response.StatusCode)) $detail"
+    }
+    exit 0
+}
 
 if ($File) {
     $full = if ([System.IO.Path]::IsPathRooted($File)) { $File } else { [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $File)) }
