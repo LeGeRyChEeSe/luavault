@@ -522,6 +522,10 @@ mod tests {
             tracker.observe(vec![seen("old.lua", 99)]).is_empty(),
             "an old baseline file is never proposed"
         );
+        assert!(
+            tracker.observe(vec![seen("old.lua", 99)]).is_empty(),
+            "an old baseline file stays excluded after becoming stable"
+        );
         assert!(tracker.observe(vec![seen("recent.lua", 10)]).is_empty());
         assert_eq!(
             tracker.observe(vec![seen("recent.lua", 10)]).len(),
