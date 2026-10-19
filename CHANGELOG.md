@@ -15,6 +15,14 @@ Two rules to follow when editing this file, because the script depends on them:
   publish script then places them separately in `notes_i18n`, with French kept as
   the `notes` fallback for older clients.
 
+## 1.1.2 - 2026-10-19
+
+### fr
+- Les boutons du message du jour disent maintenant s'ils ont déjà servi. Quand le retour à la version précédente de Steam est déjà en place, le message l'affiche au lieu de proposer le bouton une seconde fois. Un bouton qui n'est plus en place se représente tout seul, et un bouton dont l'effet ne peut pas être vérifié garde une petite option « Refaire ».
+
+### en
+- The buttons in the message of the day now tell you whether they have already been used. When the return to the previous Steam version is already in place, the message says so instead of offering the button a second time. A button whose effect is gone comes back on its own, and one whose effect cannot be checked keeps a small "Do it again" option.
+
 ## 1.1.1 - 2026-10-18
 
 ### fr
