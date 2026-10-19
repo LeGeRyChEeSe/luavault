@@ -69,3 +69,4 @@ discord-webhook.url
 
 # Discord announcement drafts — they go to Discord only, never to GitHub
 announcements/
+discord-bot.token
