@@ -917,6 +917,12 @@
         onclick={() => void pickPatchFiles()}
         tip={t("library.patch.import.tip")}
       />
+      <ActionButton
+        label={t("library.source.find")}
+        icon="globe"
+        onclick={() => void downloadsState.findFile()}
+        tip={`${t("library.source.note")} ${t("library.source.tip", { minutes: WATCH_MINUTES })}`}
+      />
       {#if downloadsState.watch.active && downloadsState.watch.ends_in_secs === null}
         <ActionButton
           label={t("downloads.watch.permanent")}
@@ -1288,6 +1294,16 @@
           <p class="mt-1 text-xs">
             {t("library.empty.none.hint")}
           </p>
+          <div class="mt-4 flex flex-col items-center gap-1.5" data-library-source>
+            <ActionButton
+              label={t("library.source.find")}
+              icon="globe"
+              variant="soft"
+              onclick={() => void downloadsState.findFile()}
+              tip={t("library.source.tip", { minutes: WATCH_MINUTES })}
+            />
+            <p class="text-xs text-azure-900/45" data-library-source-note>{t("library.source.note")}</p>
+          </div>
         {:else}
           <p class="text-sm font-medium">{t("library.empty.hidden")}</p>
           <p class="mt-1 text-xs">

@@ -72,6 +72,19 @@ cases++;
 assert.ok(!/Escape[^}]*onadd/.test(modal) && !/currentTarget[^}]*onadd/.test(modal), "ni Échap ni le fond n'ajoutent");
 cases++;
 
+// « Trouver un fichier » opens a page the BINARY chooses. No address, and no site name,
+// may appear in the interface code that drives it: the frontend hands over nothing.
+for (const source of ["src/views/LibraryView.svelte", "src/lib/downloads-state.svelte.ts", "src/components/DownloadsModal.svelte"]) {
+  const code = stripComments(readFileSync(source, "utf8"));
+  assert.ok(!/https?:\/\//i.test(code), `${source} ne contient aucune adresse`);
+  cases++;
+  assert.ok(!/openlua/i.test(code), `${source} ne nomme aucun site`);
+  cases++;
+}
+const state = stripComments(readFileSync("src/lib/downloads-state.svelte.ts", "utf8"));
+assert.ok(/openSourceSite\(\)/.test(state), "findFile appelle openSourceSite() sans argument");
+cases++;
+
 export const __downloadsRan = true;
 export const downloadsSuite = Promise.resolve();
 export const downloadsCases = () => cases;

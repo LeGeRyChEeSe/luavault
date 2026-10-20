@@ -684,6 +684,8 @@ export interface DownloadsWatch {
 }
 export const DOWNLOADS_FOUND_EVENT = "downloads://found";
 export const DOWNLOADS_STATE_EVENT = "downloads://state";
+/** Opens the download site's home page in the browser. The address lives in the binary. */
+export const openSourceSite = () => invoke<void>("open_source_site");
 export const downloadsWatchStart = (minutes?: number) =>
   invoke<DownloadsWatchStatus>("downloads_watch_start", { minutes: minutes ?? null });
 export const downloadsWatchStop = () => invoke<DownloadsWatchStatus>("downloads_watch_stop");

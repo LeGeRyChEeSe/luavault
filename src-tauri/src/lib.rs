@@ -293,6 +293,7 @@ pub fn run() {
             commands::steam_unpin,
             commands::get_background_notify,
             commands::set_background_notify,
+            commands::open_source_site,
             commands::downloads_watch_start,
             commands::downloads_watch_stop,
             commands::downloads_watch_status,

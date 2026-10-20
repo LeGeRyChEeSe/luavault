@@ -2581,6 +2581,22 @@ pub async fn set_background_notify(state: State<'_, AppState>, enabled: bool) ->
     Ok(view)
 }
 
+/// The one external page the « Trouver un fichier » button opens: a home page, never
+/// a game, an AppID or a query. It lives in the binary on purpose — no message, no
+/// config and no frontend argument can aim the button anywhere else.
+const SOURCE_SITE_URL: &str = "https://openlua.cloud/";
+
+fn source_site_url() -> Option<String> {
+    motd::safe_https_url(SOURCE_SITE_URL)
+}
+
+/// Open the download site in the user's browser. The site is never contacted from here.
+#[tauri::command]
+pub fn open_source_site() -> Result<(), String> {
+    let url = source_site_url().ok_or("adresse du site invalide")?;
+    tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DownloadsWatch {
     pub enabled: bool,
@@ -3043,6 +3059,18 @@ pub async fn artwork_cache_clear() -> Result<artwork::CacheStats, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_source_button_opens_one_https_home_page_and_nothing_else() {
+        let url = source_site_url().expect("the constant must pass the https filter");
+        let parsed = reqwest::Url::parse(&url).unwrap();
+        assert_eq!(parsed.scheme(), "https");
+        assert_eq!(parsed.path(), "/", "a home page: never a game or a download path");
+        assert_eq!(parsed.query(), None, "no AppID, no tracking parameter");
+        assert_eq!(parsed.fragment(), None);
+        assert!(parsed.username().is_empty() && parsed.password().is_none());
+        assert_eq!(parsed.port(), None);
+    }
+
     use super::*;
 
     fn archive_password_scratch(tag: &str) -> PathBuf {

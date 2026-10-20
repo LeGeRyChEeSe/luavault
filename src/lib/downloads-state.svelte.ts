@@ -4,6 +4,7 @@ import {
   DOWNLOADS_STATE_EVENT,
   downloadsWatchStart,
   downloadsWatchStatus,
+  openSourceSite,
   downloadsWatchStop,
   importLuaFile,
   importPatchArchive,
@@ -71,6 +72,21 @@ class DownloadsState {
     } catch (e) {
       appState.toast("error", String(e));
     }
+  }
+
+  /**
+   * « Trouver un fichier »: open the download site in the browser and listen to the
+   * downloads folder, so the file is offered as soon as it lands. The listening is a
+   * convenience: if it cannot start (no downloads folder), the site still opens.
+   */
+  async findFile() {
+    try {
+      await openSourceSite();
+    } catch (e) {
+      appState.toast("error", String(e));
+      return;
+    }
+    if (!this.watch.active) await this.start();
   }
 
   /** "Ignorer": forget what is pending. The files are left exactly where they are. */

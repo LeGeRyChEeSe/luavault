@@ -761,6 +761,9 @@ export const fr = {
   "library.error.accept.confirm": "Accepter sans vérification ?",
   "library.error.accept.title": "Vous acceptez que l'application n'ait plus la garantie que l'index n'a pas été modifié depuis sa dernière signature sur cette machine.",
 
+  "library.source.find": "Trouver un fichier",
+  "library.source.note": "Source testée avec LuaVault, sans lien avec l'app.",
+  "library.source.tip": "Ouvre un site de téléchargement dans votre navigateur, puis surveille votre dossier Téléchargements pendant {minutes} minutes pour vous proposer d'ajouter le fichier.",
   "library.empty.none": "Aucun fichier .lua pour le moment.",
   "library.empty.none.hint": "Importez votre premier fichier .lua en le glissant-déposant ici ou avec « Importer des .lua ».",
   "library.empty.hidden": "Tous vos jeux sont masqués.",

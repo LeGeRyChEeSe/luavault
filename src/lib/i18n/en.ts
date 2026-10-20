@@ -755,6 +755,9 @@ export const en: Record<Key, string> = {
   "library.error.accept.confirm": "Accept without verification?",
   "library.error.accept.title": "You accept that the application no longer guarantees the index has not been modified since its last signature on this machine.",
 
+  "library.source.find": "Find a file",
+  "library.source.note": "Source tested with LuaVault, not affiliated with the app.",
+  "library.source.tip": "Opens a download site in your browser, then watches your Downloads folder for {minutes} minutes to offer the file.",
   "library.empty.none": "No .lua file yet.",
   "library.empty.none.hint": "Import your first .lua file by dragging it here or using Import .lua files.",
   "library.empty.hidden": "All your games are hidden.",
