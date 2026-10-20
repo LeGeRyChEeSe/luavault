@@ -1060,7 +1060,7 @@ pub async fn get_steam_details(
 /// Shared implementation for both the frontend command and backend flows
 /// (notably a local `.lua` import). Keeping one entry point prevents a new
 /// caller from bypassing the cache or the per-key request deduplication.
-async fn cached_steam_details(
+pub(crate) async fn cached_steam_details(
     state: &AppState,
     app_id: &str,
     lang: &str,
@@ -2627,12 +2627,15 @@ pub fn downloads_watch_start(
     minutes: Option<u32>,
 ) -> Result<downloads::WatchStatus, String> {
     let dir = downloads_dir()?;
-    Ok(downloads::start(
-        &app,
-        &state,
-        dir,
-        downloads::Window::timed(std::time::Instant::now(), minutes.unwrap_or(10)),
-    ))
+    // Already watching for good: a timed listening would replace it and stop it ten
+    // minutes later, which is the opposite of what the button means.
+    let permanent = state.config.lock().map(|cfg| downloads_watch_wanted(&cfg)).unwrap_or(true);
+    let window = if permanent {
+        downloads::Window::permanent()
+    } else {
+        downloads::Window::timed(std::time::Instant::now(), minutes.unwrap_or(10))
+    };
+    Ok(downloads::start(&app, &state, dir, window))
 }
 
 #[tauri::command]
@@ -2645,9 +2648,21 @@ pub fn downloads_watch_status(state: State<'_, AppState>) -> downloads::WatchSta
     downloads::status(&state)
 }
 
+/// On unless the user switched it off: the app watches the folder as long as it runs,
+/// window open or hidden in the tray.
+pub(crate) fn downloads_watch_wanted(cfg: &config::AppConfig) -> bool {
+    cfg.watch_downloads != Some(false)
+}
+
 #[tauri::command]
 pub fn get_downloads_watch(state: State<'_, AppState>) -> DownloadsWatch {
-    DownloadsWatch { enabled: state.config.lock().map(|cfg| cfg.watch_downloads == Some(true)).unwrap_or(false) }
+    DownloadsWatch { enabled: state.config.lock().map(|cfg| downloads_watch_wanted(&cfg)).unwrap_or(true) }
+}
+
+/// The popup was answered (added or ignored): the toast that listed those files goes away.
+#[tauri::command]
+pub fn downloads_pending_clear() {
+    downloads::clear_pending();
 }
 
 #[tauri::command]
@@ -3059,6 +3074,16 @@ pub async fn artwork_cache_clear() -> Result<artwork::CacheStats, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_downloads_watch_is_on_unless_the_user_switched_it_off() {
+        let mut cfg = config::AppConfig::default();
+        assert!(downloads_watch_wanted(&cfg), "never asked: watching");
+        cfg.watch_downloads = Some(true);
+        assert!(downloads_watch_wanted(&cfg));
+        cfg.watch_downloads = Some(false);
+        assert!(!downloads_watch_wanted(&cfg));
+    }
+
     #[test]
     fn the_source_button_opens_one_https_home_page_and_nothing_else() {
         let url = source_site_url().expect("the constant must pass the https filter");

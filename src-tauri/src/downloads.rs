@@ -1,10 +1,11 @@
-use crate::{archive, commands, library, AppState};
+use crate::{archive, commands, config, library, notify, AppState};
 use log::debug;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -14,6 +15,186 @@ pub const STABLE_POLLS: u8 = 2;
 pub const MAX_WINDOW_MINUTES: u32 = 30;
 pub const DOWNLOADS_FOUND_EVENT: &str = "downloads://found";
 pub const DOWNLOADS_STATE_EVENT: &str = "downloads://state";
+/// One tag: each new detection replaces the previous toast instead of piling up.
+pub const TOAST_TAG: &str = "downloads-found";
+/// A click on the toast asks the running app to show itself; older than this, it is stale.
+const WAKE_TTL_SECS: i64 = 60;
+const TOAST_MAX_NAMES: usize = 4;
+
+/// What was found and not yet answered, for the toast to list. The window holds the same
+/// list in its own memory; this copy exists so a toast can be raised while the window is
+/// hidden, and re-raised with every file that arrives afterwards.
+static PENDING: Mutex<Vec<DownloadFound>> = Mutex::new(Vec::new());
+/// Set once the `luavault://` handler is written: only then does a toast get a click.
+static HANDLER_READY: AtomicBool = AtomicBool::new(false);
+
+pub fn set_handler_ready(ready: bool) {
+    HANDLER_READY.store(ready, Ordering::SeqCst);
+}
+
+/// A debug build is the bench or a dev run: no toast on the developer's desktop unless asked.
+fn toasts_enabled() -> bool {
+    !cfg!(debug_assertions) || std::env::var_os("LV_DOWNLOADS_TOAST").is_some()
+}
+
+fn wake_path() -> PathBuf {
+    config::data_dir().join("downloads_wake")
+}
+
+/// The toast was clicked (headless process): leave a dated note for the running app.
+pub fn request_wake(now: i64) -> std::io::Result<()> {
+    std::fs::write(wake_path(), now.to_string())
+}
+
+/// Is there a fresh note? The note is always removed, fresh or not.
+fn take_wake(now: i64) -> bool {
+    let path = wake_path();
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return false;
+    };
+    let _ = std::fs::remove_file(&path);
+    wake_is_fresh(&raw, now)
+}
+
+fn wake_is_fresh(raw: &str, now: i64) -> bool {
+    raw.trim().parse::<i64>().is_ok_and(|at| (0..WAKE_TTL_SECS).contains(&(now - at)))
+}
+
+/// Add what was just found to what is waiting, each file once.
+fn merge_pending(pending: &mut Vec<DownloadFound>, found: &[DownloadFound]) {
+    for item in found {
+        match pending.iter_mut().find(|known| known.path == item.path) {
+            Some(known) => *known = item.clone(),
+            None => pending.push(item.clone()),
+        }
+    }
+}
+
+/// The toast's words: how many files, and which games (the first few, then a count).
+pub fn toast_texts(lang: &str, names: &[String]) -> (String, String) {
+    let fr = lang == "fr";
+    let count = names.len();
+    let title = match (fr, count) {
+        (true, 1) => "Un fichier détecté dans Téléchargements".to_string(),
+        (true, n) => format!("{n} fichiers détectés dans Téléchargements"),
+        (false, 1) => "A file was found in Downloads".to_string(),
+        (false, n) => format!("{n} files were found in Downloads"),
+    };
+    let shown = names.iter().take(TOAST_MAX_NAMES).cloned().collect::<Vec<_>>().join(", ");
+    let more = count.saturating_sub(TOAST_MAX_NAMES);
+    let list = match (fr, more) {
+        (_, 0) => shown,
+        (true, n) => format!("{shown} et {n} autre{}", if n > 1 { "s" } else { "" }),
+        (false, n) => format!("{shown} and {n} more"),
+    };
+    let call = if fr { "Cliquez pour les ajouter à LuaVault." } else { "Click to add them to LuaVault." };
+    (title, format!("{list}\n{call}"))
+}
+
+async fn game_names(app: &AppHandle, items: &[DownloadFound]) -> Vec<String> {
+    let state = app.state::<AppState>();
+    let library_dir = state.config.lock().map(|cfg| cfg.resolved_library_dir()).ok();
+    let known: HashMap<String, String> = library_dir
+        .map(|dir| library::load_index(&dir))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| (entry.app_id, entry.name))
+        .collect();
+    let mut names = Vec::new();
+    for item in items {
+        let Some(app_id) = item.app_id.as_deref() else {
+            names.push(item.name.clone());
+            continue;
+        };
+        let name = match known.get(app_id) {
+            Some(name) => name.clone(),
+            None => {
+                let looked_up = tokio::time::timeout(
+                    Duration::from_secs(3),
+                    commands::cached_steam_details(&state, app_id, "english"),
+                )
+                .await;
+                match looked_up {
+                    Ok(Ok(details)) if !details.name.trim().is_empty() => details.name,
+                    _ => format!("AppID {app_id}"),
+                }
+            }
+        };
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// Is the user looking at the window right now? Then the popup is the announcement.
+fn window_in_front(app: &AppHandle) -> bool {
+    app.get_webview_window("main").is_some_and(|window| {
+        window.is_visible().unwrap_or(false)
+            && !window.is_minimized().unwrap_or(false)
+            && window.is_focused().unwrap_or(false)
+    })
+}
+
+/// Raise (or refresh) the toast that lists every file waiting for an answer.
+async fn announce(app: &AppHandle, found: &[DownloadFound]) {
+    let waiting = {
+        let mut pending = PENDING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        merge_pending(&mut pending, found);
+        pending.retain(|item| Path::new(&item.path).is_file());
+        pending.clone()
+    };
+    if waiting.is_empty() || !toasts_enabled() || window_in_front(app) {
+        return;
+    }
+    let names = game_names(app, &waiting).await;
+    let lang = {
+        let state = app.state::<AppState>();
+        let locale = state.config.lock().ok().and_then(|cfg| cfg.locale.clone());
+        notify::pick_language(locale.as_deref(), notify::system_locale().as_deref())
+    };
+    let (title, body) = toast_texts(lang, &names);
+    let (launch, buttons) = if HANDLER_READY.load(Ordering::SeqCst) {
+        let mut state = notify::load_state();
+        let now = chrono::Utc::now().timestamp();
+        state.prune(now);
+        let body_nonce = state.issue_downloads(now);
+        let button_nonce = state.issue_downloads(now);
+        // Persisted BEFORE the toast: a button whose nonce was never saved is dead.
+        if notify::save_state(&state).is_err() {
+            (String::new(), Vec::new())
+        } else {
+            let label = if lang == "fr" { "Ajouter" } else { "Add" };
+            (
+                notify::activation_url("open", &body_nonce),
+                vec![(label.to_string(), notify::activation_url("run", &button_nonce))],
+            )
+        }
+    } else {
+        (String::new(), Vec::new())
+    };
+    let xml = notify::toast_xml(&title, &body, &launch, &buttons);
+    let shown = tauri::async_runtime::spawn_blocking(move || notify::show_toast_tagged(&xml, TOAST_TAG, false)).await;
+    if !matches!(shown, Ok(Ok(()))) {
+        debug!("downloads toast not shown");
+    }
+}
+
+/// The window answered (added or ignored): nothing waits any more, take the toast back.
+pub fn clear_pending() {
+    PENDING.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
+    if toasts_enabled() {
+        notify::remove_toast(TOAST_TAG);
+    }
+}
+
+fn reveal_main(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
@@ -380,9 +561,13 @@ pub fn start(app: &AppHandle, state: &AppState, dir: PathBuf, window: Window) ->
             .await
             .unwrap_or_default();
             if !found.is_empty() {
-                if let Err(error) = app.emit(DOWNLOADS_FOUND_EVENT, found) {
+                if let Err(error) = app.emit(DOWNLOADS_FOUND_EVENT, found.clone()) {
                     debug!("downloads found event failed: {error}");
                 }
+                announce(&app, &found).await;
+            }
+            if take_wake(chrono::Utc::now().timestamp()) {
+                reveal_main(&app);
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
@@ -404,6 +589,55 @@ mod tests {
             size,
             age_at_start: None,
         }
+    }
+
+    fn found(path: &str, app_id: &str) -> DownloadFound {
+        DownloadFound {
+            path: path.to_string(),
+            name: path.to_string(),
+            size: 1,
+            kind: "lua".to_string(),
+            app_id: Some(app_id.to_string()),
+        }
+    }
+
+    #[test]
+    fn pending_lists_each_file_once_and_keeps_what_arrived_earlier() {
+        let mut pending = Vec::new();
+        merge_pending(&mut pending, &[found("a.lua", "1")]);
+        merge_pending(&mut pending, &[found("b.lua", "2"), found("a.lua", "1")]);
+        let paths: Vec<_> = pending.iter().map(|item| item.path.as_str()).collect();
+        assert_eq!(paths, ["a.lua", "b.lua"]);
+    }
+
+    #[test]
+    fn the_toast_counts_the_files_and_names_the_first_games() {
+        let names: Vec<String> = ["A", "B"].iter().map(|n| n.to_string()).collect();
+        let (title, body) = toast_texts("fr", &names[..1]);
+        assert_eq!(title, "Un fichier détecté dans Téléchargements");
+        assert!(body.starts_with("A\n"), "{body}");
+        let (title, body) = toast_texts("fr", &names);
+        assert_eq!(title, "2 fichiers détectés dans Téléchargements");
+        assert!(body.starts_with("A, B\n"));
+        let (title, _) = toast_texts("en", &names);
+        assert_eq!(title, "2 files were found in Downloads");
+        let many: Vec<String> = (1..=7).map(|n| format!("G{n}")).collect();
+        let (_, body) = toast_texts("fr", &many);
+        assert!(body.starts_with("G1, G2, G3, G4 et 3 autres\n"), "{body}");
+        let (_, body) = toast_texts("en", &many);
+        assert!(body.starts_with("G1, G2, G3, G4 and 3 more\n"), "{body}");
+        let five: Vec<String> = (1..=5).map(|n| format!("G{n}")).collect();
+        let (_, body) = toast_texts("fr", &five);
+        assert!(body.starts_with("G1, G2, G3, G4 et 1 autre\n"), "singular: {body}");
+    }
+
+    #[test]
+    fn a_wake_note_is_good_for_a_minute_and_never_from_the_future() {
+        assert!(wake_is_fresh("1000", 1000));
+        assert!(wake_is_fresh("1000", 1059));
+        assert!(!wake_is_fresh("1000", 1060), "stale");
+        assert!(!wake_is_fresh("1000", 999), "from the future");
+        assert!(!wake_is_fresh("not a number", 1000));
     }
 
     #[test]

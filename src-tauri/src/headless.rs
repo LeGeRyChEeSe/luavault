@@ -167,6 +167,16 @@ async fn motd_action(raw: &str) -> i32 {
     };
     log_line(&format!("clic reçu : {}, {what}", pending.message_id));
 
+    if pending.downloads {
+        // « Files detected »: nothing to fetch or run. Leave a note for the running app and,
+        // when none runs, open it. The files wait in the window's own list.
+        if let Err(e) = crate::downloads::request_wake(now) {
+            log_line(&format!("note de réveil non écrite : {e}"));
+        }
+        open_app();
+        return 0;
+    }
+
     let cfg = AppConfig::load().unwrap_or_default();
     let lang = lang(&cfg);
     // Ask where the toast's message came from: this process was started by Windows

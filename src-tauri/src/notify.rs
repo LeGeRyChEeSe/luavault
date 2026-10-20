@@ -78,6 +78,10 @@ pub struct Pending {
     /// action id: action ids come from a signed message and could spell anything.
     #[serde(default)]
     pub update_version: Option<String>,
+    /// `true`: this nonce belongs to a « files detected in Downloads » toast. Its click
+    /// only brings the window forward, where the files wait for a yes or a no.
+    #[serde(default)]
+    pub downloads: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -101,7 +105,19 @@ impl NotifyState {
             created_at: now,
             base: Some(base.to_string()),
             update_version: None,
+            downloads: false,
         });
+        nonce
+    }
+
+    /// Issue the nonce of a « files detected » toast. It carries no action and no
+    /// parameter: it can only ask the running app to show its window.
+    pub fn issue_downloads(&mut self, now: i64) -> String {
+        let nonce = self.issue("downloads", None, "", now);
+        if let Some(p) = self.pending.last_mut() {
+            p.downloads = true;
+            p.base = None;
+        }
         nonce
     }
 
@@ -469,6 +485,38 @@ mod win {
         Ok(())
     }
 
+    /// The URL handler and the sender identity alone, for the toasts that are not
+    /// the message of the day: no logon entry, no scheduled task. Idempotent, and
+    /// re-run at every launch so a moved executable does not leave a dead path.
+    pub fn register_handler(exe: &Path) -> Result<(), RegisterError> {
+        let id = Identity::real();
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let scheme_key = format!(r"Software\Classes\{}", id.scheme);
+        let (root, _) = hkcu.create_subkey(&scheme_key).map_err(|e| fail("gestionnaire d'URL", e))?;
+        root.set_value("", &format!("URL:{}", id.display)).map_err(|e| fail("gestionnaire d'URL", e))?;
+        root.set_value("URL Protocol", &"").map_err(|e| fail("gestionnaire d'URL", e))?;
+        let (cmd, _) = hkcu
+            .create_subkey(format!(r"{scheme_key}\shell\open\command"))
+            .map_err(|e| fail("gestionnaire d'URL", e))?;
+        cmd.set_value("", &handler_command(exe)).map_err(|e| fail("gestionnaire d'URL", e))?;
+        let (ident, _) = hkcu
+            .create_subkey(format!(r"Software\Classes\AppUserModelId\{}", id.aumid))
+            .map_err(|e| fail("identité de notification", e))?;
+        ident.set_value("DisplayName", &id.display).map_err(|e| fail("identité de notification", e))
+    }
+
+    /// Take a toast back from the notification centre (what it announced is settled).
+    pub fn remove_toast(tag: &str) {
+        use windows::core::HSTRING;
+        use windows::UI::Notifications::ToastNotificationManager;
+        use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
+
+        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+        if let Ok(history) = ToastNotificationManager::History() {
+            let _ = history.RemoveGroupedTagWithId(&HSTRING::from(tag), &HSTRING::from(aumid()), &HSTRING::from(aumid()));
+        }
+    }
+
     /// Remove everything `register` wrote. A missing entry is not an error.
     pub fn unregister() {
         unregister_as(&Identity::real());
@@ -566,7 +614,7 @@ mod win {
 }
 
 #[cfg(windows)]
-pub use win::{ensure_toast_identity, register, set_guard_autostart, show_toast, show_toast_tagged, system_locale, unregister};
+pub use win::{ensure_toast_identity, register, register_handler, remove_toast, set_guard_autostart, show_toast, show_toast_tagged, system_locale, unregister};
 #[cfg(all(windows, test))]
 use win::{register_as, unregister_as};
 
@@ -576,6 +624,12 @@ pub fn register(_exe: &Path) -> Result<(), RegisterError> {
 }
 #[cfg(not(windows))]
 pub fn unregister() {}
+#[cfg(not(windows))]
+pub fn register_handler(_exe: &Path) -> Result<(), RegisterError> {
+    Err(RegisterError::Failed("Windows uniquement".into()))
+}
+#[cfg(not(windows))]
+pub fn remove_toast(_tag: &str) {}
 #[cfg(not(windows))]
 pub fn show_toast(_xml: &str) -> Result<(), RegisterError> {
     Err(RegisterError::Failed("Windows uniquement".into()))
@@ -979,6 +1033,27 @@ mod tests {
     }
 
     // ── building a toast ──
+
+    #[test]
+    fn a_downloads_nonce_is_single_use_carries_no_action_and_no_origin() {
+        let mut state = NotifyState::default();
+        let nonce = state.issue_downloads(1_000);
+        assert!(matches!(parse_activation(&activation_url("open", &nonce)), Some(Activation::Open { .. })));
+        let taken = state.consume(&nonce, 1_001).expect("fresh");
+        assert!(taken.downloads, "it is the downloads kind");
+        assert!(taken.action_id.is_none() && taken.update_version.is_none() && taken.base.is_none());
+        assert!(state.consume(&nonce, 1_002).is_none(), "single use");
+        let late = state.issue_downloads(1_000);
+        assert!(state.consume(&late, 1_000 + PENDING_TTL_SECS).is_none(), "expired");
+    }
+
+    #[test]
+    fn a_message_nonce_is_never_a_downloads_nonce() {
+        let mut state = NotifyState::default();
+        let nonce = state.issue("downloads", None, "https://example.test", 1_000);
+        let taken = state.consume(&nonce, 1_001).unwrap();
+        assert!(!taken.downloads, "a signed message cannot spell its way into the downloads path");
+    }
 
     #[test]
     fn build_toast_issues_a_nonce_per_button_and_one_for_the_body() {

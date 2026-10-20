@@ -217,7 +217,19 @@ pub fn run() {
                 guard_service::set_running(app.handle(), true);
                 std::thread::spawn(|| guard_service::sync_autostart(true));
             }
-            if app.state::<AppState>().config.lock().map(|cfg| cfg.watch_downloads == Some(true)).unwrap_or(false) {
+            if app.state::<AppState>().config.lock().map(|cfg| commands::downloads_watch_wanted(&cfg)).unwrap_or(true) {
+                // A toast can only be clicked once Windows knows the `luavault://` handler.
+                if !config::is_portable() && !cfg!(debug_assertions) {
+                    std::thread::spawn(|| {
+                        let ready = std::env::current_exe()
+                            .map_err(|e| e.to_string())
+                            .and_then(|exe| notify::register_handler(&exe).map_err(|e| e.to_string()));
+                        match ready {
+                            Ok(()) => downloads::set_handler_ready(true),
+                            Err(e) => warn!("notifications des téléchargements : gestionnaire d'URL impossible ({e})"),
+                        }
+                    });
+                }
                 if let Ok(downloads_dir) = commands::downloads_dir() {
                     let state = app.state::<AppState>();
                     downloads::start(app.handle(), &state, downloads_dir, downloads::Window::permanent());
@@ -298,6 +310,7 @@ pub fn run() {
             commands::downloads_watch_stop,
             commands::downloads_watch_status,
             commands::get_downloads_watch,
+            commands::downloads_pending_clear,
             commands::set_downloads_watch,
             commands::get_background_guard,
             commands::set_background_guard,

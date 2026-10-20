@@ -22,15 +22,6 @@ const lua = (appId: string) =>
 /// Zip magic bytes plus filler: the importer checks the head, never the entries.
 const archive = () => Buffer.concat([Buffer.from('PK\x03\x04'), Buffer.alloc(64, 1)]);
 
-async function clickButton(app: App, label: string) {
-  const clicked = await app.session.execute<boolean>(
-    `const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim().startsWith(arguments[0]));
-     if (!b) return false; b.click(); return true`,
-    [label],
-  );
-  assert.ok(clicked, `bouton « ${label} » introuvable`);
-}
-
 async function offered(app: App): Promise<string[]> {
   return app.session.execute<string[]>(
     `return [...document.querySelectorAll('[data-downloads-item]')].map(li => li.getAttribute('data-downloads-item'))`,
@@ -76,8 +67,8 @@ export default defineSuite({
       const dir = app.downloadsDir;
       await (await s.waitFor('nav button[data-tip="Bibliothèque"]', 20_000)).click();
       await s.waitFor('input[placeholder="Filtrer par nom ou AppID…"]');
-      await clickButton(app, 'Détecter un téléchargement');
-      await s.waitFor('button[data-tip="Cesse de surveiller le dossier Téléchargements."]');
+      // Nobody pressed anything: the folder has been watched since the app started.
+      await s.waitFor('button[data-tip^="L\'application surveille votre dossier Téléchargements"]');
 
       // Noise first: none of these may ever raise the popup.
       writeFileSync(join(dir, 'notes.txt'), 'rien à voir');
@@ -143,11 +134,12 @@ export default defineSuite({
       const s = app.session;
       await (await s.waitFor('nav button[data-tip="Réglages"]')).click();
       const box = await s.waitFor('[data-settings-downloads-switch]', 20_000);
-      assert.ok(persisted(app.sandbox) !== true, 'éteint au départ');
+      assert.ok(persisted(app.sandbox) !== false, 'allumé au départ : personne ne l\'a éteint');
+      assert.ok(await s.execute<boolean>(`return document.querySelector('[data-settings-downloads-switch]').checked`), "l'interrupteur se montre allumé");
       await box.click();
-      await s.waitUntil('watch_downloads vaut true sur le disque', async () => persisted(app.sandbox) === true);
-      await (await s.waitFor('[data-settings-downloads-switch]')).click();
       await s.waitUntil('watch_downloads vaut false sur le disque', async () => persisted(app.sandbox) === false);
+      await (await s.waitFor('[data-settings-downloads-switch]')).click();
+      await s.waitUntil('watch_downloads vaut true sur le disque', async () => persisted(app.sandbox) === true);
     },
   },
 });

@@ -87,6 +87,14 @@ const state = stripComments(readFileSync("src/lib/downloads-state.svelte.ts", "u
 assert.ok(/openSourceSite\(\)/.test(state), "findFile appelle openSourceSite() sans argument");
 cases++;
 
+// Answering the popup (Ajouter or Ignorer) takes back the Windows notification that
+// listed the files: both paths must reach the command, or a toast outlives its question.
+const answerPaths = /dismiss\(\)\s*\{[^}]*this\.answered\(\)/.test(state) && /async add\([^)]*\)[^{]*\{[\s\S]*?this\.answered\(\)/.test(state);
+assert.ok(answerPaths, "dismiss() et add() préviennent le backend que la question est réglée");
+cases++;
+assert.ok(/downloadsPendingClear\(\)/.test(state), "answered() appelle downloadsPendingClear");
+cases++;
+
 export const __downloadsRan = true;
 export const downloadsSuite = Promise.resolve();
 export const downloadsCases = () => cases;

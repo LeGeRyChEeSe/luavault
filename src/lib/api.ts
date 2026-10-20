@@ -692,6 +692,8 @@ export const downloadsWatchStop = () => invoke<DownloadsWatchStatus>("downloads_
 export const downloadsWatchStatus = () => invoke<DownloadsWatchStatus>("downloads_watch_status");
 /** A pure read of the config: is the permanent listening switched on? */
 export const getDownloadsWatch = () => invoke<DownloadsWatch>("get_downloads_watch");
+/** The popup was answered: the Windows notification that listed those files goes away. */
+export const downloadsPendingClear = () => invoke<void>("downloads_pending_clear");
 export const setDownloadsWatch = (enabled: boolean) =>
   invoke<DownloadsWatch>("set_downloads_watch", { enabled });
 export interface BackgroundGuard {

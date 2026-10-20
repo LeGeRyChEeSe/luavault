@@ -6,6 +6,7 @@ import {
   downloadsWatchStatus,
   openSourceSite,
   downloadsWatchStop,
+  downloadsPendingClear,
   importLuaFile,
   importPatchArchive,
 } from "./api";
@@ -92,6 +93,12 @@ class DownloadsState {
   /** "Ignorer": forget what is pending. The files are left exactly where they are. */
   dismiss() {
     this.pending = [];
+    this.answered();
+  }
+
+  /** Nothing waits for an answer: the notification that listed the files has no point left. */
+  private answered() {
+    void downloadsPendingClear().catch(() => {});
   }
 
   /**
@@ -102,6 +109,7 @@ class DownloadsState {
   async add(paths: string[]) {
     const chosen = this.pending.filter((item) => paths.includes(item.path));
     this.pending = [];
+    this.answered();
     if (chosen.length === 0) return;
     const library = new Map(appState.statuses.map((game) => [game.app_id, game.name]));
     this.busy = true;
