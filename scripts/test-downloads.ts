@@ -75,10 +75,12 @@ cases++;
 // « Trouver un fichier » opens a page the BINARY chooses. No address, and no site name,
 // may appear in the interface code that drives it: the frontend hands over nothing.
 for (const source of ["src/views/LibraryView.svelte", "src/lib/downloads-state.svelte.ts", "src/components/DownloadsModal.svelte"]) {
-  const code = stripComments(readFileSync(source, "utf8"));
-  assert.ok(!/https?:\/\//i.test(code), `${source} ne contient aucune adresse`);
+  // The raw text, not the comment-stripped one: stripping reads the `//` of `https://`
+  // as the start of a comment and would cut the very address this looks for.
+  const raw = readFileSync(source, "utf8");
+  assert.ok(!/https?:/i.test(raw), `${source} ne contient aucune adresse`);
   cases++;
-  assert.ok(!/openlua/i.test(code), `${source} ne nomme aucun site`);
+  assert.ok(!/openlua/i.test(raw), `${source} ne nomme aucun site`);
   cases++;
 }
 const state = stripComments(readFileSync("src/lib/downloads-state.svelte.ts", "utf8"));

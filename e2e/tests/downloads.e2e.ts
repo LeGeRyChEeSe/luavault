@@ -56,6 +56,21 @@ export default defineSuite({
   name: 'downloads',
   seed: { index: SAMPLE, lua: SAMPLE_LUA },
   cases: {
+    "le bouton « Trouver un fichier » est là, avec sa phrase, et on ne le presse pas": async (app) => {
+      // Pressing it would open the real default browser on a real site: the bench
+      // only settles that it is offered, and what it says about itself.
+      const s = app.session;
+      await (await s.waitFor('nav button[data-tip="Bibliothèque"]', 20_000)).click();
+      await s.waitFor('input[placeholder="Filtrer par nom ou AppID…"]');
+      const tip = await s.execute<string | null>(
+        `const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === 'Trouver un fichier');
+         return b ? b.getAttribute('data-tip') : null`,
+      );
+      assert.ok(tip !== null, 'le bouton est dans la barre de la bibliothèque');
+      assert.includes(tip as string, "Source testée avec LuaVault, sans lien avec l'app.", 'la phrase convenue est dite');
+      assert.excludes(tip as string, 'http', 'aucune adresse dans le texte affiché');
+    },
+
     "un fichier reconnu est proposé, le bruit ne l'est jamais, et rien n'est déplacé": async (app) => {
       const s = app.session;
       const dir = app.downloadsDir;
