@@ -212,7 +212,15 @@ export class Session {
   /// Call a Tauri command and get its result, or `"ERR:<message>"` on reject.
   /// Errors come back as a value rather than a throw so a failing command
   /// produces a readable assertion instead of a WebDriver stack trace.
-  invoke<T = any>(command: string, payload: Record<string, unknown> = {}): Promise<T> {
+  async invoke<T = any>(command: string, payload: Record<string, unknown> = {}): Promise<T> {
+    // The first action of a suite can run before the page has finished loading, when
+    // `window.__TAURI__` does not exist yet: wait for it instead of reading `.core` of
+    // undefined (an intermittent failure that looked like an application bug).
+    await this.waitUntil(
+      "l'API Tauri est disponible dans la page",
+      () => this.execute<boolean>('return typeof window.__TAURI__ !== "undefined" && !!window.__TAURI__.core'),
+      20_000,
+    );
     return this.executeAsync<T>(
       `const done = arguments[arguments.length - 1];
        window.__TAURI__.core.invoke(arguments[0], arguments[1])
