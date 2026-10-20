@@ -547,6 +547,14 @@ mod tests {
         assert!(tracker.observe(vec![]).is_empty());
         assert!(tracker.observe(vec![seen("123.lua", 20)]).is_empty());
         assert_eq!(tracker.observe(vec![seen("123.lua", 20)]).len(), 1);
+        // Deleted and downloaded again byte for byte (same size): still a new download.
+        assert!(tracker.observe(vec![]).is_empty());
+        assert!(tracker.observe(vec![seen("123.lua", 20)]).is_empty());
+        assert_eq!(
+            tracker.observe(vec![seen("123.lua", 20)]).len(),
+            1,
+            "an identical re-download is offered again"
+        );
     }
 
     #[test]
