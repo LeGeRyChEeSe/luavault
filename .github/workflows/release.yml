@@ -16,7 +16,7 @@ jobs:
     steps:
       # The checked-out package.json is the release source of truth.
       - name: Check out tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Extract version from tag
         id: version

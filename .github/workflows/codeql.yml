@@ -30,7 +30,7 @@ jobs:
         language: [rust, javascript-typescript, actions]
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Initialise CodeQL
         uses: github/codeql-action/init@v3
