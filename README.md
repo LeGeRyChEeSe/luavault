@@ -190,7 +190,7 @@ Every pull request towards `main` runs, on GitHub:
   high or critical advisory fails.
 
 **Dependabot** opens weekly update pull requests for Cargo, npm and GitHub Actions
-and security updates as soon as an advisory is published. Secret scanning with
+and security updates as soon as an advisory is published. Leaked-credential scanning with
 push protection is enabled on the repository.
 
 ## Architecture
