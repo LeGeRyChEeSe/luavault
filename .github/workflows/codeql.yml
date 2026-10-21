@@ -1,0 +1,45 @@
+# Static security analysis by GitHub (CodeQL) on every pull request, every push to
+# main, and once a week: new queries land in CodeQL without any change here, so a
+# weekly run catches what an unchanged tree newly matches. Results appear under
+# Security > Code scanning.
+name: CodeQL
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # No build step is needed for any of these: the analysis reads the sources, so
+        # the Windows-only code (`cfg(windows)`) is covered from a Linux runner too.
+        language: [rust, javascript-typescript, actions]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+
+      - name: Analyse
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
