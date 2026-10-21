@@ -15,6 +15,20 @@ Two rules to follow when editing this file, because the script depends on them:
   publish script then places them separately in `notes_i18n`, with French kept as
   the `notes` fallback for older clients.
 
+## 1.1.5 - 2026-10-21
+
+### fr
+- L'application voit arriver vos fichiers .lua, patchs en ligne et bypass DRM téléchargés, d'où qu'ils viennent, tant qu'elle tourne (fenêtre ouverte ou réduite près de l'horloge). Fenêtre au premier plan : une fenêtre vous propose de les ajouter. Sinon : une notification liste les jeux détectés et se met à jour à chaque nouveau fichier ; un clic dessus rouvre l'application. Rien n'est ajouté sans votre accord.
+- Le bouton « Fichiers détectés » de la bibliothèque liste aussi les anciens fichiers de vos dossiers, pour les ajouter plus tard en un clic en choisissant lesquels. Un fichier déjà disponible dans l'application n'est pas reproposé.
+- Chaque ligne affiche le nom du jeu et le type de fichier (fichier .lua, patch en ligne, bypass DRM). Les archives sont ouvertes avec votre mot de passe par défaut avant d'être proposées, et un AppID inconnu de Steam est signalé.
+- Les réglages permettent de choisir les dossiers surveillés, et distinguent clairement le suivi des téléchargements Steam de la détection de vos fichiers.
+
+### en
+- The app sees your downloaded .lua files, online patches and DRM bypasses arrive, whatever their source, as long as it runs (window open or minimised next to the clock). Window in front: a dialog offers to add them. Otherwise a notification lists the detected games and updates with each new file; clicking it brings the app back. Nothing is added without your consent.
+- The library's "Detected files" button also lists older files in your folders, so you can add them later in one click and pick which ones. A file already available in the app is not offered again.
+- Each row shows the game's name and the file's type (.lua file, online patch, DRM bypass). Archives are opened with your default password before being offered, and an AppID Steam does not know is flagged.
+- Settings let you choose the watched folders, and clearly tell the Steam download tracking apart from the detection of your files.
+
 ## 1.1.4 - 2026-10-19
 
 ### fr
