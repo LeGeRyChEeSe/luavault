@@ -1164,7 +1164,7 @@ const PATCH_IMPORT_CASES = 34;
 }
 
 // ── DETECT-02: downloads popup decisions and "closing is never a yes" ───
-const DOWNLOADS_CASES = 30;
+const DOWNLOADS_CASES = 47;
 {
   const mod = (await import("./test-downloads")) as unknown as {
     __downloadsRan: boolean;

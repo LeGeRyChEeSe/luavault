@@ -677,6 +677,15 @@ export interface DownloadFound {
   flavor: "lua" | "patch" | "bypass";
   /** An archive for a game whose patch is already stored, with other content. */
   replaces: boolean;
+  /** For an archive: what opening it with the default password gives. `null` for a `.lua`. */
+  archive_check: ArchiveCheck | null;
+}
+export type ArchiveCheck = "opens" | "needs_password" | "wrong_password" | "unreadable" | "unchecked";
+/** What Steam calls an AppID. `unknown` also describes a delisted or unreleased game: a hint only. */
+export interface SteamName {
+  app_id: string;
+  status: "known" | "unknown" | "unreachable";
+  name?: string;
 }
 /** The folders the file detection watches (`custom` = the user's own list). */
 export interface DownloadsDirs {
@@ -704,6 +713,8 @@ export const downloadsWatchStatus = () => invoke<DownloadsWatchStatus>("download
 export const getDownloadsWatch = () => invoke<DownloadsWatch>("get_downloads_watch");
 /** The popup was answered: the Windows notification that listed those files goes away. */
 export const downloadsPendingClear = () => invoke<void>("downloads_pending_clear");
+/** Ask Steam what these AppIDs are called (only the numbers leave the machine). */
+export const downloadsSteamNames = (appIds: string[]) => invoke<SteamName[]>("downloads_steam_names", { appIds });
 export const getDownloadsDirs = () => invoke<DownloadsDirs>("get_downloads_dirs");
 /** `null` = back to the Downloads folder. */
 export const setDownloadsDirs = (dirs: string[] | null) => invoke<DownloadsDirs>("set_downloads_dirs", { dirs });

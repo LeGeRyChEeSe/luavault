@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 // @ts-expect-error Node types are deliberately not a frontend dependency.
 import { readFileSync } from "node:fs";
 import type { DownloadFound } from "../src/lib/api";
-import { BLOCK_KEYS, flavorKey, importOrder, mergeFound, planDownload } from "../src/lib/downloads";
+import { BLOCK_KEYS, checkLine, flavorKey, importOrder, mergeFound, planDownload, titleInFileName, titleLooksRight } from "../src/lib/downloads";
 import { stripComments } from "./test-dlc-wiring";
 
 let cases = 0;
@@ -20,6 +20,7 @@ const file = (over: Partial<DownloadFound>): DownloadFound => ({
   app_id: "1593030",
   flavor: "lua",
   replaces: false,
+  archive_check: null,
   ...over,
 });
 const library = new Map([["440", "Team Fortress 2"]]);
@@ -50,7 +51,7 @@ equal(
 );
 equal(
   Object.keys(BLOCK_KEYS).sort(),
-  ["archive.no-app-id", "archive.unknown-game"],
+  ["archive.no-app-id", "archive.unknown-game", "archive.unreadable"],
   "chaque raison de refus a sa clé de catalogue",
 );
 
@@ -79,6 +80,37 @@ equal(
 equal(flavorKey(file({})), "downloads.kind.lua", "un .lua");
 equal(flavorKey(file({ kind: "archive", flavor: "patch" })), "downloads.kind.patch", "un patch en ligne");
 equal(flavorKey(file({ kind: "archive", flavor: "bypass" })), "downloads.kind.bypass", "un bypass DRM");
+
+// An archive that cannot be opened is refused now rather than at install time.
+equal(
+  planDownload(file({ kind: "archive", name: "440_bypass.rar", app_id: "440", flavor: "bypass", archive_check: "unreadable" }), library),
+  { importable: false, reason: "archive.unreadable" },
+  "une archive illisible est grisée avec sa raison, même pour un jeu connu",
+);
+equal(
+  planDownload(file({ kind: "archive", name: "440_bypass.rar", app_id: "440", archive_check: "needs_password" }), library),
+  { importable: true, gameName: "Team Fortress 2" },
+  "un mot de passe à fournir n'empêche pas d'ajouter : on le saisit à l'installation",
+);
+
+// What the default password gave, said under the file.
+equal(checkLine(file({ kind: "archive", archive_check: "opens" })), { key: "downloads.check.opens", good: true }, "elle se décompresse");
+equal(checkLine(file({ kind: "archive", archive_check: "needs_password" }))?.good, false, "protégée : pas une bonne nouvelle");
+equal(checkLine(file({ kind: "archive", archive_check: "wrong_password" }))?.key, "downloads.check.wrong", "mauvais mot de passe par défaut");
+equal(checkLine(file({ kind: "archive", archive_check: "unchecked" }))?.key, "downloads.check.unchecked", "trop gros pour être vérifiée");
+equal(checkLine(file({ kind: "archive", archive_check: "unreadable" })), null, "illisible : c'est une raison de refus, pas une ligne d'état");
+equal(checkLine(file({})), null, "un .lua n'a rien à vérifier");
+
+// The name in `Game name (123).zip` against what Steam calls 123: only a total mismatch warns.
+equal(titleInFileName("Portal 2 (620).zip"), "Portal 2", "le titre avant l'AppID");
+equal(titleInFileName("271590_bypass.rar"), null, "pas de titre dans la forme 123_bypass");
+equal(titleInFileName("440.zip"), null, "pas de titre dans un AppID nu");
+equal(titleInFileName("(620).zip"), null, "un AppID sans nom");
+equal(titleLooksRight("Portal 2", "Portal 2"), true, "le même nom");
+equal(titleLooksRight("GTA V", "Grand Theft Auto V"), false, "une abréviation sans mot commun avertit : un indice, pas un verdict");
+equal(titleLooksRight("Grand Theft Auto", "Grand Theft Auto V"), true, "un mot commun suffit");
+equal(titleLooksRight("Pokémon Épée", "POKEMON epee"), true, "accents et casse ne comptent pas");
+equal(titleLooksRight("Half Life", "Counter-Strike"), false, "un autre jeu avertit");
 
 // The pending list holds a path once, and a rewritten file replaces its description.
 const first = file({ path: "a", name: "a.lua" });

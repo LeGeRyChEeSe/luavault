@@ -403,6 +403,7 @@
   <DownloadsModal
     items={downloadsState.shown}
     library={new Map(appState.statuses.map((game) => [game.app_id, game.name]))}
+    steamNames={downloadsState.steamNames}
     browsing={downloadsState.browsing}
     busy={downloadsState.busy}
     onadd={(paths) => void downloadsState.add(paths)}

@@ -19,8 +19,45 @@ const OFFER_MS = 30_000;
 const lua = (appId: string) =>
   `-- AppID ${appId} | Generated on 2026-01-01 05:55 UTC\n-- Main Application\naddappid(${appId}, 1, "340ae2fcb31a92507c1e0a9139f7cac3ab50f45a8c701f6d9f06b1793aca9981")\n`;
 
-/// Zip magic bytes plus filler: the importer checks the head, never the entries.
-const archive = () => Buffer.concat([Buffer.from('PK\x03\x04'), Buffer.alloc(64, 1)]);
+/// A real, readable zip (one stored file): the app now opens every archive it offers, so magic bytes
+/// and filler are no longer an archive. The size follows `payload`, which tells two files apart.
+function realZip(payload = 64, entry = 'OnlineFix64.dll'): Buffer {
+  const data = Buffer.alloc(payload, 1);
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  crc = (crc ^ 0xffffffff) >>> 0;
+  const name = Buffer.from(entry);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt16LE(0x5821, 12);
+  local.writeUInt32LE(crc, 14);
+  local.writeUInt32LE(payload, 18);
+  local.writeUInt32LE(payload, 22);
+  local.writeUInt16LE(name.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt16LE(0x5821, 14);
+  central.writeUInt32LE(crc, 16);
+  central.writeUInt32LE(payload, 20);
+  central.writeUInt32LE(payload, 24);
+  central.writeUInt16LE(name.length, 28);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(1, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(46 + name.length, 12);
+  end.writeUInt32LE(30 + name.length + payload, 16);
+  return Buffer.concat([local, name, data, central, name, end]);
+}
+const archive = () => realZip(64);
+/// Right magic bytes, nothing a reader can use behind them: an unfinished or corrupt download.
+const broken = () => Buffer.concat([Buffer.from('PK\x03\x04'), Buffer.alloc(64, 1)]);
 
 async function clickButton(app: App, label: string) {
   const clicked = await app.session.execute<boolean>(
@@ -146,7 +183,8 @@ export default defineSuite({
       const stored = join(app.sandbox, 'library', 'fixes', '264710_online_fix.rar');
       const before = statSync(stored).size;
       // The browser's own duplicate counter must not turn the file into another game.
-      const bytes = Buffer.concat([Buffer.from('Rar!\x1a\x07\x01\x00'), Buffer.alloc(300, 7)]);
+      const bytes = realZip(300);
+      writeFileSync(join(dir, '1593070_bypass.zip'), broken());
       writeFileSync(join(dir, '264710_bypass (1).rar'), bytes);
       await s.waitFor(MODAL, OFFER_MS);
       const row = await s.execute<{ label: string; replaces: boolean; reason: boolean }>(
@@ -158,6 +196,15 @@ export default defineSuite({
       assert.includes(row.label, 'AppID 264710', 'son AppID est lu dans le nom, pas dans le compteur du navigateur');
       assert.ok(row.replaces, 'il dit qu\'il remplacera le patch déjà enregistré');
       assert.ok(!row.reason, 'le jeu est dans la bibliothèque : rien ne le bloque');
+      assert.includes(row.label, 'Se décompresse correctement', "il dit que l'archive se décompresse");
+      // A download that left a corrupt archive is refused now, with its reason, not at install time.
+      await s.waitUntil('le téléchargement corrompu est listé', async () => (await offered(app)).includes('1593070_bypass.zip'), OFFER_MS);
+      const corrupt = await s.execute<{ disabled: boolean; reason: string }>(
+        `const li = document.querySelector('[data-downloads-item="1593070_bypass.zip"]');
+         return { disabled: li.querySelector('input').disabled, reason: li.querySelector('[data-downloads-reason]')?.textContent.trim() ?? '' }`,
+      );
+      assert.ok(corrupt.disabled, "l'archive corrompue ne peut pas être cochée");
+      assert.includes(corrupt.reason, 'illisible', 'la raison est dite');
       await (await s.waitFor('[data-downloads-add]')).click();
       await s.waitUntil('la fenêtre se ferme', async () => (await s.maybeFind(MODAL)) === null);
       await s.waitUntil("l'archive stockée est celle du bypass", async () => statSync(stored).size === bytes.length);

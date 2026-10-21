@@ -37,6 +37,127 @@ pub fn kind_from_head(head: &[u8]) -> ArchiveKind {
     }
 }
 
+/// What opening an archive with a given password gives, without extracting it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Probe {
+    /// It opens, and its first file reads back: this password decompresses it.
+    Opens,
+    /// It is protected and no password was given.
+    NeedsPassword,
+    /// It is protected and the password given does not open it.
+    WrongPassword,
+    /// Not an archive that can be read (corrupt, truncated, unsupported).
+    Unreadable,
+    /// It opens but its first file is too big to read back here: nothing says the password is right.
+    Unchecked,
+}
+
+/// The largest first file that is read back to check a password: a check is a glance, not an extraction.
+const PROBE_MAX_ENTRY: u64 = 32 * 1024 * 1024;
+
+/// Open `archive` with `password` and read back its first file, extracting nothing. Only the
+/// first file: a wrong password shows on any encrypted entry, and a hundred-MiB archive must not
+/// be unpacked to answer a question about a password.
+pub fn probe(archive: &Path, password: Option<&str>) -> Probe {
+    match detect_kind(archive) {
+        ArchiveKind::Zip => probe_zip(archive, password),
+        ArchiveKind::Rar => probe_rar(archive, password),
+        ArchiveKind::SevenZ | ArchiveKind::Unknown => Probe::Unreadable,
+    }
+}
+
+fn probe_zip(archive: &Path, password: Option<&str>) -> Probe {
+    let Ok(file) = std::fs::File::open(archive) else {
+        return Probe::Unreadable;
+    };
+    let Ok(mut zip) = zip::ZipArchive::new(file) else {
+        return Probe::Unreadable;
+    };
+    for i in 0..zip.len() {
+        let (is_dir, encrypted, size) = match zip.by_index_raw(i) {
+            Ok(entry) => (entry.is_dir(), entry.encrypted(), entry.size()),
+            Err(_) => return Probe::Unreadable,
+        };
+        if is_dir {
+            continue;
+        }
+        let Some(password) = password.or(if encrypted { None } else { Some("") }) else {
+            return Probe::NeedsPassword;
+        };
+        if size > PROBE_MAX_ENTRY {
+            return Probe::Unchecked;
+        }
+        let read = if encrypted {
+            match zip.by_index_decrypt(i, password.as_bytes()) {
+                Ok(mut entry) => std::io::copy(&mut entry, &mut std::io::sink()).is_ok(),
+                Err(_) => return Probe::WrongPassword,
+            }
+        } else {
+            match zip.by_index(i) {
+                Ok(mut entry) => std::io::copy(&mut entry, &mut std::io::sink()).is_ok(),
+                Err(_) => return Probe::Unreadable,
+            }
+        };
+        return match (read, encrypted) {
+            (true, _) => Probe::Opens,
+            (false, true) => Probe::WrongPassword,
+            (false, false) => Probe::Unreadable,
+        };
+    }
+    Probe::Unreadable
+}
+
+fn probe_rar(archive: &Path, password: Option<&str>) -> Probe {
+    use unrar::error::Code;
+    let blame = |code: Code| match code {
+        Code::MissingPassword | Code::BadPassword if password.is_none() => Probe::NeedsPassword,
+        Code::MissingPassword | Code::BadPassword => Probe::WrongPassword,
+        _ => Probe::Unreadable,
+    };
+    let builder = match password {
+        Some(password) => unrar::Archive::with_password(archive, password),
+        None => unrar::Archive::new(archive),
+    };
+    // A RAR can encrypt its headers too: then even listing it needs the password.
+    let mut open = match builder.open_for_processing() {
+        Ok(open) => open,
+        Err(error) => return blame(error.code),
+    };
+    loop {
+        match open.read_header() {
+            Err(error) => return blame(error.code),
+            Ok(None) => return Probe::Unreadable,
+            Ok(Some(header)) => {
+                let (is_file, encrypted, size) = {
+                    let entry = header.entry();
+                    (entry.is_file(), entry.is_encrypted(), entry.unpacked_size)
+                };
+                if !is_file {
+                    open = match header.skip() {
+                        Ok(next) => next,
+                        Err(error) => return blame(error.code),
+                    };
+                    continue;
+                }
+                if encrypted && password.is_none() {
+                    return Probe::NeedsPassword;
+                }
+                if size > PROBE_MAX_ENTRY {
+                    return Probe::Unchecked;
+                }
+                return match header.test() {
+                    Ok(_) => Probe::Opens,
+                    Err(error) if encrypted && matches!(error.code, Code::BadData | Code::BadPassword | Code::MissingPassword) => {
+                        Probe::WrongPassword
+                    }
+                    Err(error) => blame(error.code),
+                };
+            }
+        }
+    }
+}
+
 /// Check if the archive entries require a password.
 pub fn needs_password(archive: &Path) -> bool {
     match detect_kind(archive) {
@@ -319,6 +440,49 @@ mod tests {
         assert_eq!(std::fs::read(out.join("OnlineFix64.dll")).unwrap(), b"dll");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn probe_says_whether_the_default_password_opens_the_archive() {
+        let dir = scratch("probe");
+        let plain = dir.join("plain.zip");
+        write_zip(&plain, &[("a.txt", b"hello")], None);
+        assert_eq!(probe(&plain, None), Probe::Opens, "an unprotected archive opens with no password");
+        assert_eq!(probe(&plain, Some("whatever")), Probe::Opens, "a password it does not need changes nothing");
+
+        let sealed = dir.join("sealed.zip");
+        write_zip(&sealed, &[("a.txt", b"hello world, long enough to be a real entry")], Some("good"));
+        assert_eq!(probe(&sealed, None), Probe::NeedsPassword, "protected, and none was given");
+        assert_eq!(probe(&sealed, Some("bad")), Probe::WrongPassword, "protected, and this is not it");
+        assert_eq!(probe(&sealed, Some("good")), Probe::Opens, "the right one opens it");
+
+        // Right magic bytes, nothing behind them: not an archive.
+        let broken = dir.join("broken.zip");
+        std::fs::write(&broken, b"PK and then nothing a zip reader could use").unwrap();
+        assert_eq!(probe(&broken, None), Probe::Unreadable);
+        let seven = dir.join("x.zip");
+        std::fs::write(&seven, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0, 0]).unwrap();
+        assert_eq!(probe(&seven, None), Probe::Unreadable, "7z is not supported");
+        assert_eq!(probe(&dir.join("missing.zip"), None), Probe::Unreadable);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A real header-encrypted RAR of the user's Downloads, if there is one: it must be told apart
+    /// as protected, refused with another password, and opened with its own.
+    ///
+    /// `cargo test live_probe_a_real_rar -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs 271590_bypass.rar in the Downloads folder and its password in LV_RAR_PASSWORD"]
+    fn live_probe_a_real_rar() {
+        let path = dirs::download_dir().unwrap().join("271590_bypass.rar");
+        assert!(path.is_file(), "put the archive in Downloads: {}", path.display());
+        let password = std::env::var("LV_RAR_PASSWORD").expect("LV_RAR_PASSWORD");
+        println!("none  -> {:?}", probe(&path, None));
+        println!("wrong -> {:?}", probe(&path, Some("not-the-password")));
+        println!("right -> {:?}", probe(&path, Some(&password)));
+        assert_eq!(probe(&path, None), Probe::NeedsPassword);
+        assert_eq!(probe(&path, Some("not-the-password")), Probe::WrongPassword);
+        assert_eq!(probe(&path, Some(&password)), Probe::Opens);
     }
 
     #[test]

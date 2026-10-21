@@ -10,8 +10,9 @@ import {
   importLuaFile,
   importPatchArchive,
   downloadsInventory,
+  downloadsSteamNames,
 } from "./api";
-import type { DownloadFound, DownloadsWatchStatus } from "./api";
+import type { DownloadFound, DownloadsWatchStatus, SteamName } from "./api";
 import { appState } from "./app-state.svelte";
 import { BLOCK_KEYS, importOrder, mergeFound, planDownload } from "./downloads";
 import { t } from "./i18n.svelte";
@@ -37,6 +38,8 @@ class DownloadsState {
   inventory = $state<DownloadFound[]>([]);
   /** The list is open on the inventory (the user asked), not on a fresh arrival. */
   browsing = $state(false);
+  /** What Steam calls the AppIDs of the listed files (a hint shown beside each). */
+  steamNames = $state<Record<string, SteamName>>({});
 
   private unlisten: UnlistenFn[] = [];
   private refocus = () => void this.refreshInventory();
@@ -51,6 +54,33 @@ class DownloadsState {
       this.inventory = await downloadsInventory();
     } catch {
       // The count is a convenience: a folder that cannot be read leaves the last list.
+      return;
+    }
+    void this.resolveNames(this.inventory);
+  }
+
+  /**
+   * Ask Steam what the listed AppIDs are called. The games already in the library are named
+   * locally; a name Steam answered (or said it does not know) is not asked twice; an answer
+   * that never came is asked again next time. Never blocks the list.
+   */
+  async resolveNames(items: readonly DownloadFound[]) {
+    const inLibrary = new Set(appState.statuses.map((game) => game.app_id));
+    const wanted = [
+      ...new Set(
+        items
+          .map((item) => item.app_id)
+          .filter((id): id is string => !!id && !inLibrary.has(id) && this.steamNames[id] === undefined),
+      ),
+    ];
+    if (wanted.length === 0) return;
+    try {
+      const answers = await downloadsSteamNames(wanted);
+      const next = { ...this.steamNames };
+      for (const answer of answers) if (answer.status !== "unreachable") next[answer.app_id] = answer;
+      this.steamNames = next;
+    } catch {
+      // Offline or throttled: the file is listed without a name, as before.
     }
   }
 
@@ -70,6 +100,7 @@ class DownloadsState {
     this.unlisten = await Promise.all([
       listen<DownloadFound[]>(DOWNLOADS_FOUND_EVENT, (event) => {
         this.pending = mergeFound(this.pending, event.payload);
+        void this.resolveNames(event.payload);
         void this.refreshInventory();
       }),
       listen<DownloadsWatchStatus>(DOWNLOADS_STATE_EVENT, (event) => this.apply(event.payload)),

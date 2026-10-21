@@ -424,23 +424,63 @@ pub struct DownloadFound {
     /// An archive for a game whose patch is already stored, with other content: adding it
     /// would replace that one.
     pub replaces: bool,
+    /// For an archive: what opening it with the default password gives (`None` for a `.lua`).
+    pub archive_check: Option<archive::Probe>,
 }
 
 /// What the library already holds, to leave out what the user has: nothing is offered twice.
 pub struct LibraryFacts {
     library_dir: PathBuf,
     ids: HashSet<String>,
+    /// The default archive password of Settings, the one an install would use.
+    password: Option<String>,
+}
+
+type ProbeKey = (String, u64, u64, u64);
+
+/// A check opens an archive: remembered by (path, size, modification, password), so the list
+/// refreshing on every focus does not reopen what did not change. Bounded.
+static PROBES: std::sync::LazyLock<Mutex<HashMap<ProbeKey, archive::Probe>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn probe_cached(path: &Path, size: u64, password: Option<&str>) -> archive::Probe {
+    use std::hash::{Hash, Hasher};
+    let modified = std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |elapsed| elapsed.as_secs());
+    // The password is hashed, never stored: changing it must re-check, nothing more.
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    password.hash(&mut hasher);
+    let key = (path.display().to_string(), size, modified, hasher.finish());
+    if let Some(known) = PROBES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(&key) {
+        return *known;
+    }
+    let verdict = archive::probe(path, password);
+    let mut cache = PROBES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cache.len() >= 256 {
+        cache.clear();
+    }
+    cache.insert(key, verdict);
+    verdict
 }
 
 impl LibraryFacts {
-    pub fn load(library_dir: PathBuf) -> Self {
+    pub fn load(library_dir: PathBuf, password: Option<String>) -> Self {
         let ids = library::load_index(&library_dir).into_iter().map(|entry| entry.app_id).collect();
-        Self { library_dir, ids }
+        Self { library_dir, ids, password }
     }
 
     #[cfg(test)]
     fn with_ids(library_dir: PathBuf, ids: &[&str]) -> Self {
-        Self { library_dir, ids: ids.iter().map(|id| id.to_string()).collect() }
+        Self { library_dir, ids: ids.iter().map(|id| id.to_string()).collect(), password: None }
+    }
+
+    #[cfg(test)]
+    fn with_password(mut self, password: &str) -> Self {
+        self.password = Some(password.to_string());
+        self
     }
 
     /// Is this file still worth offering? A `.lua` whose game is in the library is not. An
@@ -454,13 +494,15 @@ impl LibraryFacts {
             return !self.ids.contains(app_id);
         }
         let stored = crate::fixes::archive_path(&self.library_dir, app_id);
-        if !stored.is_file() {
-            return true;
+        if stored.is_file() {
+            if same_content(&stored, Path::new(&item.path)) {
+                return false;
+            }
+            item.replaces = true;
         }
-        if same_content(&stored, Path::new(&item.path)) {
-            return false;
-        }
-        item.replaces = true;
+        // Still offered: say whether the default password opens it, so a protected archive does
+        // not surprise the user at install time.
+        item.archive_check = Some(probe_cached(Path::new(&item.path), item.size, self.password.as_deref()));
         true
     }
 }
@@ -498,6 +540,7 @@ fn describe(dir: &Path, name: &str, size: u64) -> Option<DownloadFound> {
         app_id: Some(app_id),
         flavor: flavor_of(kind, name).to_string(),
         replaces: false,
+        archive_check: None,
     })
 }
 
@@ -655,11 +698,15 @@ pub fn start(app: &AppHandle, state: &AppState, dirs: Vec<PathBuf>, window: Wind
                 .state::<AppState>()
                 .config
                 .lock()
-                .map(|cfg| cfg.resolved_library_dir())
+                .map(|cfg| (cfg.resolved_library_dir(), cfg.default_archive_password.clone()))
                 .ok();
             let found: Vec<DownloadFound> = tauri::async_runtime::spawn_blocking(move || {
                 // What the library already holds is not offered again.
-                let facts = if ready.is_empty() { None } else { library_dir.map(LibraryFacts::load) };
+                let facts = if ready.is_empty() {
+                    None
+                } else {
+                    library_dir.map(|(dir, password)| LibraryFacts::load(dir, password))
+                };
                 ready
                     .into_iter()
                     .filter_map(|(dir, seen)| {
@@ -713,6 +760,7 @@ mod tests {
             app_id: Some(app_id.to_string()),
             flavor: "lua".to_string(),
             replaces: false,
+            archive_check: None,
         }
     }
 
@@ -981,6 +1029,48 @@ mod tests {
         let _ = std::fs::remove_dir_all(dl);
     }
 
+    fn real_zip(path: &Path, password: Option<&str>) {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        let mut options = zip::write::SimpleFileOptions::default();
+        if let Some(password) = password {
+            options = options.with_aes_encryption(zip::AesMode::Aes256, password);
+        }
+        zip.start_file("OnlineFix64.dll", options).unwrap();
+        zip.write_all(b"payload payload payload").unwrap();
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn an_offered_archive_says_whether_the_default_password_opens_it() {
+        let dl = scratch("probe-dl");
+        real_zip(&dl.join("500_bypass.zip"), Some("pw"));
+        real_zip(&dl.join("600_bypass.zip"), None);
+        std::fs::write(dl.join("700_bypass.zip"), b"PK truncated, not a zip anyone can read").unwrap();
+        std::fs::write(dl.join("800.lua"), lua_fixture_for("800")).unwrap();
+        let check = |facts: &LibraryFacts| {
+            let items = inventory(std::slice::from_ref(&dl), facts);
+            let of = |name: &str| items.iter().find(|item| item.name == name).unwrap().archive_check;
+            (of("500_bypass.zip"), of("600_bypass.zip"), of("700_bypass.zip"), of("800.lua"))
+        };
+        let none = LibraryFacts::with_ids(scratch("probe-lib"), &[]);
+        assert_eq!(
+            check(&none),
+            (
+                Some(archive::Probe::NeedsPassword),
+                Some(archive::Probe::Opens),
+                Some(archive::Probe::Unreadable),
+                None
+            ),
+            "no default password: a protected archive says so; a .lua is never probed"
+        );
+        let right = LibraryFacts::with_ids(scratch("probe-lib"), &[]).with_password("pw");
+        assert_eq!(check(&right).0, Some(archive::Probe::Opens), "the default password opens it");
+        let wrong = LibraryFacts::with_ids(scratch("probe-lib"), &[]).with_password("nope");
+        assert_eq!(check(&wrong).0, Some(archive::Probe::WrongPassword), "another password does not");
+        let _ = std::fs::remove_dir_all(dl);
+    }
+
     #[test]
     fn the_inventory_reads_every_watched_folder_and_lists_a_path_once() {
         let a = scratch("inv-a");
@@ -1007,7 +1097,7 @@ mod tests {
     fn live_inventory_of_the_real_downloads() {
         let cfg = crate::config::AppConfig::load().unwrap_or_default();
         let dirs = commands::watch_dirs(&cfg);
-        let facts = LibraryFacts::load(cfg.resolved_library_dir());
+        let facts = LibraryFacts::load(cfg.resolved_library_dir(), cfg.default_archive_password.clone());
         println!("watched: {dirs:?}");
         for dir in &dirs {
             for seen in scan(dir) {

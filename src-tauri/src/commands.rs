@@ -2755,12 +2755,80 @@ pub async fn downloads_inventory(state: State<'_, AppState>) -> Result<Vec<downl
     let cfg = state.config.lock().map_err(|_| "configuration indisponible".to_string())?.clone();
     let dirs = watch_dirs(&cfg);
     let library_dir = cfg.resolved_library_dir();
+    let password = cfg.default_archive_password.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let facts = downloads::LibraryFacts::load(library_dir);
+        let facts = downloads::LibraryFacts::load(library_dir, password);
         downloads::inventory(&dirs, &facts)
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+/// How long what Steam said about an AppID is believed. A failure to ask is never remembered.
+const STEAM_NAME_TTL: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+const STEAM_NAME_MAX_IDS: usize = 40;
+const STEAM_NAME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+
+static STEAM_NAMES: std::sync::LazyLock<std::sync::Mutex<HashMap<String, (std::time::Instant, steamstore::NameLookup)>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SteamNameAnswer {
+    pub app_id: String,
+    #[serde(flatten)]
+    pub lookup: steamstore::NameLookup,
+}
+
+/// What Steam calls these AppIDs, to name a detected file and to say when Steam does not know the
+/// AppID. A hint: « unknown » also describes a delisted or unreleased game, and « unreachable »
+/// (offline, throttled) says nothing. Only the AppID numbers leave the machine, to the store page
+/// the game card already uses; at most a few at a time.
+#[tauri::command]
+pub async fn downloads_steam_names(state: State<'_, AppState>, app_ids: Vec<String>) -> Result<Vec<SteamNameAnswer>, String> {
+    let mut wanted: Vec<String> = Vec::new();
+    for id in app_ids {
+        if !id.is_empty() && id.len() <= 12 && id.bytes().all(|byte| byte.is_ascii_digit()) && !wanted.contains(&id) {
+            wanted.push(id);
+        }
+    }
+    wanted.truncate(STEAM_NAME_MAX_IDS);
+    let mut answers = Vec::new();
+    let mut to_ask = Vec::new();
+    {
+        let cache = STEAM_NAMES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        for id in wanted {
+            match cache.get(&id) {
+                Some((at, lookup)) if at.elapsed() < STEAM_NAME_TTL => {
+                    answers.push(SteamNameAnswer { app_id: id, lookup: lookup.clone() });
+                }
+                _ => to_ask.push(id),
+            }
+        }
+    }
+    let gate = Arc::new(tokio::sync::Semaphore::new(4));
+    let mut tasks = tokio::task::JoinSet::new();
+    for id in to_ask {
+        let http = state.http.clone();
+        let gate = gate.clone();
+        tasks.spawn(async move {
+            let _permit = gate.acquire_owned().await;
+            let lookup = tokio::time::timeout(STEAM_NAME_TIMEOUT, steamstore::lookup_name(&http, &id))
+                .await
+                .unwrap_or(steamstore::NameLookup::Unreachable);
+            (id, lookup)
+        });
+    }
+    while let Some(done) = tasks.join_next().await {
+        let Ok((id, lookup)) = done else { continue };
+        if lookup != steamstore::NameLookup::Unreachable {
+            STEAM_NAMES
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(id.clone(), (std::time::Instant::now(), lookup.clone()));
+        }
+        answers.push(SteamNameAnswer { app_id: id, lookup });
+    }
+    Ok(answers)
 }
 
 #[tauri::command]

@@ -8,8 +8,8 @@
    * user opens on purpose (« Fichiers détectés »: old files, ignored ones) starts with
    * nothing ticked, so adding is always a choice.
    */
-  import type { DownloadFound } from "../lib/api";
-  import { BLOCK_KEYS, flavorKey, planDownload } from "../lib/downloads";
+  import type { DownloadFound, SteamName } from "../lib/api";
+  import { BLOCK_KEYS, checkLine, flavorKey, planDownload, titleInFileName, titleLooksRight } from "../lib/downloads";
   import { focusTrap } from "../lib/focus-trap";
   import { formatBytes } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
@@ -19,6 +19,8 @@
     items: DownloadFound[];
     /** AppID → game name, for the games already in the library. */
     library: ReadonlyMap<string, string>;
+    /** What Steam calls the other AppIDs, when it has answered. */
+    steamNames: Readonly<Record<string, SteamName>>;
     /** Opened by the user on the whole inventory, not by a fresh arrival. */
     browsing: boolean;
     busy: boolean;
@@ -26,7 +28,23 @@
     onignore: () => void;
   }
 
-  let { items, library, browsing, busy, onadd, onignore }: Props = $props();
+  let { items, library, steamNames, browsing, busy, onadd, onignore }: Props = $props();
+
+  /** The game's name: the library's, else Steam's. */
+  const nameOf = (item: DownloadFound, planned: string | null) =>
+    planned ?? (item.app_id ? (steamNames[item.app_id]?.name ?? null) : null);
+
+  /** A warning about the AppID itself, from what Steam says. */
+  function steamWarning(item: DownloadFound): { key: "downloads.steam.unknown" | "downloads.steam.mismatch"; name: string } | null {
+    const said = item.app_id ? steamNames[item.app_id] : undefined;
+    if (!said || (item.app_id && library.has(item.app_id))) return null;
+    if (said.status === "unknown") return { key: "downloads.steam.unknown", name: "" };
+    const title = titleInFileName(item.name);
+    if (said.status === "known" && said.name && title && !titleLooksRight(title, said.name)) {
+      return { key: "downloads.steam.mismatch", name: said.name };
+    }
+    return null;
+  }
 
   // What the user ticked or unticked; anything untouched follows the default of the list.
   let touched = $state<Record<string, boolean>>({});
@@ -112,11 +130,27 @@
                   {t(flavorKey(item))}
                   · {formatBytes(item.size)}
                   {#if item.app_id}
-                    · {plan.importable && plan.gameName
-                      ? t("downloads.item.game", { name: plan.gameName, appId: item.app_id })
+                    · {nameOf(item, plan.importable ? plan.gameName : null)
+                      ? t("downloads.item.game", { name: nameOf(item, plan.importable ? plan.gameName : null) ?? "", appId: item.app_id })
                       : t("downloads.item.appid", { appId: item.app_id })}
                   {/if}
                 </span>
+                {#if checkLine(item)}
+                  {@const line = checkLine(item)}
+                  {#if line}
+                    <span class="mt-1 block text-xs {line.good ? 'text-mint-deep' : 'text-peach-deep'}" data-downloads-check={item.archive_check}>
+                      {t(line.key)}
+                    </span>
+                  {/if}
+                {/if}
+                {#if steamWarning(item)}
+                  {@const warning = steamWarning(item)}
+                  {#if warning}
+                    <span class="mt-1 block text-xs text-peach-deep" data-downloads-steam-warning>
+                      {t(warning.key, { name: warning.name })}
+                    </span>
+                  {/if}
+                {/if}
                 {#if item.replaces}
                   <span class="mt-1 block text-xs text-peach-deep" data-downloads-replaces>
                     {t("downloads.replaces")}

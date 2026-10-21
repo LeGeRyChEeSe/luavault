@@ -320,6 +320,7 @@ pub fn run() {
             commands::get_downloads_dirs,
             commands::set_downloads_dirs,
             commands::downloads_inventory,
+            commands::downloads_steam_names,
             commands::set_downloads_watch,
             commands::get_background_guard,
             commands::set_background_guard,
