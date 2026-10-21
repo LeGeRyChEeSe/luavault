@@ -205,6 +205,45 @@ export default defineSuite({
       assert.ok(existsSync(join(dir, 'Ancien Jeu.lua')), 'le fichier d\'origine reste en place');
     },
 
+    "un .lua et son patch arrivent ensemble : cochés côte à côte, ils s'ajoutent d'un seul geste, le .lua d'abord": async (app) => {
+      const s = app.session;
+      const dir = app.downloadsDir;
+      await (await s.waitFor('nav button[data-tip="Bibliothèque"]', 20_000)).click();
+      // The game 1593060 is NOT in the library: its patch alone could not be added.
+      writeFileSync(join(dir, '1593060_online_fix.zip'), archive());
+      writeFileSync(join(dir, 'Jeu Pair.lua'), lua('1593060'));
+      await s.waitFor(MODAL, OFFER_MS);
+      await s.waitUntil('les deux fichiers sont listés', async () => (await offered(app)).includes('Jeu Pair.lua') && (await offered(app)).includes('1593060_online_fix.zip'), OFFER_MS);
+      const state = async () =>
+        s.execute<{ patchDisabled: boolean; patchChecked: boolean; luaChecked: boolean }>(
+          `const p = document.querySelector('[data-downloads-item="1593060_online_fix.zip"] input');
+           const l = document.querySelector('[data-downloads-item="Jeu Pair.lua"] input');
+           return { patchDisabled: p.disabled, patchChecked: p.checked, luaChecked: l.checked }`,
+        );
+      const together = await state();
+      assert.ok(!together.patchDisabled && together.patchChecked, 'le patch est ajoutable : son .lua est coché à côté');
+      // Untick the .lua: the patch loses its footing and is greyed again, with its reason.
+      await s.execute(`document.querySelector('[data-downloads-item="Jeu Pair.lua"] input').click()`);
+      await s.waitUntil('le patch se grise', async () => (await state()).patchDisabled);
+      await s.execute(`document.querySelector('[data-downloads-item="Jeu Pair.lua"] input').click()`);
+      await s.waitUntil('le patch redevient ajoutable', async () => !(await state()).patchDisabled);
+      // Leave the two other candidates of earlier cases out: only this pair is added.
+      await s.execute(
+        `for (const li of document.querySelectorAll('[data-downloads-item]')) {
+           const name = li.getAttribute('data-downloads-item');
+           const input = li.querySelector('input');
+           if (name !== 'Jeu Pair.lua' && name !== '1593060_online_fix.zip' && input.checked) input.click();
+         }`,
+      );
+      await (await s.waitFor('[data-downloads-add]')).click();
+      await s.waitUntil('la fenêtre se ferme', async () => (await s.maybeFind(MODAL)) === null);
+      await s.waitUntil('le jeu rejoint la bibliothèque', async () => (await badge(app)) === '6');
+      assert.ok(
+        existsSync(join(app.sandbox, 'library', 'fixes', '1593060_online_fix.rar')),
+        'le patch est rangé : le .lua a été importé avant lui',
+      );
+    },
+
     "un second dossier surveillé : ses fichiers sont proposés, et on revient au dossier Téléchargements": async (app) => {
       const s = app.session;
       const second = join(app.sandbox, 'downloads-bis');

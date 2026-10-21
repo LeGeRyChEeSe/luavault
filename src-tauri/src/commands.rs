@@ -139,8 +139,9 @@ pub(crate) fn app_id_from_patch_filename(path: &Path) -> Option<String> {
     }
     let start = stem.rfind('(')?;
     let candidate = stem.get(start + 1..)?.strip_suffix(')')?;
-    (!candidate.is_empty() && candidate.bytes().all(|byte| byte.is_ascii_digit()))
-        .then(|| candidate.to_string())
+    // Three digits at least: `video (1).zip` is a browser's duplicate, not the game 1. (A real
+    // two-digit AppID, the oldest Valve games, is then asked for explicitly instead of guessed.)
+    (all_digits(candidate) && candidate.len() >= 3).then(|| candidate.to_string())
 }
 
 /// Validate, associate and store a local archive at the canonical fix path.

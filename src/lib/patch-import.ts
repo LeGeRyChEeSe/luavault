@@ -27,7 +27,8 @@ export function patchAppIdFromFilename(path: string): string | null {
     const base = plainStemAppId(counter[1].trim());
     if (base) return base;
   }
-  return /\((\d+)\)$/.exec(stem)?.[1] ?? null;
+  // Three digits at least: `video (1).zip` is a browser's duplicate, not the game 1.
+  return /\((\d{3,})\)$/.exec(stem)?.[1] ?? null;
 }
 
 /** The words that may follow the AppID in `123_<word>.zip`. A closed list, as in Rust. */

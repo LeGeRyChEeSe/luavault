@@ -1151,7 +1151,7 @@ const DEFENDER_WIRING_CASES = 5;
 }
 
 // ── IMPORT-01: shared patch filename table and error wiring ───
-const PATCH_IMPORT_CASES = 32;
+const PATCH_IMPORT_CASES = 34;
 {
   const mod = (await import("./test-patch-import")) as unknown as {
     __patchImportRan: boolean;

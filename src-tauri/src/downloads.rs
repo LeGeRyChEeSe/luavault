@@ -999,6 +999,27 @@ mod tests {
         format!("-- AppID {app_id} | Generated on 2026-01-01 05:55 UTC | LuaVault\n-- Main Application\naddappid({app_id}, 1, \"340ae2fcb31a92507c1e0a9139f7cac3ab50f45a8c701f6d9f06b1793aca9981\")\n").into_bytes()
     }
 
+    /// What the app would list for the real Downloads folder against the real library. Read-only.
+    ///
+    /// `cargo test live_inventory_of_the_real_downloads -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads the user's real Downloads folder and library"]
+    fn live_inventory_of_the_real_downloads() {
+        let cfg = crate::config::AppConfig::load().unwrap_or_default();
+        let dirs = commands::watch_dirs(&cfg);
+        let facts = LibraryFacts::load(cfg.resolved_library_dir());
+        println!("watched: {dirs:?}");
+        for dir in &dirs {
+            for seen in scan(dir) {
+                let verdict = classify(&seen.name, seen.size, |max| read_head(&dir.join(&seen.name), max));
+                println!("  {:<40} {:>9} B  -> {:?}", seen.name, seen.size, verdict);
+            }
+        }
+        for item in inventory(&dirs, &facts) {
+            println!("OFFERED {:<36} {:<6} app={:?} replaces={}", item.name, item.flavor, item.app_id, item.replaces);
+        }
+    }
+
     #[test]
     fn scan_is_single_level() {
         let root =
