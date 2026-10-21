@@ -923,6 +923,15 @@
         onclick={() => void downloadsState.findFile()}
         tip={`${t("library.source.note")} ${t("library.source.tip", { minutes: WATCH_MINUTES })}`}
       />
+      <ActionButton
+        label={downloadsState.inventory.length > 0
+          ? t("downloads.inventory.button.count", { count: downloadsState.inventory.length })
+          : t("downloads.inventory.button")}
+        icon="archive"
+        variant="soft"
+        onclick={() => downloadsState.openBrowse()}
+        tip={t("downloads.inventory.tip")}
+      />
       {#if downloadsState.watch.active && downloadsState.watch.ends_in_secs === null}
         <ActionButton
           label={t("downloads.watch.permanent")}

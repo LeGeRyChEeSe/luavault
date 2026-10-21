@@ -7,7 +7,7 @@
 //! whoever runs it. The watcher polls every 2 s and wants a size seen twice, so a
 //! file takes about 5 s to be offered; the waits below are sized for that.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defineSuite, assert } from '../suite.ts';
 import { SAMPLE, SAMPLE_LUA } from '../fixtures.ts';
@@ -21,6 +21,15 @@ const lua = (appId: string) =>
 
 /// Zip magic bytes plus filler: the importer checks the head, never the entries.
 const archive = () => Buffer.concat([Buffer.from('PK\x03\x04'), Buffer.alloc(64, 1)]);
+
+async function clickButton(app: App, label: string) {
+  const clicked = await app.session.execute<boolean>(
+    `const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim().startsWith(arguments[0]));
+     if (!b) return false; b.click(); return true`,
+    [label],
+  );
+  assert.ok(clicked, `bouton « ${label} » introuvable`);
+}
 
 async function offered(app: App): Promise<string[]> {
   return app.session.execute<string[]>(
@@ -128,6 +137,100 @@ export default defineSuite({
       );
       assert.ok(!existsSync(join(app.sandbox, 'library', 'fixes', '999_online_fix.rar')), "le patch refusé n'est pas importé");
       assert.ok(existsSync(join(dir, 'Autre Jeu.lua')), 'les fichiers d\'origine ne sont pas supprimés');
+    },
+
+    "un bypass DRM est détecté, dit ce qu'il remplace, et s'ajoute à l'emplacement du patch": async (app) => {
+      const s = app.session;
+      const dir = app.downloadsDir;
+      await (await s.waitFor('nav button[data-tip="Bibliothèque"]', 20_000)).click();
+      const stored = join(app.sandbox, 'library', 'fixes', '264710_online_fix.rar');
+      const before = statSync(stored).size;
+      // The browser's own duplicate counter must not turn the file into another game.
+      const bytes = Buffer.concat([Buffer.from('Rar!\x1a\x07\x01\x00'), Buffer.alloc(300, 7)]);
+      writeFileSync(join(dir, '264710_bypass (1).rar'), bytes);
+      await s.waitFor(MODAL, OFFER_MS);
+      const row = await s.execute<{ label: string; replaces: boolean; reason: boolean }>(
+        `const li = document.querySelector('[data-downloads-item="264710_bypass (1).rar"]');
+         return li ? { label: li.textContent, replaces: !!li.querySelector('[data-downloads-replaces]'), reason: !!li.querySelector('[data-downloads-reason]') } : null`,
+      );
+      assert.ok(row !== null, 'le bypass est proposé');
+      assert.includes(row.label, 'Bypass DRM', "il est nommé bypass DRM, pas « patch »");
+      assert.includes(row.label, 'AppID 264710', 'son AppID est lu dans le nom, pas dans le compteur du navigateur');
+      assert.ok(row.replaces, 'il dit qu\'il remplacera le patch déjà enregistré');
+      assert.ok(!row.reason, 'le jeu est dans la bibliothèque : rien ne le bloque');
+      await (await s.waitFor('[data-downloads-add]')).click();
+      await s.waitUntil('la fenêtre se ferme', async () => (await s.maybeFind(MODAL)) === null);
+      await s.waitUntil("l'archive stockée est celle du bypass", async () => statSync(stored).size === bytes.length);
+      assert.ok(bytes.length !== before, 'la taille a bien changé');
+    },
+
+    "ce qu'on ignore reste à un clic : « Fichiers détectés » le liste, sans ce que l'app a déjà": async (app) => {
+      const s = app.session;
+      const dir = app.downloadsDir;
+      writeFileSync(join(dir, 'Ancien Jeu.lua'), lua('1593040'));
+      await s.waitFor(MODAL, OFFER_MS);
+      await (await s.waitFor('[data-downloads-ignore]')).click();
+      await s.waitUntil('la fenêtre se ferme', async () => (await s.maybeFind(MODAL)) === null);
+
+      await clickButton(app, 'Fichiers détectés');
+      await s.waitFor(`${MODAL}[data-downloads-mode="browse"]`);
+      await s.waitUntil('la liste est chargée', async () => (await offered(app)).includes('Ancien Jeu.lua'));
+      const names = (await offered(app)).sort();
+      // Ignored earlier or never answered: still there. Already in the library (the .lua added by the
+      // previous cases) or the very file already stored (the bypass just added): not offered again.
+      for (const wanted of ['Ancien Jeu.lua', 'Echap Jeu.lua', 'Mon Jeu Test.lua']) {
+        assert.ok(names.includes(wanted), `${wanted} reste proposé (${names.join(', ')})`);
+      }
+      // The old patch archive is no longer the stored file (the bypass replaced it): it is another file for
+      // the same game, so it is offered again, saying it would replace.
+      assert.ok(names.includes('264710_online_fix.zip'), "l'ancien patch, différent du fichier stocké, reste proposé");
+      assert.ok(
+        await s.execute<boolean>(`return !!document.querySelector('[data-downloads-item="264710_online_fix.zip"] [data-downloads-replaces]')`),
+        "et il dit qu'il remplacerait",
+      );
+      for (const gone of ['Autre Jeu.lua', '264710_bypass (1).rar', 'notes.txt']) {
+        assert.ok(!names.includes(gone), `${gone} n'est plus proposé : l'application l'a déjà ou ce n'est pas pour elle`);
+      }
+      // A list the user opened starts with nothing ticked: adding is a choice.
+      const ticked = await s.execute<number>(`return document.querySelectorAll('[data-downloads-list] input:checked').length`);
+      assert.equal(ticked, 0, 'rien n\'est coché d\'avance');
+      assert.ok(await s.execute<boolean>(`return document.querySelector('[data-downloads-add]').disabled`), '« Ajouter » attend un choix');
+
+      await s.execute(
+        `document.querySelector('[data-downloads-item="Ancien Jeu.lua"] input').click()`,
+      );
+      await (await s.waitFor('[data-downloads-add]')).click();
+      await s.waitUntil('la fenêtre se ferme', async () => (await s.maybeFind(MODAL)) === null);
+      await s.waitUntil("l'ancien jeu rejoint la bibliothèque", async () => (await badge(app)) === '5');
+      assert.ok(existsSync(join(dir, 'Ancien Jeu.lua')), 'le fichier d\'origine reste en place');
+    },
+
+    "un second dossier surveillé : ses fichiers sont proposés, et on revient au dossier Téléchargements": async (app) => {
+      const s = app.session;
+      const second = join(app.sandbox, 'downloads-bis');
+      mkdirSync(second, { recursive: true });
+      const set = await s.invoke<unknown>('set_downloads_dirs', { dirs: [app.downloadsDir, second] });
+      assert.ok(!String(set).startsWith('ERR:'), `set_downloads_dirs : ${JSON.stringify(set)}`);
+      const rejected = await s.invoke<string>('set_downloads_dirs', { dirs: [join(app.sandbox, 'n-existe-pas')] });
+      assert.ok(String(rejected).startsWith('ERR:'), 'un dossier qui n\'existe pas est refusé');
+
+      await (await s.waitFor('nav button[data-tip="Réglages"]')).click();
+      await s.waitUntil('les deux dossiers sont listés', async () => (await s.findAll('[data-settings-downloads-dir]')).length === 2);
+      const saved = JSON.parse(readFileSync(join(app.sandbox, 'config.json'), 'utf8')) as { watch_dirs?: string[] | null };
+      assert.equal(saved.watch_dirs?.length, 2, 'la liste est écrite sur le disque');
+
+      writeFileSync(join(second, 'Bis Jeu.lua'), lua('1593050'));
+      await s.waitFor(MODAL, OFFER_MS);
+      await s.waitUntil('le fichier du second dossier est proposé', async () => (await offered(app)).includes('Bis Jeu.lua'), OFFER_MS);
+      await s.execute(`document.querySelector('[data-downloads-modal]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await s.waitUntil('la fenêtre se ferme', async () => (await s.maybeFind(MODAL)) === null);
+
+      await (await s.waitFor('[data-settings-downloads-dir-reset]')).click();
+      await s.waitUntil('un seul dossier est listé', async () => (await s.findAll('[data-settings-downloads-dir]')).length === 1);
+      await s.waitUntil('watch_dirs est effacé du disque', async () => {
+        const again = JSON.parse(readFileSync(join(app.sandbox, 'config.json'), 'utf8')) as { watch_dirs?: string[] | null };
+        return again.watch_dirs === null || again.watch_dirs === undefined;
+      });
     },
 
     "l'interrupteur de Réglages est écrit sur le disque": async (app) => {

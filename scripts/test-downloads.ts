@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 // @ts-expect-error Node types are deliberately not a frontend dependency.
 import { readFileSync } from "node:fs";
 import type { DownloadFound } from "../src/lib/api";
-import { BLOCK_KEYS, mergeFound, planDownload } from "../src/lib/downloads";
+import { BLOCK_KEYS, flavorKey, importOrder, mergeFound, planDownload } from "../src/lib/downloads";
 import { stripComments } from "./test-dlc-wiring";
 
 let cases = 0;
@@ -18,6 +18,8 @@ const file = (over: Partial<DownloadFound>): DownloadFound => ({
   size: 100,
   kind: "lua",
   app_id: "1593030",
+  flavor: "lua",
+  replaces: false,
   ...over,
 });
 const library = new Map([["440", "Team Fortress 2"]]);
@@ -51,6 +53,32 @@ equal(
   ["archive.no-app-id", "archive.unknown-game"],
   "chaque raison de refus a sa clé de catalogue",
 );
+
+// A patch for a game whose .lua is ticked in the same list can be added with it: the .lua goes first.
+equal(
+  planDownload(file({ kind: "archive", name: "999_bypass.rar", app_id: "999", flavor: "bypass" }), library, new Set(["999"])),
+  { importable: true, gameName: null },
+  "un bypass dont le .lua est coché à côté est ajoutable",
+);
+equal(
+  planDownload(file({ kind: "archive", name: "999_bypass.rar", app_id: "999", flavor: "bypass" }), library, new Set(["1"])),
+  { importable: false, reason: "archive.unknown-game" },
+  "le .lua d'un autre jeu n'ouvre pas la porte",
+);
+equal(
+  importOrder([
+    file({ path: "p", kind: "archive", name: "1_bypass.rar" }),
+    file({ path: "l", name: "1.lua" }),
+    file({ path: "q", kind: "archive", name: "2_online_fix.zip", flavor: "patch" }),
+  ]).map((f) => f.path),
+  ["l", "p", "q"],
+  "les .lua passent avant les archives, l'ordre relatif est gardé",
+);
+
+// What a file is called on screen: a .lua, an online patch or a DRM bypass.
+equal(flavorKey(file({})), "downloads.kind.lua", "un .lua");
+equal(flavorKey(file({ kind: "archive", flavor: "patch" })), "downloads.kind.patch", "un patch en ligne");
+equal(flavorKey(file({ kind: "archive", flavor: "bypass" })), "downloads.kind.bypass", "un bypass DRM");
 
 // The pending list holds a path once, and a rewritten file replaces its description.
 const first = file({ path: "a", name: "a.lua" });
@@ -89,7 +117,14 @@ cases++;
 
 // Answering the popup (Ajouter or Ignorer) takes back the Windows notification that
 // listed the files: both paths must reach the command, or a toast outlives its question.
-const answerPaths = /dismiss\(\)\s*\{[^}]*this\.answered\(\)/.test(state) && /async add\([^)]*\)[^{]*\{[\s\S]*?this\.answered\(\)/.test(state);
+// Ignoring never loses a file: it only closes the question; the inventory still lists it.
+assert.ok(/dismiss\(\)\s*\{[\s\S]*?this\.pending = \[\];/.test(state) && !/dismiss\(\)\s*\{[\s\S]{0,400}this\.inventory = \[\]/.test(state), "dismiss() vide l'attente mais jamais l'inventaire");
+cases++;
+assert.ok(/importOrder\(this\.shown\.filter/.test(state), "add() travaille sur la liste affichée, les .lua d'abord");
+cases++;
+assert.ok(/window\.addEventListener\("focus"/.test(state) && /refreshInventory\(\)/.test(state), "l'inventaire se rafraîchit au retour dans la fenêtre");
+cases++;
+const answerPaths = /dismiss\(\)\s*\{[\s\S]*?this\.pending = \[\];\s*this\.answered\(\)/.test(state) && /async add\([^)]*\)[^{]*\{[\s\S]*?this\.answered\(\)/.test(state);
 assert.ok(answerPaths, "dismiss() et add() préviennent le backend que la question est réglée");
 cases++;
 assert.ok(/downloadsPendingClear\(\)/.test(state), "answered() appelle downloadsPendingClear");

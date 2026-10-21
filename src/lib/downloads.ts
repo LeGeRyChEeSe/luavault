@@ -20,17 +20,35 @@ export type DownloadPlan =
  * (the backend stays the judge; this only keeps the popup from offering a click
  * that is certain to fail).
  *
- * `library` maps an AppID to the game's name.
+ * `library` maps an AppID to the game's name. `ticked` holds the AppIDs of the `.lua`
+ * files chosen in the same list: they are added first, so a patch for a game whose
+ * `.lua` is ticked beside it can be added in the same gesture.
  */
-export function planDownload(item: DownloadFound, library: ReadonlyMap<string, string>): DownloadPlan {
+export function planDownload(
+  item: DownloadFound,
+  library: ReadonlyMap<string, string>,
+  ticked: ReadonlySet<string> = new Set(),
+): DownloadPlan {
   if (item.kind === "lua") {
     return { importable: true, gameName: item.app_id ? (library.get(item.app_id) ?? null) : null };
   }
   if (!item.app_id) return { importable: false, reason: "archive.no-app-id" };
   const name = library.get(item.app_id);
-  return name === undefined
-    ? { importable: false, reason: "archive.unknown-game" }
-    : { importable: true, gameName: name };
+  if (name !== undefined) return { importable: true, gameName: name };
+  return ticked.has(item.app_id)
+    ? { importable: true, gameName: null }
+    : { importable: false, reason: "archive.unknown-game" };
+}
+
+/** The order the files are added in: every `.lua` first, so the games exist for their patches. */
+export function importOrder(items: readonly DownloadFound[]): DownloadFound[] {
+  return [...items.filter((item) => item.kind === "lua"), ...items.filter((item) => item.kind !== "lua")];
+}
+
+/** The catalogue key naming what a file is. Literal keys, so the i18n guards see them. */
+export function flavorKey(item: DownloadFound): "downloads.kind.lua" | "downloads.kind.patch" | "downloads.kind.bypass" {
+  if (item.kind === "lua") return "downloads.kind.lua";
+  return item.flavor === "bypass" ? "downloads.kind.bypass" : "downloads.kind.patch";
 }
 
 /**

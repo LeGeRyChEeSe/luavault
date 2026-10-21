@@ -90,14 +90,51 @@ pub struct PatchImportResult {
 /// Extract an AppID only from a deliberate filename form: `440.zip`,
 /// `440_online_fix.zip`, or `Portal 2 (440).zip`. Bare digits elsewhere are
 /// intentionally ignored: `patch_v2_64bit.zip` must never select a game by accident.
-pub(crate) fn app_id_from_patch_filename(path: &Path) -> Option<String> {
-    let stem = path.file_stem()?.to_str()?;
-    if !stem.is_empty() && stem.bytes().all(|byte| byte.is_ascii_digit()) {
+/// The words that may follow the AppID in `123_<word>.zip`: what the download sites call
+/// their online patch and their DRM bypass. A closed list, on purpose: `2024_report.zip`
+/// must never select the game 2024.
+const PATCH_NAME_SUFFIXES: [&str; 7] = ["online_fix", "onlinefix", "bypass", "drm_bypass", "drm", "fix", "patch"];
+
+fn all_digits(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// `123` or `123_<known word>`, nothing else.
+fn app_id_from_plain_stem(stem: &str) -> Option<String> {
+    if all_digits(stem) {
         return Some(stem.to_string());
     }
-    if let Some(candidate) = stem.strip_suffix("_online_fix") {
-        if !candidate.is_empty() && candidate.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Some(candidate.to_string());
+    let (head, tail) = stem.split_once('_')?;
+    (all_digits(head) && PATCH_NAME_SUFFIXES.contains(&tail.to_ascii_lowercase().as_str())).then(|| head.to_string())
+}
+
+/// What the file is called on screen: a DRM bypass or an online patch. Both are stored in the
+/// same slot of the library (one archive per game), so this is a label, not a different import.
+pub(crate) fn patch_flavor(name: &str) -> &'static str {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("bypass") || lower.contains("drm") {
+        "bypass"
+    } else {
+        "patch"
+    }
+}
+
+pub(crate) fn app_id_from_patch_filename(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    if let Some(id) = app_id_from_plain_stem(stem) {
+        return Some(id);
+    }
+    // A browser that finds the name taken saves `123_bypass (1).rar`: one or two digits
+    // after a space is a counter, not a game. Longer ones stay the `Name (AppID)` form.
+    if let Some(at) = stem.rfind(" (") {
+        let (head, counter) = stem.split_at(at);
+        let counter = &counter[2..];
+        if let Some(digits) = counter.strip_suffix(')') {
+            if all_digits(digits) && digits.len() <= 2 {
+                if let Some(id) = app_id_from_plain_stem(head.trim()) {
+                    return Some(id);
+                }
+            }
         }
     }
     let start = stem.rfind('(')?;
@@ -2620,13 +2657,125 @@ pub(crate) fn downloads_dir() -> Result<PathBuf, String> {
     }
 }
 
+/// The most folders the detection watches: each is listed every two seconds.
+pub(crate) const MAX_WATCH_DIRS: usize = 8;
+
+/// The folders to watch right now: the user's list when there is one, the Downloads folder
+/// otherwise. A folder that vanished (an unplugged drive) is skipped, not an error.
+pub(crate) fn watch_dirs(cfg: &config::AppConfig) -> Vec<PathBuf> {
+    match &cfg.watch_dirs {
+        Some(list) => list.iter().map(PathBuf::from).filter(|path| path.is_dir()).collect(),
+        None => downloads_dir().ok().into_iter().collect(),
+    }
+}
+
+/// What the user typed or picked, made safe to store: existing folders only, no drive root
+/// (listing `C:\` is never what anyone means), no duplicate, at most [`MAX_WATCH_DIRS`].
+pub(crate) fn clean_watch_dirs(raw: &[String]) -> Result<Vec<String>, String> {
+    let mut kept: Vec<String> = Vec::new();
+    for entry in raw {
+        let trimmed = entry.trim().trim_end_matches(['\\', '/']);
+        if trimmed.is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(entry.trim());
+        if !path.is_dir() {
+            return Err(format!("« {trimmed} » n'est pas un dossier existant."));
+        }
+        if path.parent().is_none_or(|parent| parent.as_os_str().is_empty()) {
+            return Err(format!("« {trimmed} » est la racine d'un disque : choisissez un dossier précis."));
+        }
+        if !kept.iter().any(|known| known.eq_ignore_ascii_case(trimmed)) {
+            kept.push(trimmed.to_string());
+        }
+    }
+    if kept.is_empty() {
+        return Err("Choisissez au moins un dossier.".to_string());
+    }
+    if kept.len() > MAX_WATCH_DIRS {
+        return Err(format!("{MAX_WATCH_DIRS} dossiers au plus."));
+    }
+    Ok(kept)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadsDirs {
+    /// The folders watched now.
+    pub dirs: Vec<String>,
+    /// `true` when the user chose them; `false` = the Downloads folder.
+    pub custom: bool,
+    /// The Downloads folder, for the « back to default » button.
+    pub default_dir: Option<String>,
+}
+
+fn downloads_dirs_view(cfg: &config::AppConfig) -> DownloadsDirs {
+    let default_dir = downloads_dir().ok().map(|dir| dir.display().to_string());
+    match &cfg.watch_dirs {
+        Some(list) => DownloadsDirs { dirs: list.clone(), custom: true, default_dir },
+        None => DownloadsDirs { dirs: default_dir.iter().cloned().collect(), custom: false, default_dir },
+    }
+}
+
+#[tauri::command]
+pub fn get_downloads_dirs(state: State<'_, AppState>) -> DownloadsDirs {
+    downloads_dirs_view(&state.config.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
+}
+
+/// Change the watched folders (`None` = back to the Downloads folder). The watch restarts on
+/// the new list at once.
+#[tauri::command]
+pub fn set_downloads_dirs(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    dirs: Option<Vec<String>>,
+) -> Result<DownloadsDirs, String> {
+    let cleaned = match dirs {
+        Some(raw) => Some(clean_watch_dirs(&raw)?),
+        None => None,
+    };
+    let mut cfg = state.config.lock().map_err(|_| "configuration indisponible".to_string())?.clone();
+    cfg.watch_dirs = cleaned;
+    cfg.save().map_err(|error| error.to_string())?;
+    *state.config.lock().map_err(|_| "configuration indisponible".to_string())? = cfg.clone();
+    if downloads_watch_wanted(&cfg) {
+        let dirs = watch_dirs(&cfg);
+        if !dirs.is_empty() {
+            downloads::start(&app, &state, dirs, downloads::Window::permanent());
+        }
+    } else if downloads::status(&state).active {
+        downloads::stop(&app, &state);
+    }
+    Ok(downloads_dirs_view(&cfg))
+}
+
+/// Everything in the watched folders the library does not have yet, old files included.
+#[tauri::command]
+pub async fn downloads_inventory(state: State<'_, AppState>) -> Result<Vec<downloads::DownloadFound>, String> {
+    let cfg = state.config.lock().map_err(|_| "configuration indisponible".to_string())?.clone();
+    let dirs = watch_dirs(&cfg);
+    let library_dir = cfg.resolved_library_dir();
+    tauri::async_runtime::spawn_blocking(move || {
+        let facts = downloads::LibraryFacts::load(library_dir);
+        downloads::inventory(&dirs, &facts)
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub fn downloads_watch_start(
     app: AppHandle,
     state: State<'_, AppState>,
     minutes: Option<u32>,
 ) -> Result<downloads::WatchStatus, String> {
-    let dir = downloads_dir()?;
+    let dir = {
+        let cfg = state.config.lock().map_err(|_| "configuration indisponible".to_string())?;
+        let dirs = watch_dirs(&cfg);
+        if dirs.is_empty() {
+            return Err("Aucun dossier à surveiller.".to_string());
+        }
+        dirs
+    };
     // Already watching for good: a timed listening would replace it and stop it ten
     // minutes later, which is the opposite of what the button means.
     let permanent = state.config.lock().map(|cfg| downloads_watch_wanted(&cfg)).unwrap_or(true);
@@ -2672,8 +2821,14 @@ pub fn set_downloads_watch(
     enabled: bool,
 ) -> Result<DownloadsWatch, String> {
     if enabled {
-        let dir = downloads_dir()?;
-        downloads::start(&app, &state, dir, downloads::Window::permanent());
+        let dirs = {
+            let cfg = state.config.lock().map_err(|_| "configuration indisponible".to_string())?;
+            watch_dirs(&cfg)
+        };
+        if dirs.is_empty() {
+            return Err("Aucun dossier à surveiller.".to_string());
+        }
+        downloads::start(&app, &state, dirs, downloads::Window::permanent());
     } else {
         downloads::stop(&app, &state);
     }
@@ -3074,6 +3229,41 @@ pub async fn artwork_cache_clear() -> Result<artwork::CacheStats, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn watched_folders_are_real_distinct_and_never_a_drive_root() {
+        let a = std::env::temp_dir().join(format!("lv-dirs-a-{}", std::process::id()));
+        let b = std::env::temp_dir().join(format!("lv-dirs-b-{}", std::process::id()));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let (sa, sb) = (a.display().to_string(), b.display().to_string());
+        assert_eq!(clean_watch_dirs(&[sa.clone(), sb.clone()]).unwrap(), vec![sa.clone(), sb.clone()]);
+        // Duplicates (even by case or a trailing slash) collapse; blanks are skipped.
+        let twice = clean_watch_dirs(&[sa.clone(), format!("{}\\", sa.to_uppercase()), "  ".into()]).unwrap();
+        assert_eq!(twice, vec![sa.clone()]);
+        assert!(clean_watch_dirs(&[]).is_err(), "at least one");
+        assert!(clean_watch_dirs(&[format!("{sa}\\does-not-exist")]).unwrap_err().contains("n'est pas un dossier"));
+        assert!(clean_watch_dirs(&["C:\\".into()]).unwrap_err().contains("racine"), "a drive root is refused");
+        let nine: Vec<String> = (0..9).map(|_| sa.clone()).collect();
+        assert_eq!(clean_watch_dirs(&nine).unwrap().len(), 1, "duplicates do not count against the limit");
+        let _ = std::fs::remove_dir_all(a);
+        let _ = std::fs::remove_dir_all(b);
+    }
+
+    #[test]
+    fn the_watched_folders_default_to_downloads_and_follow_the_users_list() {
+        let dir = std::env::temp_dir().join(format!("lv-dirs-c-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut cfg = config::AppConfig {
+            watch_dirs: Some(vec![dir.display().to_string(), "Z:\\gone\\for\\good".to_string()]),
+            ..Default::default()
+        };
+        assert_eq!(watch_dirs(&cfg), vec![dir.clone()], "a vanished folder is skipped");
+        assert!(downloads_dirs_view(&cfg).custom);
+        cfg.watch_dirs = None;
+        assert!(!downloads_dirs_view(&cfg).custom);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn the_downloads_watch_is_on_unless_the_user_switched_it_off() {
         let mut cfg = config::AppConfig::default();

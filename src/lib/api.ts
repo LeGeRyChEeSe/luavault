@@ -673,6 +673,16 @@ export interface DownloadFound {
   kind: "lua" | "archive";
   /** The AppID the file announces (a `.lua`) or carries in its name (an archive). */
   app_id: string | null;
+  /** What it is called on screen: a `.lua`, an online `patch` or a DRM `bypass`. */
+  flavor: "lua" | "patch" | "bypass";
+  /** An archive for a game whose patch is already stored, with other content. */
+  replaces: boolean;
+}
+/** The folders the file detection watches (`custom` = the user's own list). */
+export interface DownloadsDirs {
+  dirs: string[];
+  custom: boolean;
+  default_dir: string | null;
 }
 export interface DownloadsWatchStatus {
   active: boolean;
@@ -694,6 +704,11 @@ export const downloadsWatchStatus = () => invoke<DownloadsWatchStatus>("download
 export const getDownloadsWatch = () => invoke<DownloadsWatch>("get_downloads_watch");
 /** The popup was answered: the Windows notification that listed those files goes away. */
 export const downloadsPendingClear = () => invoke<void>("downloads_pending_clear");
+export const getDownloadsDirs = () => invoke<DownloadsDirs>("get_downloads_dirs");
+/** `null` = back to the Downloads folder. */
+export const setDownloadsDirs = (dirs: string[] | null) => invoke<DownloadsDirs>("set_downloads_dirs", { dirs });
+/** Everything in the watched folders the library does not have yet, old files included. */
+export const downloadsInventory = () => invoke<DownloadFound[]>("downloads_inventory");
 export const setDownloadsWatch = (enabled: boolean) =>
   invoke<DownloadsWatch>("set_downloads_watch", { enabled });
 export interface BackgroundGuard {

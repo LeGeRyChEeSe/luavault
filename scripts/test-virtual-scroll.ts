@@ -1151,7 +1151,7 @@ const DEFENDER_WIRING_CASES = 5;
 }
 
 // ── IMPORT-01: shared patch filename table and error wiring ───
-const PATCH_IMPORT_CASES = 22;
+const PATCH_IMPORT_CASES = 32;
 {
   const mod = (await import("./test-patch-import")) as unknown as {
     __patchImportRan: boolean;
@@ -1164,7 +1164,7 @@ const PATCH_IMPORT_CASES = 22;
 }
 
 // ── DETECT-02: downloads popup decisions and "closing is never a yes" ───
-const DOWNLOADS_CASES = 21;
+const DOWNLOADS_CASES = 30;
 {
   const mod = (await import("./test-downloads")) as unknown as {
     __downloadsRan: boolean;

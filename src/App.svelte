@@ -399,10 +399,11 @@
   />
 {/if}
 
-{#if downloadsState.pending.length > 0 && !appState.motdOpen && !appState.notifyOffer && !showOnboarding}
+{#if (downloadsState.pending.length > 0 || downloadsState.browsing) && !appState.motdOpen && !appState.notifyOffer && !showOnboarding}
   <DownloadsModal
-    items={downloadsState.pending}
+    items={downloadsState.shown}
     library={new Map(appState.statuses.map((game) => [game.app_id, game.name]))}
+    browsing={downloadsState.browsing}
     busy={downloadsState.busy}
     onadd={(paths) => void downloadsState.add(paths)}
     onignore={() => downloadsState.dismiss()}

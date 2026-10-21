@@ -230,11 +230,17 @@ pub fn run() {
                         }
                     });
                 }
-                if let Ok(downloads_dir) = commands::downloads_dir() {
-                    let state = app.state::<AppState>();
-                    downloads::start(app.handle(), &state, downloads_dir, downloads::Window::permanent());
+                let dirs = app
+                    .state::<AppState>()
+                    .config
+                    .lock()
+                    .map(|cfg| commands::watch_dirs(&cfg))
+                    .unwrap_or_default();
+                if dirs.is_empty() {
+                    warn!("downloads watch not started: no folder to watch");
                 } else {
-                    warn!("downloads watch not started: downloads directory unavailable");
+                    let state = app.state::<AppState>();
+                    downloads::start(app.handle(), &state, dirs, downloads::Window::permanent());
                 }
             }
             Ok(())
@@ -311,6 +317,9 @@ pub fn run() {
             commands::downloads_watch_status,
             commands::get_downloads_watch,
             commands::downloads_pending_clear,
+            commands::get_downloads_dirs,
+            commands::set_downloads_dirs,
+            commands::downloads_inventory,
             commands::set_downloads_watch,
             commands::get_background_guard,
             commands::set_background_guard,

@@ -9,10 +9,11 @@ import {
   downloadsPendingClear,
   importLuaFile,
   importPatchArchive,
+  downloadsInventory,
 } from "./api";
 import type { DownloadFound, DownloadsWatchStatus } from "./api";
 import { appState } from "./app-state.svelte";
-import { BLOCK_KEYS, mergeFound, planDownload } from "./downloads";
+import { BLOCK_KEYS, importOrder, mergeFound, planDownload } from "./downloads";
 import { t } from "./i18n.svelte";
 import { patchFailureFor } from "./patch-import";
 
@@ -29,8 +30,34 @@ class DownloadsState {
   /** When a timed listening ends (ms since epoch); `null` when none is running. */
   endsAt = $state<number | null>(null);
   busy = $state(false);
+  /**
+   * Everything in the watched folders the library does not have yet, old files included:
+   * what a file ignored or forgotten falls back to. « Fichiers détectés » opens it.
+   */
+  inventory = $state<DownloadFound[]>([]);
+  /** The list is open on the inventory (the user asked), not on a fresh arrival. */
+  browsing = $state(false);
 
   private unlisten: UnlistenFn[] = [];
+  private refocus = () => void this.refreshInventory();
+
+  /** What the window lists right now. */
+  get shown(): DownloadFound[] {
+    return this.browsing ? this.inventory : this.pending;
+  }
+
+  async refreshInventory() {
+    try {
+      this.inventory = await downloadsInventory();
+    } catch {
+      // The count is a convenience: a folder that cannot be read leaves the last list.
+    }
+  }
+
+  openBrowse() {
+    this.browsing = true;
+    void this.refreshInventory();
+  }
 
   private apply(status: DownloadsWatchStatus) {
     this.watch = status;
@@ -43,6 +70,7 @@ class DownloadsState {
     this.unlisten = await Promise.all([
       listen<DownloadFound[]>(DOWNLOADS_FOUND_EVENT, (event) => {
         this.pending = mergeFound(this.pending, event.payload);
+        void this.refreshInventory();
       }),
       listen<DownloadsWatchStatus>(DOWNLOADS_STATE_EVENT, (event) => this.apply(event.payload)),
     ]);
@@ -51,11 +79,15 @@ class DownloadsState {
     } catch {
       this.apply(IDLE);
     }
+    void this.refreshInventory();
+    // A file may have come or gone while the window was elsewhere.
+    window.addEventListener("focus", this.refocus);
   }
 
   dispose() {
     for (const off of this.unlisten) off();
     this.unlisten = [];
+    window.removeEventListener("focus", this.refocus);
   }
 
   async start() {
@@ -90,8 +122,15 @@ class DownloadsState {
     if (!this.watch.active) await this.start();
   }
 
-  /** "Ignorer": forget what is pending. The files are left exactly where they are. */
+  /**
+   * "Ignorer" / "Fermer": put the question away. The files are left exactly where they are,
+   * and they stay in the inventory: adding them later is one click on « Fichiers détectés ».
+   */
   dismiss() {
+    if (this.browsing) {
+      this.browsing = false;
+      return;
+    }
     this.pending = [];
     this.answered();
   }
@@ -107,8 +146,9 @@ class DownloadsState {
    * native "are you sure" the manual patch import asks is not asked twice.
    */
   async add(paths: string[]) {
-    const chosen = this.pending.filter((item) => paths.includes(item.path));
+    const chosen = importOrder(this.shown.filter((item) => paths.includes(item.path)));
     this.pending = [];
+    this.browsing = false;
     this.answered();
     if (chosen.length === 0) return;
     const library = new Map(appState.statuses.map((game) => [game.app_id, game.name]));
@@ -122,6 +162,8 @@ class DownloadsState {
           if (item.kind === "lua") {
             await importLuaFile(item.path);
             luaCount++;
+            // The game now exists: a patch chosen beside its .lua can follow.
+            if (item.app_id) library.set(item.app_id, item.name);
           } else {
             const plan = planDownload(item, library);
             if (!plan.importable) throw new Error(t(BLOCK_KEYS[plan.reason], { appId: item.app_id ?? "" }));
@@ -143,6 +185,7 @@ class DownloadsState {
       } catch (e) {
         appState.toast("error", String(e));
       }
+      await this.refreshInventory();
       this.busy = false;
     }
   }

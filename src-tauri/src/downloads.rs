@@ -75,10 +75,10 @@ pub fn toast_texts(lang: &str, names: &[String]) -> (String, String) {
     let fr = lang == "fr";
     let count = names.len();
     let title = match (fr, count) {
-        (true, 1) => "Un fichier détecté dans Téléchargements".to_string(),
-        (true, n) => format!("{n} fichiers détectés dans Téléchargements"),
-        (false, 1) => "A file was found in Downloads".to_string(),
-        (false, n) => format!("{n} files were found in Downloads"),
+        (true, 1) => "Un fichier détecté".to_string(),
+        (true, n) => format!("{n} fichiers détectés"),
+        (false, 1) => "A file was detected".to_string(),
+        (false, n) => format!("{n} files were detected"),
     };
     let shown = names.iter().take(TOAST_MAX_NAMES).cloned().collect::<Vec<_>>().join(", ");
     let more = count.saturating_sub(TOAST_MAX_NAMES);
@@ -419,6 +419,105 @@ pub struct DownloadFound {
     pub size: u64,
     pub kind: String,
     pub app_id: Option<String>,
+    /// What the file is called on screen: `lua`, `patch` (online patch) or `bypass` (DRM).
+    pub flavor: String,
+    /// An archive for a game whose patch is already stored, with other content: adding it
+    /// would replace that one.
+    pub replaces: bool,
+}
+
+/// What the library already holds, to leave out what the user has: nothing is offered twice.
+pub struct LibraryFacts {
+    library_dir: PathBuf,
+    ids: HashSet<String>,
+}
+
+impl LibraryFacts {
+    pub fn load(library_dir: PathBuf) -> Self {
+        let ids = library::load_index(&library_dir).into_iter().map(|entry| entry.app_id).collect();
+        Self { library_dir, ids }
+    }
+
+    #[cfg(test)]
+    fn with_ids(library_dir: PathBuf, ids: &[&str]) -> Self {
+        Self { library_dir, ids: ids.iter().map(|id| id.to_string()).collect() }
+    }
+
+    /// Is this file still worth offering? A `.lua` whose game is in the library is not. An
+    /// archive is not either when the stored patch of that game is the very same file; when it
+    /// is another file, it is offered and flagged `replaces`.
+    pub fn judge(&self, item: &mut DownloadFound) -> bool {
+        let Some(app_id) = item.app_id.as_deref() else {
+            return true;
+        };
+        if item.kind == "lua" {
+            return !self.ids.contains(app_id);
+        }
+        let stored = crate::fixes::archive_path(&self.library_dir, app_id);
+        if !stored.is_file() {
+            return true;
+        }
+        if same_content(&stored, Path::new(&item.path)) {
+            return false;
+        }
+        item.replaces = true;
+        true
+    }
+}
+
+/// Same length first (free), then the SHA-256: two multi-hundred-MiB archives are not hashed
+/// when their sizes already differ.
+fn same_content(a: &Path, b: &Path) -> bool {
+    let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
+        return false;
+    };
+    if ma.len() != mb.len() {
+        return false;
+    }
+    matches!((archive::sha256_file(a), archive::sha256_file(b)), (Ok(x), Ok(y)) if x == y)
+}
+
+fn flavor_of(kind: &str, name: &str) -> &'static str {
+    if kind == "lua" {
+        "lua"
+    } else {
+        commands::patch_flavor(name)
+    }
+}
+
+/// One file of a watched folder, as the popup shows it, or `None` when it is not something
+/// the app can take (noise, an unfinished download, an archive with no AppID in its name).
+fn describe(dir: &Path, name: &str, size: u64) -> Option<DownloadFound> {
+    let path = dir.join(name);
+    let (kind, app_id) = classify(name, size, |max| read_head(&path, max)).offer()?;
+    Some(DownloadFound {
+        path: path.display().to_string(),
+        name: name.to_string(),
+        size,
+        kind: kind.to_string(),
+        app_id: Some(app_id),
+        flavor: flavor_of(kind, name).to_string(),
+        replaces: false,
+    })
+}
+
+/// Everything in the watched folders the app could take and does not have yet, old files
+/// included: the list behind « Fichiers détectés », so a file the user ignored or forgot is one
+/// click away.
+pub fn inventory(dirs: &[PathBuf], facts: &LibraryFacts) -> Vec<DownloadFound> {
+    let mut items = Vec::new();
+    for dir in dirs {
+        for seen in scan(dir) {
+            if let Some(mut item) = describe(dir, &seen.name, seen.size) {
+                if facts.judge(&mut item) {
+                    items.push(item);
+                }
+            }
+        }
+    }
+    items.sort_by_key(|item| item.name.to_lowercase());
+    items.dedup_by(|a, b| a.path == b.path);
+    items
 }
 
 pub fn scan(dir: &Path) -> Vec<Seen> {
@@ -492,7 +591,7 @@ pub fn stop(app: &AppHandle, state: &AppState) -> WatchStatus {
     status
 }
 
-pub fn start(app: &AppHandle, state: &AppState, dir: PathBuf, window: Window) -> WatchStatus {
+pub fn start(app: &AppHandle, state: &AppState, dirs: Vec<PathBuf>, window: Window) -> WatchStatus {
     let generation = state.downloads_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let initial_status = {
         let mut watch = state
@@ -508,19 +607,20 @@ pub fn start(app: &AppHandle, state: &AppState, dir: PathBuf, window: Window) ->
     emit_state(app, initial_status.clone());
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let baseline = match tauri::async_runtime::spawn_blocking({
-            let dir = dir.clone();
-            move || scan(&dir)
+        let baselines = match tauri::async_runtime::spawn_blocking({
+            let dirs = dirs.clone();
+            move || dirs.iter().map(|dir| scan(dir)).collect::<Vec<_>>()
         })
         .await
         {
-            Ok(baseline) => baseline,
+            Ok(baselines) => baselines,
             Err(error) => {
                 debug!("downloads baseline task failed: {error}");
                 return;
             }
         };
-        let mut tracker = Tracker::new(baseline);
+        // One tracker per folder: a name is only unique inside its own folder.
+        let mut trackers: Vec<Tracker> = baselines.into_iter().map(Tracker::new).collect();
         loop {
             let current = {
                 let state = app.state::<AppState>();
@@ -536,28 +636,38 @@ pub fn start(app: &AppHandle, state: &AppState, dir: PathBuf, window: Window) ->
                 }
                 return;
             }
-            let directory = dir.clone();
-            let polled = tauri::async_runtime::spawn_blocking(move || (scan(&directory), directory))
-                .await;
-            let Ok((snapshot, directory)) = polled else {
+            let polled = tauri::async_runtime::spawn_blocking({
+                let dirs = dirs.clone();
+                move || dirs.iter().map(|dir| scan(dir)).collect::<Vec<_>>()
+            })
+            .await;
+            let Ok(snapshots) = polled else {
                 debug!("downloads scan task failed");
                 return;
             };
-            let ready = tracker.observe(snapshot);
+            let mut ready: Vec<(PathBuf, Seen)> = Vec::new();
+            for ((dir, snapshot), tracker) in dirs.iter().zip(snapshots).zip(trackers.iter_mut()) {
+                for seen in tracker.observe(snapshot) {
+                    ready.push((dir.clone(), seen));
+                }
+            }
+            let library_dir = app
+                .state::<AppState>()
+                .config
+                .lock()
+                .map(|cfg| cfg.resolved_library_dir())
+                .ok();
             let found: Vec<DownloadFound> = tauri::async_runtime::spawn_blocking(move || {
+                // What the library already holds is not offered again.
+                let facts = if ready.is_empty() { None } else { library_dir.map(LibraryFacts::load) };
                 ready
                     .into_iter()
-                    .filter_map(|seen| {
-                        let path = directory.join(&seen.name);
-                        let (kind, app_id) =
-                            classify(&seen.name, seen.size, |max| read_head(&path, max)).offer()?;
-                        Some(DownloadFound {
-                            path: path.display().to_string(),
-                            name: seen.name,
-                            size: seen.size,
-                            kind: kind.to_string(),
-                            app_id: Some(app_id),
-                        })
+                    .filter_map(|(dir, seen)| {
+                        let mut item = describe(&dir, &seen.name, seen.size)?;
+                        match facts.as_ref() {
+                            Some(facts) if !facts.judge(&mut item) => None,
+                            _ => Some(item),
+                        }
                     })
                     .collect()
             })
@@ -601,6 +711,8 @@ mod tests {
             size: 1,
             kind: "lua".to_string(),
             app_id: Some(app_id.to_string()),
+            flavor: "lua".to_string(),
+            replaces: false,
         }
     }
 
@@ -617,13 +729,13 @@ mod tests {
     fn the_toast_counts_the_files_and_names_the_first_games() {
         let names: Vec<String> = ["A", "B"].iter().map(|n| n.to_string()).collect();
         let (title, body) = toast_texts("fr", &names[..1]);
-        assert_eq!(title, "Un fichier détecté dans Téléchargements");
+        assert_eq!(title, "Un fichier détecté");
         assert!(body.starts_with("A\n"), "{body}");
         let (title, body) = toast_texts("fr", &names);
-        assert_eq!(title, "2 fichiers détectés dans Téléchargements");
+        assert_eq!(title, "2 fichiers détectés");
         assert!(body.starts_with("A, B\n"));
         let (title, _) = toast_texts("en", &names);
-        assert_eq!(title, "2 files were found in Downloads");
+        assert_eq!(title, "2 files were detected");
         let many: Vec<String> = (1..=7).map(|n| format!("G{n}")).collect();
         let (_, body) = toast_texts("fr", &many);
         assert!(body.starts_with("G1, G2, G3, G4 et 3 autres\n"), "{body}");
@@ -811,6 +923,80 @@ mod tests {
         assert!(!Window::timed(start, 99_999).expired(start + Duration::from_secs(30 * 60 - 1)));
         assert!(Window::timed(start, 99_999).expired(start + Duration::from_secs(30 * 60)));
         assert!(!Window::permanent().expired(start + Duration::from_secs(31 * 60)));
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("luavault-downloads-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn rar(extra: u8) -> Vec<u8> {
+        let mut bytes = b"Rar!\x1a\x07\x01\x00".to_vec();
+        bytes.extend_from_slice(&[extra; 64]);
+        bytes
+    }
+
+    #[test]
+    fn a_bypass_archive_is_recognised_and_labelled() {
+        let dir = scratch("bypass");
+        std::fs::write(dir.join("271590_bypass.rar"), rar(1)).unwrap();
+        std::fs::write(dir.join("1790600_online_fix.zip"), b"PK\x03\x04and the rest").unwrap();
+        let bypass = describe(&dir, "271590_bypass.rar", std::fs::metadata(dir.join("271590_bypass.rar")).unwrap().len())
+            .expect("a bypass named with its AppID is offered");
+        assert_eq!((bypass.kind.as_str(), bypass.flavor.as_str(), bypass.app_id.as_deref()), ("archive", "bypass", Some("271590")));
+        let patch = describe(&dir, "1790600_online_fix.zip", 20).expect("an online patch is offered");
+        assert_eq!((patch.flavor.as_str(), patch.app_id.as_deref()), ("patch", Some("1790600")));
+        // The browser's duplicate counter is not a game.
+        std::fs::write(dir.join("271590_bypass (1).rar"), rar(1)).unwrap();
+        let again = describe(&dir, "271590_bypass (1).rar", 72).unwrap();
+        assert_eq!(again.app_id.as_deref(), Some("271590"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn what_the_library_has_is_not_offered_again() {
+        let library = scratch("facts-lib");
+        let dl = scratch("facts-dl");
+        let stored = crate::fixes::archive_path(&library, "271590");
+        std::fs::create_dir_all(stored.parent().unwrap()).unwrap();
+        std::fs::write(&stored, rar(1)).unwrap();
+        std::fs::write(dl.join("271590_bypass.rar"), rar(1)).unwrap(); // the very same file
+        std::fs::write(dl.join("440_bypass.rar"), rar(2)).unwrap(); // no patch stored for 440
+        std::fs::write(dl.join("999_bypass.rar"), rar(3)).unwrap();
+        let other = crate::fixes::archive_path(&library, "999");
+        std::fs::write(&other, rar(4)).unwrap(); // same length, other content
+        std::fs::write(dl.join("1174180.lua"), lua_fixture_for("1174180")).unwrap(); // in the library
+        std::fs::write(dl.join("1912410.lua"), lua_fixture_for("1912410")).unwrap(); // new
+        std::fs::write(dl.join("notes.txt"), "rien").unwrap();
+        let facts = LibraryFacts::with_ids(library.clone(), &["1174180", "271590", "999"]);
+        let items = inventory(std::slice::from_ref(&dl), &facts);
+        let names: Vec<_> = items.iter().map(|item| item.name.as_str()).collect();
+        assert_eq!(names, ["1912410.lua", "440_bypass.rar", "999_bypass.rar"], "{names:?}");
+        let by = |n: &str| items.iter().find(|item| item.name == n).unwrap();
+        assert!(!by("440_bypass.rar").replaces);
+        assert!(by("999_bypass.rar").replaces, "another file for a game that has a patch replaces it");
+        let _ = std::fs::remove_dir_all(library);
+        let _ = std::fs::remove_dir_all(dl);
+    }
+
+    #[test]
+    fn the_inventory_reads_every_watched_folder_and_lists_a_path_once() {
+        let a = scratch("inv-a");
+        let b = scratch("inv-b");
+        std::fs::write(a.join("111.lua"), lua_fixture_for("111")).unwrap();
+        std::fs::write(b.join("222.lua"), lua_fixture_for("222")).unwrap();
+        let facts = LibraryFacts::with_ids(scratch("inv-lib"), &[]);
+        let items = inventory(&[a.clone(), b.clone(), a.clone()], &facts);
+        let names: Vec<_> = items.iter().map(|item| item.name.as_str()).collect();
+        assert_eq!(names, ["111.lua", "222.lua"]);
+        let _ = std::fs::remove_dir_all(a);
+        let _ = std::fs::remove_dir_all(b);
+    }
+
+    fn lua_fixture_for(app_id: &str) -> Vec<u8> {
+        format!("-- AppID {app_id} | Generated on 2026-01-01 05:55 UTC | LuaVault\n-- Main Application\naddappid({app_id}, 1, \"340ae2fcb31a92507c1e0a9139f7cac3ab50f45a8c701f6d9f06b1793aca9981\")\n").into_bytes()
     }
 
     #[test]
