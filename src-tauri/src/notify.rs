@@ -458,20 +458,7 @@ mod win {
         run.set_value(&id.run_value, &check_command(exe))
             .map_err(|e| fail("clé de démarrage", e))?;
 
-        let scheme_key = format!(r"Software\Classes\{}", id.scheme);
-        let (root, _) = hkcu.create_subkey(&scheme_key).map_err(|e| fail("gestionnaire d'URL", e))?;
-        root.set_value("", &format!("URL:{}", id.display)).map_err(|e| fail("gestionnaire d'URL", e))?;
-        root.set_value("URL Protocol", &"").map_err(|e| fail("gestionnaire d'URL", e))?;
-        let (cmd, _) = hkcu
-            .create_subkey(format!(r"{scheme_key}\shell\open\command"))
-            .map_err(|e| fail("gestionnaire d'URL", e))?;
-        cmd.set_value("", &handler_command(exe)).map_err(|e| fail("gestionnaire d'URL", e))?;
-
-        // The sender's identity: the name Windows shows on the toast.
-        let (ident, _) = hkcu
-            .create_subkey(format!(r"Software\Classes\AppUserModelId\{}", id.aumid))
-            .map_err(|e| fail("identité de notification", e))?;
-        ident.set_value("DisplayName", &id.display).map_err(|e| fail("identité de notification", e))?;
+        write_handler(id, exe)?;
 
         // Every 6 hours while the session is open; the Run key covers the logon.
         let out = std::process::Command::new("schtasks")
@@ -485,11 +472,10 @@ mod win {
         Ok(())
     }
 
-    /// The URL handler and the sender identity alone, for the toasts that are not
-    /// the message of the day: no logon entry, no scheduled task. Idempotent, and
-    /// re-run at every launch so a moved executable does not leave a dead path.
-    pub fn register_handler(exe: &Path) -> Result<(), RegisterError> {
-        let id = Identity::real();
+    /// The URL handler and the sender's identity (the name Windows shows on the toast):
+    /// the part of a registration a toast click depends on. One function, so the live
+    /// registration test covers what `register_handler` writes too.
+    fn write_handler(id: &Identity, exe: &Path) -> Result<(), RegisterError> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let scheme_key = format!(r"Software\Classes\{}", id.scheme);
         let (root, _) = hkcu.create_subkey(&scheme_key).map_err(|e| fail("gestionnaire d'URL", e))?;
@@ -503,6 +489,13 @@ mod win {
             .create_subkey(format!(r"Software\Classes\AppUserModelId\{}", id.aumid))
             .map_err(|e| fail("identité de notification", e))?;
         ident.set_value("DisplayName", &id.display).map_err(|e| fail("identité de notification", e))
+    }
+
+    /// The handler and the identity alone, for the toasts that are not the message of
+    /// the day: no logon entry, no scheduled task. Idempotent, and re-run at every
+    /// launch so a moved executable does not leave a dead path.
+    pub fn register_handler(exe: &Path) -> Result<(), RegisterError> {
+        write_handler(&Identity::real(), exe)
     }
 
     /// Take a toast back from the notification centre (what it announced is settled).
@@ -1099,6 +1092,36 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(400));
         }
         false
+    }
+
+    /// How many toasts of ours the notification centre holds under `tag`.
+    #[cfg(windows)]
+    fn toasts_in_centre(tag: &str) -> usize {
+        use windows::core::HSTRING;
+        use windows::UI::Notifications::ToastNotificationManager;
+        let history = ToastNotificationManager::History().expect("history");
+        let all = history.GetHistoryWithId(&HSTRING::from(aumid())).expect("get history");
+        all.into_iter().filter(|t| t.Tag().is_ok_and(|x| x == tag)).count()
+    }
+
+    /// `remove_toast` must really take a toast back from the notification centre: it is
+    /// what makes the « files detected » toast go away once the popup was answered.
+    /// Needs a desktop session (raises one toast, then removes it).
+    ///
+    /// `cargo test live_remove_toast -- --ignored --nocapture`
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "raises one toast on the desktop, then removes it"]
+    fn live_remove_toast_takes_the_toast_back() {
+        let tag = format!("lv-live-remove-{}", std::process::id());
+        let xml = toast_xml("LuaVault test", "remove_toast", "", &[]);
+        show_toast_tagged(&xml, &tag, true).expect("show");
+        assert_eq!(toasts_in_centre(&tag), 1, "the toast is in the notification centre");
+        // A second toast under the same tag REPLACES the first: one entry, not two.
+        show_toast_tagged(&xml, &tag, true).expect("show again");
+        assert_eq!(toasts_in_centre(&tag), 1, "same tag replaces, never piles up");
+        remove_toast(&tag);
+        assert_eq!(toasts_in_centre(&tag), 0, "the toast is gone");
     }
 
     /// The only check that the registration works on Windows, not just that its
