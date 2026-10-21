@@ -1105,8 +1105,16 @@ mod tests {
                 println!("  {:<40} {:>9} B  -> {:?}", seen.name, seen.size, verdict);
             }
         }
+        let http = reqwest::Client::new();
         for item in inventory(&dirs, &facts) {
-            println!("OFFERED {:<36} {:<6} app={:?} replaces={}", item.name, item.flavor, item.app_id, item.replaces);
+            let named = match item.app_id.as_deref() {
+                Some(id) => tauri::async_runtime::block_on(crate::steamstore::lookup_name(&http, id)),
+                None => crate::steamstore::NameLookup::Unreachable,
+            };
+            println!(
+                "OFFERED {:<36} {:<6} app={:?} replaces={} check={:?} steam={:?}",
+                item.name, item.flavor, item.app_id, item.replaces, item.archive_check, named
+            );
         }
     }
 
