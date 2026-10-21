@@ -30,9 +30,9 @@
 
   let { items, library, steamNames, browsing, busy, onadd, onignore }: Props = $props();
 
-  /** The game's name: the library's, else Steam's. */
-  const nameOf = (item: DownloadFound, planned: string | null) =>
-    planned ?? (item.app_id ? (steamNames[item.app_id]?.name ?? null) : null);
+  /** The game's name: the library's, else Steam's; `null` while neither is known. */
+  const gameNameOf = (item: DownloadFound): string | null =>
+    item.app_id ? (library.get(item.app_id) ?? steamNames[item.app_id]?.name ?? null) : null;
 
   /** A warning about the AppID itself, from what Steam says. */
   function steamWarning(item: DownloadFound): { key: "downloads.steam.unknown" | "downloads.steam.mismatch"; name: string } | null {
@@ -115,6 +115,7 @@
       {/if}
       <ul class="mt-3 flex max-h-72 flex-col gap-2 overflow-y-auto" data-downloads-list>
         {#each plans as { item, plan } (item.path)}
+          {@const gameName = gameNameOf(item)}
           <li class="rounded-xl bg-surface/55 px-3 py-2.5 text-sm" data-downloads-item={item.name}>
             <label class="flex cursor-pointer items-start gap-3 {plan.importable ? '' : 'cursor-not-allowed opacity-70'}">
               <input
@@ -125,20 +126,24 @@
                 onchange={() => toggle(item.path)}
               />
               <span class="min-w-0 flex-1">
-                <span class="block truncate font-medium" data-tip={item.name}>{item.name}</span>
-                <span class="block text-xs text-azure-900/60">
-                  {t(flavorKey(item))}
-                  · {formatBytes(item.size)}
-                  {#if item.app_id}
-                    · {nameOf(item, plan.importable ? plan.gameName : null)
-                      ? t("downloads.item.game", { name: nameOf(item, plan.importable ? plan.gameName : null) ?? "", appId: item.app_id })
-                      : t("downloads.item.appid", { appId: item.app_id })}
-                  {/if}
+                <!-- The game first; what the file is (patch, bypass, .lua) beside it. The file name is the
+                     title only while the game's name is not known yet, and stays below to tell files apart. -->
+                <span class="flex items-baseline gap-2">
+                  <span class="min-w-0 truncate font-medium" data-tip={item.name} data-downloads-title>{gameName ?? item.name}</span>
+                  <span
+                    class="shrink-0 rounded-md bg-azure-500/10 px-1.5 py-0.5 text-[0.65rem] font-medium text-azure-700"
+                    data-downloads-flavor={item.flavor}
+                  >
+                    {t(flavorKey(item))}
+                  </span>
+                </span>
+                <span class="block truncate text-xs text-azure-900/60">
+                  {#if gameName}{item.name} · {/if}{formatBytes(item.size)}{#if item.app_id} · {t("downloads.item.appid", { appId: item.app_id })}{/if}
                 </span>
                 {#if checkLine(item)}
                   {@const line = checkLine(item)}
                   {#if line}
-                    <span class="mt-1 block text-xs {line.good ? 'text-mint-deep' : 'text-peach-deep'}" data-downloads-check={item.archive_check}>
+                    <span class="mt-1 block text-xs text-peach-deep" data-downloads-check={item.archive_check}>
                       {t(line.key)}
                     </span>
                   {/if}

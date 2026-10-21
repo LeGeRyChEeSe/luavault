@@ -46,21 +46,22 @@ export function planDownload(
     : { importable: false, reason: "archive.unknown-game" };
 }
 
-/** What opening an archive with the default password gave, as a catalogue key and a tone. */
+/**
+ * What opening an archive with the default password gave, said only when it is a problem: an
+ * archive that unpacks is the normal case and gets no line. `unreadable` is a block of its own
+ * (`planDownload`); a `.lua` has nothing to check.
+ */
 export function checkLine(
   item: DownloadFound,
-): { key: "downloads.check.opens" | "downloads.check.needs" | "downloads.check.wrong" | "downloads.check.unchecked"; good: boolean } | null {
+): { key: "downloads.check.needs" | "downloads.check.wrong" | "downloads.check.unchecked" } | null {
   switch (item.archive_check) {
-    case "opens":
-      return { key: "downloads.check.opens", good: true };
     case "needs_password":
-      return { key: "downloads.check.needs", good: false };
+      return { key: "downloads.check.needs" };
     case "wrong_password":
-      return { key: "downloads.check.wrong", good: false };
+      return { key: "downloads.check.wrong" };
     case "unchecked":
-      return { key: "downloads.check.unchecked", good: false };
+      return { key: "downloads.check.unchecked" };
     default:
-      // `unreadable` is a block of its own; a `.lua` has nothing to check.
       return null;
   }
 }

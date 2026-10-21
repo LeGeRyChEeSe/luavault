@@ -187,16 +187,25 @@ export default defineSuite({
       writeFileSync(join(dir, '1593070_bypass.zip'), broken());
       writeFileSync(join(dir, '264710_bypass (1).rar'), bytes);
       await s.waitFor(MODAL, OFFER_MS);
-      const row = await s.execute<{ label: string; replaces: boolean; reason: boolean }>(
+      const row = await s.execute<{ label: string; title: string; flavor: string; replaces: boolean; reason: boolean }>(
         `const li = document.querySelector('[data-downloads-item="264710_bypass (1).rar"]');
-         return li ? { label: li.textContent, replaces: !!li.querySelector('[data-downloads-replaces]'), reason: !!li.querySelector('[data-downloads-reason]') } : null`,
+         return li ? {
+           label: li.textContent,
+           title: li.querySelector('[data-downloads-title]').textContent.trim(),
+           flavor: li.querySelector('[data-downloads-flavor]').textContent.trim(),
+           replaces: !!li.querySelector('[data-downloads-replaces]'),
+           reason: !!li.querySelector('[data-downloads-reason]'),
+         } : null`,
       );
       assert.ok(row !== null, 'le bypass est proposé');
       assert.includes(row.label, 'Bypass DRM', "il est nommé bypass DRM, pas « patch »");
+      assert.equal(row.title, 'Subnautica', 'le titre est le nom du jeu, pas celui du fichier');
+      assert.equal(row.flavor, 'Bypass DRM', 'à côté, ce que le fichier est');
+      assert.includes(row.label, '264710_bypass (1).rar', 'le nom du fichier reste dessous, pour distinguer deux fichiers');
       assert.includes(row.label, 'AppID 264710', 'son AppID est lu dans le nom, pas dans le compteur du navigateur');
       assert.ok(row.replaces, 'il dit qu\'il remplacera le patch déjà enregistré');
       assert.ok(!row.reason, 'le jeu est dans la bibliothèque : rien ne le bloque');
-      assert.includes(row.label, 'Se décompresse correctement', "il dit que l'archive se décompresse");
+      assert.ok(!row.label.includes('décompresse'), "une archive saine n'a pas de ligne d'état : seul un problème se dit");
       // A download that left a corrupt archive is refused now, with its reason, not at install time.
       await s.waitUntil('le téléchargement corrompu est listé', async () => (await offered(app)).includes('1593070_bypass.zip'), OFFER_MS);
       const corrupt = await s.execute<{ disabled: boolean; reason: string }>(

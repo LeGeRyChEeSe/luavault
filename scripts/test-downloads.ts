@@ -94,8 +94,8 @@ equal(
 );
 
 // What the default password gave, said under the file.
-equal(checkLine(file({ kind: "archive", archive_check: "opens" })), { key: "downloads.check.opens", good: true }, "elle se décompresse");
-equal(checkLine(file({ kind: "archive", archive_check: "needs_password" }))?.good, false, "protégée : pas une bonne nouvelle");
+equal(checkLine(file({ kind: "archive", archive_check: "opens" })), null, "elle se décompresse : le cas normal, aucune ligne");
+equal(checkLine(file({ kind: "archive", archive_check: "needs_password" }))?.key, "downloads.check.needs", "protégée : on le dit");
 equal(checkLine(file({ kind: "archive", archive_check: "wrong_password" }))?.key, "downloads.check.wrong", "mauvais mot de passe par défaut");
 equal(checkLine(file({ kind: "archive", archive_check: "unchecked" }))?.key, "downloads.check.unchecked", "trop gros pour être vérifiée");
 equal(checkLine(file({ kind: "archive", archive_check: "unreadable" })), null, "illisible : c'est une raison de refus, pas une ligne d'état");
