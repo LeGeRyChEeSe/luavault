@@ -7,6 +7,7 @@ mod config;
 mod defender;
 mod detect;
 mod discover;
+mod downloads;
 mod fixes;
 pub mod hmac;
 mod i18n_log;
@@ -32,7 +33,7 @@ mod encrypted_backup;
 
 use log::{info, warn};
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -50,6 +51,10 @@ pub struct AppState {
     /// Dedicated client for the artwork CDNs (LOT-14).
     pub artwork_http: artwork::ArtworkClient,
     pub config: Mutex<config::AppConfig>,
+    /// Every new listener advances this generation; older tasks leave on their
+    /// next poll without requiring a join handle or an async mutex.
+    pub downloads_generation: AtomicU64,
+    pub downloads_watch: Mutex<downloads::WatchState>,
     /// Set to `true` to ask the running bulk operation to stop after the current game.
     /// The last notice whose signature was verified, actions included. A button's
     /// parameters are looked up here, never taken from the frontend.
@@ -186,6 +191,8 @@ pub fn run() {
                 update_http: update::UpdateClient::new(),
                 artwork_http: artwork::ArtworkClient::new(),
                 config: Mutex::new(cfg),
+                downloads_generation: AtomicU64::new(0),
+                downloads_watch: Mutex::new(downloads::WatchState::default()),
                 motd_current: Mutex::new(None),
                 bulk_cancel: AtomicBool::new(false),
                 steam_details: cache::TtlCache::new(std::time::Duration::from_secs(300)),
@@ -209,6 +216,32 @@ pub fn run() {
             if guard_on {
                 guard_service::set_running(app.handle(), true);
                 std::thread::spawn(|| guard_service::sync_autostart(true));
+            }
+            if app.state::<AppState>().config.lock().map(|cfg| commands::downloads_watch_wanted(&cfg)).unwrap_or(true) {
+                // A toast can only be clicked once Windows knows the `luavault://` handler.
+                if !config::is_portable() && !cfg!(debug_assertions) {
+                    std::thread::spawn(|| {
+                        let ready = std::env::current_exe()
+                            .map_err(|e| e.to_string())
+                            .and_then(|exe| notify::register_handler(&exe).map_err(|e| e.to_string()));
+                        match ready {
+                            Ok(()) => downloads::set_handler_ready(true),
+                            Err(e) => warn!("notifications des téléchargements : gestionnaire d'URL impossible ({e})"),
+                        }
+                    });
+                }
+                let dirs = app
+                    .state::<AppState>()
+                    .config
+                    .lock()
+                    .map(|cfg| commands::watch_dirs(&cfg))
+                    .unwrap_or_default();
+                if dirs.is_empty() {
+                    warn!("downloads watch not started: no folder to watch");
+                } else {
+                    let state = app.state::<AppState>();
+                    downloads::start(app.handle(), &state, dirs, downloads::Window::permanent());
+                }
             }
             Ok(())
         })
@@ -278,6 +311,17 @@ pub fn run() {
             commands::steam_unpin,
             commands::get_background_notify,
             commands::set_background_notify,
+            commands::open_source_site,
+            commands::downloads_watch_start,
+            commands::downloads_watch_stop,
+            commands::downloads_watch_status,
+            commands::get_downloads_watch,
+            commands::downloads_pending_clear,
+            commands::get_downloads_dirs,
+            commands::set_downloads_dirs,
+            commands::downloads_inventory,
+            commands::downloads_steam_names,
+            commands::set_downloads_watch,
             commands::get_background_guard,
             commands::set_background_guard,
             commands::download_update,

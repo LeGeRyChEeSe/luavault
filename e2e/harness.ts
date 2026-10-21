@@ -145,6 +145,10 @@ export class App {
   get steamDir(): string {
     return this.handle.steamDir;
   }
+  /// The folder the downloads watcher observes: inside the sandbox, never the real one.
+  get downloadsDir(): string {
+    return join(this.handle.sandbox, 'downloads');
+  }
   /// The stand-in release host: its `calls` records every path the app asked for.
   get updateStub(): UpdateStub {
     return this.handle.updateStub;
@@ -154,6 +158,7 @@ export class App {
     const sandbox = join(ROOT, '.e2e', `run-${tag}-${process.pid}`);
     rmSync(sandbox, { recursive: true, force: true });
     mkdirSync(join(sandbox, 'library'), { recursive: true });
+    mkdirSync(join(sandbox, 'downloads'), { recursive: true });
 
     const steamDir = join(sandbox, 'steam');
     mkdirSync(join(steamDir, 'config', 'lua'), { recursive: true });
@@ -211,7 +216,13 @@ export class App {
       // run of this suite hung exactly that way.
       {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, LV_UPDATE_BASE: updateStub.url, LV_MOTD_BASE: updateStub.url },
+        env: {
+          ...process.env,
+          LV_UPDATE_BASE: updateStub.url,
+          LV_MOTD_BASE: updateStub.url,
+          // Debug builds only: the watcher observes this folder instead of the real Downloads.
+          LV_DOWNLOADS_DIR: join(sandbox, 'downloads'),
+        },
       },
     );
     driver.stderr?.on('data', (d) => {

@@ -665,6 +665,63 @@ export const getBackgroundNotify = () => invoke<BackgroundNotify>("get_backgroun
  *  scheduled check. Only from the one-time offer or the Settings switch. */
 export const setBackgroundNotify = (enabled: boolean) =>
   invoke<BackgroundNotify>("set_background_notify", { enabled });
+/** One file the downloads watcher recognised. Nothing has been imported yet. */
+export interface DownloadFound {
+  path: string;
+  name: string;
+  size: number;
+  kind: "lua" | "archive";
+  /** The AppID the file announces (a `.lua`) or carries in its name (an archive). */
+  app_id: string | null;
+  /** What it is called on screen: a `.lua`, an online `patch` or a DRM `bypass`. */
+  flavor: "lua" | "patch" | "bypass";
+  /** An archive for a game whose patch is already stored, with other content. */
+  replaces: boolean;
+  /** For an archive: what opening it with the default password gives. `null` for a `.lua`. */
+  archive_check: ArchiveCheck | null;
+}
+export type ArchiveCheck = "opens" | "needs_password" | "wrong_password" | "unreadable" | "unchecked";
+/** What Steam calls an AppID. `unknown` also describes a delisted or unreleased game: a hint only. */
+export interface SteamName {
+  app_id: string;
+  status: "known" | "unknown" | "unreachable";
+  name?: string;
+}
+/** The folders the file detection watches (`custom` = the user's own list). */
+export interface DownloadsDirs {
+  dirs: string[];
+  custom: boolean;
+  default_dir: string | null;
+}
+export interface DownloadsWatchStatus {
+  active: boolean;
+  /** Seconds left in a timed listening; `null` for the permanent one. */
+  ends_in_secs: number | null;
+}
+export interface DownloadsWatch {
+  enabled: boolean;
+}
+export const DOWNLOADS_FOUND_EVENT = "downloads://found";
+export const DOWNLOADS_STATE_EVENT = "downloads://state";
+/** Opens the download site's home page in the browser. The address lives in the binary. */
+export const openSourceSite = () => invoke<void>("open_source_site");
+export const downloadsWatchStart = (minutes?: number) =>
+  invoke<DownloadsWatchStatus>("downloads_watch_start", { minutes: minutes ?? null });
+export const downloadsWatchStop = () => invoke<DownloadsWatchStatus>("downloads_watch_stop");
+export const downloadsWatchStatus = () => invoke<DownloadsWatchStatus>("downloads_watch_status");
+/** A pure read of the config: is the permanent listening switched on? */
+export const getDownloadsWatch = () => invoke<DownloadsWatch>("get_downloads_watch");
+/** The popup was answered: the Windows notification that listed those files goes away. */
+export const downloadsPendingClear = () => invoke<void>("downloads_pending_clear");
+/** Ask Steam what these AppIDs are called (only the numbers leave the machine). */
+export const downloadsSteamNames = (appIds: string[]) => invoke<SteamName[]>("downloads_steam_names", { appIds });
+export const getDownloadsDirs = () => invoke<DownloadsDirs>("get_downloads_dirs");
+/** `null` = back to the Downloads folder. */
+export const setDownloadsDirs = (dirs: string[] | null) => invoke<DownloadsDirs>("set_downloads_dirs", { dirs });
+/** Everything in the watched folders the library does not have yet, old files included. */
+export const downloadsInventory = () => invoke<DownloadFound[]>("downloads_inventory");
+export const setDownloadsWatch = (enabled: boolean) =>
+  invoke<DownloadsWatch>("set_downloads_watch", { enabled });
 export interface BackgroundGuard {
   /** What the user chose: on unless switched off. */
   enabled: boolean;

@@ -42,6 +42,15 @@ pub struct AppConfig {
     /// THIS machine's registry and scheduler: never imported from a backup.
     #[serde(default)]
     pub background_notify: Option<bool>,
+    /// Download-folder watching is a local preference: backups must never make
+    /// another machine start observing its own downloads folder.
+    #[serde(default)]
+    pub watch_downloads: Option<bool>,
+    /// The folders the file detection watches. `None` = the Downloads folder; `Some(list)`
+    /// = exactly those folders (the user changed or added one). A fact about THIS
+    /// machine's disk: never imported from a backup.
+    #[serde(default)]
+    pub watch_dirs: Option<Vec<String>>,
     /// The resident download guard (`guard_service.rs`): `None` = never touched, which
     /// means ON; `Some(false)` = switched off in Settings. A fact about THIS machine's
     /// startup entries: never imported from a backup.
@@ -142,6 +151,8 @@ pub fn merge_imported(
             motd_dismissed_id: imported.motd_dismissed_id.clone(),
             // Registrations live in this machine's registry, not in the backup.
             background_notify: local.background_notify,
+            watch_downloads: local.watch_downloads,
+            watch_dirs: local.watch_dirs.clone(),
             background_guard: local.background_guard,
             motd_actions_done: local.motd_actions_done.clone(),
         },
@@ -233,6 +244,8 @@ mod tests {
             default_archive_password: None,
             motd_dismissed_id: None,
             background_notify: None,
+            watch_downloads: None,
+            watch_dirs: None,
             background_guard: None,
             motd_actions_done: Vec::new(),
         }
@@ -343,6 +356,26 @@ mod tests {
         let never_asked = AppConfig::default();
         let merged = merge_imported(&never_asked, &imported, |_| true).merged;
         assert_eq!(merged.background_notify, None, "never asked here stays never asked");
+    }
+
+    #[test]
+    fn merge_imported_never_imports_the_watched_folders() {
+        let imported = AppConfig { watch_dirs: Some(vec!["D:\\Elsewhere".to_string()]), ..Default::default() };
+        let local = AppConfig { watch_dirs: Some(vec!["E:\\Mine".to_string()]), ..Default::default() };
+        assert_eq!(
+            merge_imported(&local, &imported, |_| true).merged.watch_dirs,
+            Some(vec!["E:\\Mine".to_string()]),
+            "a folder of another machine's disk must never be watched here"
+        );
+        assert_eq!(merge_imported(&AppConfig::default(), &imported, |_| true).merged.watch_dirs, None);
+    }
+
+    #[test]
+    fn merge_imported_never_imports_watch_downloads() {
+        let imported = AppConfig { watch_downloads: Some(true), ..Default::default() };
+        let declined = AppConfig { watch_downloads: Some(false), ..Default::default() };
+        assert_eq!(merge_imported(&declined, &imported, |_| true).merged.watch_downloads, Some(false));
+        assert_eq!(merge_imported(&AppConfig::default(), &imported, |_| true).merged.watch_downloads, None);
     }
 
     #[test]
@@ -530,6 +563,8 @@ mod tests {
             default_archive_password: None,
             motd_dismissed_id: None,
             background_notify: None,
+            watch_downloads: None,
+            watch_dirs: None,
             background_guard: None,
             motd_actions_done: Vec::new(),
         };
@@ -546,6 +581,8 @@ mod tests {
             default_archive_password: Some("secret".to_string()),
             motd_dismissed_id: Some("m-import".to_string()),
             background_notify: None,
+            watch_downloads: None,
+            watch_dirs: None,
             background_guard: None,
             motd_actions_done: Vec::new(),
         };

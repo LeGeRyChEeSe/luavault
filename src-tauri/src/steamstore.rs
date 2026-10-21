@@ -222,6 +222,33 @@ fn decode_entities(text: &str) -> String {
         .replace("&amp;", "&")
 }
 
+/// Steam answered, and has no store page for this AppID: delisted, not out yet, a tool. A fact
+/// about the AppID, not a network failure: callers must not confuse the two.
+#[derive(Debug, thiserror::Error)]
+#[error("steam appdetails: fiche indisponible pour cet AppID")]
+pub struct NotListed;
+
+/// What Steam says an AppID is called.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", content = "name", rename_all = "snake_case")]
+pub enum NameLookup {
+    Known(String),
+    /// Steam has no store page for it. A delisted or unreleased game looks the same: a hint, never a verdict.
+    Unknown,
+    /// Steam could not be asked (offline, throttled): nothing is known.
+    Unreachable,
+}
+
+/// The store name of an AppID, from the same page the game card uses.
+pub async fn lookup_name(http: &Client, app_id: &str) -> NameLookup {
+    match fetch_details(http, app_id, "english").await {
+        Ok(data) if !data.name.trim().is_empty() => NameLookup::Known(data.name),
+        Ok(_) => NameLookup::Unknown,
+        Err(error) if error.downcast_ref::<NotListed>().is_some() => NameLookup::Unknown,
+        Err(_) => NameLookup::Unreachable,
+    }
+}
+
 async fn fetch_details(http: &Client, app_id: &str, lang: &str) -> Result<AppData> {
     let url = format!("{APPDETAILS}?appids={app_id}&l={lang}");
     let resp = http
@@ -243,7 +270,7 @@ async fn fetch_details(http: &Client, app_id: &str, lang: &str) -> Result<AppDat
         .get(app_id)
         .ok_or_else(|| anyhow!("steam appdetails: AppID absent de la réponse"))?;
     if !envelope.success {
-        return Err(anyhow!("steam appdetails: fiche indisponible pour cet AppID"));
+        return Err(NotListed.into());
     }
     envelope
         .data

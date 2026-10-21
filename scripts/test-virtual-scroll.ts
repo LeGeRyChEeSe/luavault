@@ -1151,7 +1151,7 @@ const DEFENDER_WIRING_CASES = 5;
 }
 
 // ── IMPORT-01: shared patch filename table and error wiring ───
-const PATCH_IMPORT_CASES = 22;
+const PATCH_IMPORT_CASES = 34;
 {
   const mod = (await import("./test-patch-import")) as unknown as {
     __patchImportRan: boolean;
@@ -1161,6 +1161,19 @@ const PATCH_IMPORT_CASES = 22;
   assert.ok(mod.__patchImportRan === true, "IMPORT-01: la suite doit être importée par le runner");
   await mod.patchImportSuite;
   assert.equal(mod.patchImportCases(), PATCH_IMPORT_CASES, `IMPORT-01: la suite doit aller au bout de ses ${PATCH_IMPORT_CASES} cas`);
+}
+
+// ── DETECT-02: downloads popup decisions and "closing is never a yes" ───
+const DOWNLOADS_CASES = 47;
+{
+  const mod = (await import("./test-downloads")) as unknown as {
+    __downloadsRan: boolean;
+    downloadsSuite: Promise<void>;
+    downloadsCases: () => number;
+  };
+  assert.ok(mod.__downloadsRan === true, "DETECT-02: la suite doit être importée par le runner");
+  await mod.downloadsSuite;
+  assert.equal(mod.downloadsCases(), DOWNLOADS_CASES, `DETECT-02: la suite doit aller au bout de ses ${DOWNLOADS_CASES} cas`);
 }
 
 // ── PATCH-01: secondary install-patch action decision and delegation ──

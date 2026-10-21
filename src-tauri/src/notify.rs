@@ -78,6 +78,10 @@ pub struct Pending {
     /// action id: action ids come from a signed message and could spell anything.
     #[serde(default)]
     pub update_version: Option<String>,
+    /// `true`: this nonce belongs to a « files detected in Downloads » toast. Its click
+    /// only brings the window forward, where the files wait for a yes or a no.
+    #[serde(default)]
+    pub downloads: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -101,7 +105,19 @@ impl NotifyState {
             created_at: now,
             base: Some(base.to_string()),
             update_version: None,
+            downloads: false,
         });
+        nonce
+    }
+
+    /// Issue the nonce of a « files detected » toast. It carries no action and no
+    /// parameter: it can only ask the running app to show its window.
+    pub fn issue_downloads(&mut self, now: i64) -> String {
+        let nonce = self.issue("downloads", None, "", now);
+        if let Some(p) = self.pending.last_mut() {
+            p.downloads = true;
+            p.base = None;
+        }
         nonce
     }
 
@@ -442,20 +458,7 @@ mod win {
         run.set_value(&id.run_value, &check_command(exe))
             .map_err(|e| fail("clé de démarrage", e))?;
 
-        let scheme_key = format!(r"Software\Classes\{}", id.scheme);
-        let (root, _) = hkcu.create_subkey(&scheme_key).map_err(|e| fail("gestionnaire d'URL", e))?;
-        root.set_value("", &format!("URL:{}", id.display)).map_err(|e| fail("gestionnaire d'URL", e))?;
-        root.set_value("URL Protocol", &"").map_err(|e| fail("gestionnaire d'URL", e))?;
-        let (cmd, _) = hkcu
-            .create_subkey(format!(r"{scheme_key}\shell\open\command"))
-            .map_err(|e| fail("gestionnaire d'URL", e))?;
-        cmd.set_value("", &handler_command(exe)).map_err(|e| fail("gestionnaire d'URL", e))?;
-
-        // The sender's identity: the name Windows shows on the toast.
-        let (ident, _) = hkcu
-            .create_subkey(format!(r"Software\Classes\AppUserModelId\{}", id.aumid))
-            .map_err(|e| fail("identité de notification", e))?;
-        ident.set_value("DisplayName", &id.display).map_err(|e| fail("identité de notification", e))?;
+        write_handler(id, exe)?;
 
         // Every 6 hours while the session is open; the Run key covers the logon.
         let out = std::process::Command::new("schtasks")
@@ -467,6 +470,44 @@ mod win {
             return Err(fail("tâche planifiée", String::from_utf8_lossy(&out.stderr).trim().to_string()));
         }
         Ok(())
+    }
+
+    /// The URL handler and the sender's identity (the name Windows shows on the toast):
+    /// the part of a registration a toast click depends on. One function, so the live
+    /// registration test covers what `register_handler` writes too.
+    fn write_handler(id: &Identity, exe: &Path) -> Result<(), RegisterError> {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let scheme_key = format!(r"Software\Classes\{}", id.scheme);
+        let (root, _) = hkcu.create_subkey(&scheme_key).map_err(|e| fail("gestionnaire d'URL", e))?;
+        root.set_value("", &format!("URL:{}", id.display)).map_err(|e| fail("gestionnaire d'URL", e))?;
+        root.set_value("URL Protocol", &"").map_err(|e| fail("gestionnaire d'URL", e))?;
+        let (cmd, _) = hkcu
+            .create_subkey(format!(r"{scheme_key}\shell\open\command"))
+            .map_err(|e| fail("gestionnaire d'URL", e))?;
+        cmd.set_value("", &handler_command(exe)).map_err(|e| fail("gestionnaire d'URL", e))?;
+        let (ident, _) = hkcu
+            .create_subkey(format!(r"Software\Classes\AppUserModelId\{}", id.aumid))
+            .map_err(|e| fail("identité de notification", e))?;
+        ident.set_value("DisplayName", &id.display).map_err(|e| fail("identité de notification", e))
+    }
+
+    /// The handler and the identity alone, for the toasts that are not the message of
+    /// the day: no logon entry, no scheduled task. Idempotent, and re-run at every
+    /// launch so a moved executable does not leave a dead path.
+    pub fn register_handler(exe: &Path) -> Result<(), RegisterError> {
+        write_handler(&Identity::real(), exe)
+    }
+
+    /// Take a toast back from the notification centre (what it announced is settled).
+    pub fn remove_toast(tag: &str) {
+        use windows::core::HSTRING;
+        use windows::UI::Notifications::ToastNotificationManager;
+        use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
+
+        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+        if let Ok(history) = ToastNotificationManager::History() {
+            let _ = history.RemoveGroupedTagWithId(&HSTRING::from(tag), &HSTRING::from(aumid()), &HSTRING::from(aumid()));
+        }
     }
 
     /// Remove everything `register` wrote. A missing entry is not an error.
@@ -566,7 +607,7 @@ mod win {
 }
 
 #[cfg(windows)]
-pub use win::{ensure_toast_identity, register, set_guard_autostart, show_toast, show_toast_tagged, system_locale, unregister};
+pub use win::{ensure_toast_identity, register, register_handler, remove_toast, set_guard_autostart, show_toast, show_toast_tagged, system_locale, unregister};
 #[cfg(all(windows, test))]
 use win::{register_as, unregister_as};
 
@@ -576,6 +617,12 @@ pub fn register(_exe: &Path) -> Result<(), RegisterError> {
 }
 #[cfg(not(windows))]
 pub fn unregister() {}
+#[cfg(not(windows))]
+pub fn register_handler(_exe: &Path) -> Result<(), RegisterError> {
+    Err(RegisterError::Failed("Windows uniquement".into()))
+}
+#[cfg(not(windows))]
+pub fn remove_toast(_tag: &str) {}
 #[cfg(not(windows))]
 pub fn show_toast(_xml: &str) -> Result<(), RegisterError> {
     Err(RegisterError::Failed("Windows uniquement".into()))
@@ -981,6 +1028,27 @@ mod tests {
     // ── building a toast ──
 
     #[test]
+    fn a_downloads_nonce_is_single_use_carries_no_action_and_no_origin() {
+        let mut state = NotifyState::default();
+        let nonce = state.issue_downloads(1_000);
+        assert!(matches!(parse_activation(&activation_url("open", &nonce)), Some(Activation::Open { .. })));
+        let taken = state.consume(&nonce, 1_001).expect("fresh");
+        assert!(taken.downloads, "it is the downloads kind");
+        assert!(taken.action_id.is_none() && taken.update_version.is_none() && taken.base.is_none());
+        assert!(state.consume(&nonce, 1_002).is_none(), "single use");
+        let late = state.issue_downloads(1_000);
+        assert!(state.consume(&late, 1_000 + PENDING_TTL_SECS).is_none(), "expired");
+    }
+
+    #[test]
+    fn a_message_nonce_is_never_a_downloads_nonce() {
+        let mut state = NotifyState::default();
+        let nonce = state.issue("downloads", None, "https://example.test", 1_000);
+        let taken = state.consume(&nonce, 1_001).unwrap();
+        assert!(!taken.downloads, "a signed message cannot spell its way into the downloads path");
+    }
+
+    #[test]
     fn build_toast_issues_a_nonce_per_button_and_one_for_the_body() {
         let m = msg(
             r#"{"id":"m1","published_at":"2026-10-17T10:00:00Z","title":{"fr":"Correctif"},"body":{"fr":"Steam **pose** problème."},
@@ -1024,6 +1092,36 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(400));
         }
         false
+    }
+
+    /// How many toasts of ours the notification centre holds under `tag`.
+    #[cfg(windows)]
+    fn toasts_in_centre(tag: &str) -> usize {
+        use windows::core::HSTRING;
+        use windows::UI::Notifications::ToastNotificationManager;
+        let history = ToastNotificationManager::History().expect("history");
+        let all = history.GetHistoryWithId(&HSTRING::from(aumid())).expect("get history");
+        all.into_iter().filter(|t| t.Tag().is_ok_and(|x| x == tag)).count()
+    }
+
+    /// `remove_toast` must really take a toast back from the notification centre: it is
+    /// what makes the « files detected » toast go away once the popup was answered.
+    /// Needs a desktop session (raises one toast, then removes it).
+    ///
+    /// `cargo test live_remove_toast -- --ignored --nocapture`
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "raises one toast on the desktop, then removes it"]
+    fn live_remove_toast_takes_the_toast_back() {
+        let tag = format!("lv-live-remove-{}", std::process::id());
+        let xml = toast_xml("LuaVault test", "remove_toast", "", &[]);
+        show_toast_tagged(&xml, &tag, true).expect("show");
+        assert_eq!(toasts_in_centre(&tag), 1, "the toast is in the notification centre");
+        // A second toast under the same tag REPLACES the first: one entry, not two.
+        show_toast_tagged(&xml, &tag, true).expect("show again");
+        assert_eq!(toasts_in_centre(&tag), 1, "same tag replaces, never piles up");
+        remove_toast(&tag);
+        assert_eq!(toasts_in_centre(&tag), 0, "the toast is gone");
     }
 
     /// The only check that the registration works on Windows, not just that its

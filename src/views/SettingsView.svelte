@@ -1,5 +1,6 @@
 <script lang="ts">
   import { open, save } from "@tauri-apps/plugin-dialog";
+  import { downloadsState } from "../lib/downloads-state.svelte";
   import Artwork from "../components/Artwork.svelte";
   import Icon from "../components/Icons.svelte";
   import ActionButton from "../components/ActionButton.svelte";
@@ -17,6 +18,10 @@
     exportLibrary,
     getAppInfo,
     getBackgroundNotify,
+    getDownloadsWatch,
+    setDownloadsWatch,
+    getDownloadsDirs,
+    setDownloadsDirs,
     setBackgroundNotify,
     getBackgroundGuard,
     setBackgroundGuard,
@@ -33,7 +38,7 @@
     wipePreview,
     wipeProtectedPaths,
   } from "../lib/api";
-  import type { BackgroundGuard, BackgroundNotify, BackupProbe, ImportCandidate, ImportPreview } from "../lib/api";
+  import type { BackgroundGuard, BackgroundNotify, DownloadsDirs, DownloadsWatch, BackupProbe, ImportCandidate, ImportPreview } from "../lib/api";
   import type {
     AppInfo,
     ArtworkCacheInfo,
@@ -68,6 +73,48 @@
   let notifyBusy = $state(false);
   // The resident download guard: a tray icon that follows a failing download.
   let guard = $state<BackgroundGuard | null>(null);
+  // Permanent listening to the downloads folder (offers what lands there).
+  let downloadsWatch = $state<DownloadsWatch | null>(null);
+  let downloadsBusy = $state(false);
+
+  // The folders that detection watches: the Downloads folder, or the user's own list.
+  let downloadsDirs = $state<DownloadsDirs | null>(null);
+
+  async function changeDownloadsDirs(dirs: string[] | null) {
+    downloadsBusy = true;
+    try {
+      downloadsDirs = await setDownloadsDirs(dirs);
+      void downloadsState.refreshInventory();
+    } catch (e) {
+      appState.toast("error", String(e));
+    } finally {
+      downloadsBusy = false;
+    }
+  }
+
+  async function addDownloadsDir() {
+    const picked = await open({ directory: true, multiple: false, title: t("settings.downloads.folder.pick") });
+    if (typeof picked !== "string" || !downloadsDirs) return;
+    await changeDownloadsDirs([...downloadsDirs.dirs, picked]);
+  }
+
+  function removeDownloadsDir(dir: string) {
+    if (!downloadsDirs) return;
+    const left = downloadsDirs.dirs.filter((known) => known !== dir);
+    // Nothing left means the default again, never "watch nothing".
+    void changeDownloadsDirs(left.length > 0 ? left : null);
+  }
+
+  async function toggleDownloads(enable: boolean) {
+    downloadsBusy = true;
+    try {
+      downloadsWatch = await setDownloadsWatch(enable);
+    } catch (e) {
+      appState.toast("error", String(e));
+    } finally {
+      downloadsBusy = false;
+    }
+  }
   let guardBusy = $state(false);
 
   async function toggleGuard(enable: boolean) {
@@ -354,6 +401,12 @@
       .catch(() => {});
     void getBackgroundGuard()
       .then((g) => (guard = g))
+      .catch(() => {});
+    void getDownloadsDirs()
+      .then((d) => (downloadsDirs = d))
+      .catch(() => {});
+    void getDownloadsWatch()
+      .then((d) => (downloadsWatch = d))
       .catch(() => {});
     void getAppInfo()
       .then((i) => (appInfo = i))
@@ -1467,7 +1520,7 @@
     <section class="glass enter-up flex flex-col gap-3 rounded-xl2 p-5" data-settings-guard>
       <div class="min-w-0">
         <h3 class="flex items-center gap-2 text-sm font-semibold">
-          <Icon name="info" size={16} />
+          <Icon name="steam" size={16} />
           {t("settings.guard.title")}
         </h3>
         <p class="mt-0.5 text-xs text-azure-900/55">{t("settings.guard.desc")}</p>
@@ -1486,6 +1539,79 @@
       <p class="text-xs text-azure-900/45">
         {guard.autostart ? t("settings.guard.how") : t("settings.guard.howPortable")}
       </p>
+    </section>
+  {/if}
+
+  <!-- ------------------------------------------------ downloads folder -->
+  {#if downloadsWatch}
+    <section class="glass enter-up flex flex-col gap-3 rounded-xl2 p-5" data-settings-downloads>
+      <div class="min-w-0">
+        <h3 class="flex items-center gap-2 text-sm font-semibold">
+          <Icon name="download" size={16} />
+          {t("settings.downloads.title")}
+        </h3>
+        <p class="mt-0.5 text-xs text-azure-900/55">{t("settings.downloads.desc")}</p>
+      </div>
+      <label class="flex cursor-pointer items-center gap-3 rounded-xl bg-surface/55 px-4 py-2.5 text-sm">
+        <input
+          type="checkbox"
+          class="accent-azure-500"
+          data-settings-downloads-switch
+          checked={downloadsWatch.enabled}
+          disabled={downloadsBusy}
+          onchange={(e) => void toggleDownloads(e.currentTarget.checked)}
+        />
+        <span class="min-w-0 flex-1">{t("settings.downloads.switch")}</span>
+      </label>
+      <div class="flex flex-col gap-1.5" data-settings-downloads-dirs>
+        <h4 class="text-xs font-semibold text-azure-900/70">{t("settings.downloads.folders")}</h4>
+        {#if downloadsDirs}
+          <ul class="flex flex-col gap-1.5">
+            {#each downloadsDirs.dirs as dir (dir)}
+              <li class="flex items-center gap-2 rounded-xl bg-surface/55 px-3 py-2 text-xs" data-settings-downloads-dir={dir}>
+                <Icon name="folder" size={14} />
+                <span class="min-w-0 flex-1 truncate" data-tip={dir}>{dir}</span>
+                {#if downloadsDirs.custom}
+                  <button
+                    type="button"
+                    class="rounded-md px-2 py-0.5 text-azure-700 hover:bg-surface/90 disabled:opacity-50"
+                    disabled={downloadsBusy}
+                    onclick={() => removeDownloadsDir(dir)}
+                    data-settings-downloads-dir-remove
+                  >
+                    {t("settings.downloads.folder.remove")}
+                  </button>
+                {:else}
+                  <span class="text-azure-900/45">{t("settings.downloads.folder.default")}</span>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="rounded-lg border border-surface/70 bg-surface/60 px-3 py-1.5 text-xs font-medium text-azure-800 hover:bg-surface/90 disabled:opacity-50"
+              disabled={downloadsBusy || downloadsDirs.dirs.length >= 8}
+              onclick={() => void addDownloadsDir()}
+              data-settings-downloads-dir-add
+            >
+              {t("settings.downloads.folder.add")}
+            </button>
+            {#if downloadsDirs.custom}
+              <button
+                type="button"
+                class="rounded-lg border border-surface/70 bg-surface/60 px-3 py-1.5 text-xs font-medium text-azure-800 hover:bg-surface/90 disabled:opacity-50"
+                disabled={downloadsBusy}
+                onclick={() => void changeDownloadsDirs(null)}
+                data-settings-downloads-dir-reset
+              >
+                {t("settings.downloads.folder.reset")}
+              </button>
+            {/if}
+          </div>
+        {/if}
+      </div>
+      <p class="text-xs text-azure-900/45">{t("settings.downloads.how")}</p>
     </section>
   {/if}
 

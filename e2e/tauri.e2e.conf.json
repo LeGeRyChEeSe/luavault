@@ -1,4 +1,5 @@
 {
+  "identifier": "io.github.luavault.bench",
   "app": {
     "windows": [
       {

@@ -11,6 +11,7 @@
   import TagEditor from "../components/TagEditor.svelte";
   import GameCard from "./GameCard.svelte";
   import { appState } from "../lib/app-state.svelte";
+  import { downloadsState, WATCH_MINUTES } from "../lib/downloads-state.svelte";
   import { t } from "../lib/i18n.svelte";
   import { menuItemsFor } from "../lib/game-menu";
   import {
@@ -917,6 +918,46 @@
         tip={t("library.patch.import.tip")}
       />
       <ActionButton
+        label={t("library.source.find")}
+        icon="globe"
+        onclick={() => void downloadsState.findFile()}
+        tip={`${t("library.source.note")} ${t("library.source.tip", { minutes: WATCH_MINUTES })}`}
+      />
+      <ActionButton
+        label={downloadsState.inventory.length > 0
+          ? t("downloads.inventory.button.count", { count: downloadsState.inventory.length })
+          : t("downloads.inventory.button")}
+        icon="archive"
+        variant="soft"
+        onclick={() => downloadsState.openBrowse()}
+        tip={t("downloads.inventory.tip")}
+      />
+      {#if downloadsState.watch.active && downloadsState.watch.ends_in_secs === null}
+        <ActionButton
+          label={t("downloads.watch.permanent")}
+          icon="download"
+          disabled
+          onclick={() => {}}
+          tip={t("downloads.watch.permanent.tip")}
+        />
+      {:else if downloadsState.watch.active}
+        <ActionButton
+          label={t("downloads.watch.stop")}
+          icon="x"
+          variant="soft"
+          onclick={() => void downloadsState.stop()}
+          tip={t("downloads.watch.stop.tip")}
+        />
+      {:else}
+        <ActionButton
+          label={t("downloads.watch.start")}
+          icon="download"
+          disabled={busy !== null}
+          onclick={() => void downloadsState.start()}
+          tip={t("downloads.watch.start.tip", { minutes: WATCH_MINUTES })}
+        />
+      {/if}
+      <ActionButton
         label={t("library.refresh")}
         icon="refresh"
         busy={busy === "refresh"}
@@ -1262,6 +1303,16 @@
           <p class="mt-1 text-xs">
             {t("library.empty.none.hint")}
           </p>
+          <div class="mt-4 flex flex-col items-center gap-1.5" data-library-source>
+            <ActionButton
+              label={t("library.source.find")}
+              icon="globe"
+              variant="soft"
+              onclick={() => void downloadsState.findFile()}
+              tip={t("library.source.tip", { minutes: WATCH_MINUTES })}
+            />
+            <p class="text-xs text-azure-900/45" data-library-source-note>{t("library.source.note")}</p>
+          </div>
         {:else}
           <p class="text-sm font-medium">{t("library.empty.hidden")}</p>
           <p class="mt-1 text-xs">

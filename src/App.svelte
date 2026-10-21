@@ -15,6 +15,8 @@
   import UpdateModal from "./components/UpdateModal.svelte";
   import MotdModal from "./components/MotdModal.svelte";
   import NotifyOffer from "./components/NotifyOffer.svelte";
+  import DownloadsModal from "./components/DownloadsModal.svelte";
+  import { downloadsState } from "./lib/downloads-state.svelte";
   import WorkaroundBanner from "./components/WorkaroundBanner.svelte";
   import { appState } from "./lib/app-state.svelte";
   import { listen } from "@tauri-apps/api/event";
@@ -92,6 +94,8 @@
       // outage is exactly what must not wait behind a minute of adoption.
       void appState.checkForMotd();
       void appState.checkNotifyOffer();
+      // The downloads watcher lives in Rust; this only listens for what it finds.
+      void downloadsState.init();
       // Games already sitting in {Steam}\config\lua join the library on their own.
       await appState.adoptFromSteam();
       try {
@@ -107,6 +111,7 @@
       clearInterval(timer);
       unmountTooltips();
       void unlistenReachability.then((fn) => fn());
+      downloadsState.dispose();
     };
   });
 
@@ -391,6 +396,18 @@
 {#if appState.notifyOffer && !appState.motdOpen && !showOnboarding}
   <NotifyOffer
     onanswer={(enable) => void appState.answerNotifyOffer(enable)}
+  />
+{/if}
+
+{#if (downloadsState.pending.length > 0 || downloadsState.browsing) && !appState.motdOpen && !appState.notifyOffer && !showOnboarding}
+  <DownloadsModal
+    items={downloadsState.shown}
+    library={new Map(appState.statuses.map((game) => [game.app_id, game.name]))}
+    steamNames={downloadsState.steamNames}
+    browsing={downloadsState.browsing}
+    busy={downloadsState.busy}
+    onadd={(paths) => void downloadsState.add(paths)}
+    onignore={() => downloadsState.dismiss()}
   />
 {/if}
 

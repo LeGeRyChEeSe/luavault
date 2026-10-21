@@ -7,7 +7,13 @@
     ["Portal 2 (440).zip", "440"],
     ["440 (1790600).zip", "1790600"],
     ["patch (0440).zip", "0440"],
-    ["1790600.7z", "1790600"]
+    ["1790600.7z", "1790600"],
+    ["271590_bypass.rar", "271590"],
+    ["271590_Bypass.zip", "271590"],
+    ["271590_drm_bypass.zip", "271590"],
+    ["271590_bypass (1).rar", "271590"],
+    ["1790600_online_fix (2).rar", "1790600"],
+    ["440 (1).zip", "440"]
   ],
   "rejected": [
     "patch_v2_64bit.zip",
@@ -16,6 +22,12 @@
     "_online_fix.rar",
     "1790600_online_fix_v2.rar",
     "Portal 2 (440x).zip",
-    "Portal 2 (440) final.zip"
+    "Portal 2 (440) final.zip",
+    "271590_cracked.rar",
+    "271590_bypass_v2.rar",
+    "2024_report.zip",
+    "_bypass.rar",
+    "vrhub-server-windows-amd64 (1).zip",
+    "Some tool (12).zip"
   ]
 }
