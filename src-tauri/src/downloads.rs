@@ -1,5 +1,5 @@
 use crate::{archive, commands, config, library, notify, AppState};
-use log::debug;
+use log::{debug, info, warn};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
@@ -145,6 +145,7 @@ async fn announce(app: &AppHandle, found: &[DownloadFound]) {
         pending.clone()
     };
     if waiting.is_empty() || !toasts_enabled() || window_in_front(app) {
+        info!("downloads: {} file(s) waiting, no notification (window in front or toasts off)", waiting.len());
         return;
     }
     let names = game_names(app, &waiting).await;
@@ -175,8 +176,10 @@ async fn announce(app: &AppHandle, found: &[DownloadFound]) {
     };
     let xml = notify::toast_xml(&title, &body, &launch, &buttons);
     let shown = tauri::async_runtime::spawn_blocking(move || notify::show_toast_tagged(&xml, TOAST_TAG, false)).await;
-    if !matches!(shown, Ok(Ok(()))) {
-        debug!("downloads toast not shown");
+    match shown {
+        Ok(Ok(())) => info!("downloads: notification raised for {} file(s)", waiting.len()),
+        Ok(Err(error)) => warn!("downloads: notification impossible ({error})"),
+        Err(error) => warn!("downloads: notification interrupted ({error})"),
     }
 }
 
