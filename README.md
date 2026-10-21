@@ -24,7 +24,7 @@ import, automatic adoption of anything already sitting in `{Steam}\config\lua`,
 online fixes with backup and integrity checks, and Steam/SteamTools install and
 repair — all from one dependency-free window.
 
-Current version: **1.0.2** — see [`CHANGELOG.md`](CHANGELOG.md).
+Current version: **1.1.5** — see [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Screenshots
 
@@ -53,6 +53,12 @@ Current version: **1.0.2** — see [`CHANGELOG.md`](CHANGELOG.md).
 - **Virtual scrolling**: the grid stays smooth past several hundred games.
 - **Multi-selection** and bulk actions, which never act on what the current filter
   is hiding.
+- **Download detection**: the app notices a `.lua` file, an online patch or a DRM
+  bypass arriving in your downloads folder (or any folders you choose), whatever
+  its source, and offers to add it. With the window in front you get a dialog,
+  otherwise a Windows notification that lists the games waiting. Archives are
+  opened with your default password before being offered, and nothing is added
+  without your consent. A "Detected files" list also keeps older files within reach.
 - **Tags**, search, sort, and statistics (stage distribution, fix counts, disk usage).
 - **Playtime** and last session, read from local Steam files — no network call,
   no API key.
@@ -87,6 +93,16 @@ Current version: **1.0.2** — see [`CHANGELOG.md`](CHANGELOG.md).
 - **Automatic self-update**: the app detects its own variant (installer or
   portable), reports the available version, says what changed **since yours**,
   and installs it in one gesture.
+- **Message of the day**: a signed notice (outage, warning, "do not update yet")
+  shown at launch until it expires, with optional action buttons. When a Steam
+  update breaks SteamTools, one click returns Steam to a build that works,
+  verified against a signed hash before anything is applied, and one click
+  undoes it. Every action asks for confirmation and nothing runs while a game does.
+- **Notifications with the app closed** (opt-in): the message of the day and new
+  versions reach you as Windows notifications, checked at logon then every 6 hours.
+- **Download guard**: a tray icon watches Steam's own download log and, when
+  manifest downloads keep failing, switches SteamTools to another upstream by
+  itself. It can be turned off in Settings.
 - **Detection and repair** of Steam and SteamTools, with elevation only when
   it's actually needed.
 - **Themes** (Azure, Emerald, Orchid, Amber, Slate) and an independent light/dark
@@ -162,6 +178,21 @@ manifest's `history` field from it, which the app uses to tell each user what
 changed **since their own version**. A version missing from the changelog fails
 the publication.
 
+### Automated security checks
+
+Every pull request towards `main` runs, on GitHub:
+
+- **Validate**: the full `npm run validate` gate.
+- **CodeQL** (`security-extended`) on the Rust, TypeScript and workflow code; it
+  also runs on every push to `main` and once a week. Results are under
+  Security > Code scanning.
+- **Dependency review**: a pull request that brings in a dependency with a known
+  high or critical advisory fails.
+
+**Dependabot** opens weekly update pull requests for Cargo, npm and GitHub Actions
+and security updates as soon as an advisory is published. Secret scanning with
+push protection is enabled on the repository.
+
 ## Architecture
 
 ```
@@ -181,7 +212,16 @@ src-tauri/src/
 ├─ stats.rs       # library statistics
 ├─ wipe.rs        # granular, previewable cleanup
 ├─ update.rs      # signed manifest (GitHub Releases), download, SHA-256 check
-├─ motd.rs        # message of the day: signed notice, expiry, "do not show again"
+├─ motd.rs        # message of the day: signed notice, expiry, action buttons
+├─ motd_run.rs    # the one place a message action runs (window or toast)
+├─ steam_downgrade.rs  # Steam pinned to a verified build, and the way back
+├─ steamtools_source.rs # which upstream SteamTools asks for manifest codes
+├─ source_guard.rs      # follows failing downloads, decides when to switch source
+├─ guard_service.rs     # tray icon and loop that carry the guard out
+├─ notify.rs      # Windows notifications with the app closed, single-use tokens
+├─ headless.rs    # --notify-check / --motd-action: this binary without a window
+├─ downloads.rs   # watches the downloads folders and offers .lua / patch files
+├─ reachability.rs # Steam reachability probe
 ├─ exchange.rs    # CSV/JSON export and import preview
 ├─ library.rs     # .lua library + index.json + copy to Steam
 ├─ install.rs     # elevated installs, steam:// URIs, Steam restart
@@ -195,7 +235,8 @@ src-tauri/src/bin/
 src/
 ├─ App.svelte     # shell: sidebar, status pills
 ├─ views/         # Library, News, Stats, Tools, Logs, Settings, Credits
-├─ components/    # Icons, GameSpotlight, UpdateModal, TagEditor, Toasts, …
+├─ components/    # Icons, GameSpotlight, UpdateModal, DownloadsModal, MotdModal,
+│                 # WorkaroundBanner, TagEditor, Toasts, …
 └─ lib/           # typed command wrappers, themes, reactive state (runes), patch
                   # import (`patch-import.ts`), virtual scroll (`virtual-scroll.ts`)
                   # and focus traps (`focus-trap.ts`)
