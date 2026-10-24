@@ -1,7 +1,7 @@
 use crate::{
     guard_service,
     archive, artwork, backup, cache, config, defender, detect, discover, encrypted_backup,
-    downloads, exchange, fixes, hmac, i18n_log, install, library, motd, motd_run, notify, reachability, stats, steam_downgrade, steamstore, update, vdf, wipe, AppState,
+    downloads, exchange, fixes, hmac, i18n_log, install, library, manifest_fallback, motd, motd_run, notify, reachability, stats, steam_downgrade, steamstore, update, vdf, wipe, AppState,
 };
 use log::{debug, info, warn};
 use serde::Serialize;
@@ -2635,6 +2635,136 @@ pub fn open_source_site() -> Result<(), String> {
     tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// What the tools tab shows about game files Steam could not get a code for.
+#[derive(Debug, Clone, Serialize)]
+pub struct ManifestFallbackView {
+    /// Files Steam asked for and failed to get, since this launch.
+    pub pending: usize,
+    /// A key is on hand: fetching them asks nothing more of the user.
+    pub key_ready: bool,
+    pub manifesthub: bool,
+    pub hubcap: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ManifestFallbackRun {
+    pub fetched: usize,
+    pub missing: usize,
+}
+
+/// A pure read: the pending list lives in memory, the keys in `manifest_keys.json`.
+#[tauri::command]
+pub fn manifest_fallback_status() -> ManifestFallbackView {
+    let keys = manifest_fallback::load_keys(&config::data_dir());
+    let now = chrono::Utc::now().timestamp();
+    ManifestFallbackView {
+        pending: manifest_fallback::pending().len(),
+        key_ready: keys.any_usable(now),
+        manifesthub: keys.manifesthub_valid(now).is_some(),
+        hubcap: keys.hubcap.is_some(),
+    }
+}
+
+/// The page where a provider hands out its key. The address is in the binary: the frontend
+/// names a provider, never a URL.
+fn manifest_page_url(provider: &str) -> Option<String> {
+    let url = match provider {
+        "manifesthub" => manifest_fallback::MANIFESTHUB_SITE,
+        "hubcap" => manifest_fallback::HUBCAP_SITE,
+        _ => return None,
+    };
+    motd::safe_https_url(url)
+}
+
+/// Open a provider's key page in the user's browser. The verification on that page is the
+/// user's to pass; the app never contacts the page and never sees what happens on it.
+pub(crate) fn open_manifest_page_in_browser(provider: &str) -> Result<(), String> {
+    let url = manifest_page_url(provider).ok_or("fournisseur inconnu")?;
+    tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_manifest_page(provider: String) -> Result<(), String> {
+    open_manifest_page_in_browser(&provider)
+}
+
+/// Fetch every file Steam is stuck on, with the keys on hand. Never opens anything: with no
+/// key it says so and the user goes and gets one.
+async fn run_pending(state: &AppState) -> Result<ManifestFallbackRun, String> {
+    let cfg = state.config.lock().unwrap().clone();
+    let steam = resolve_steam(&cfg).ok_or("Steam introuvable : indiquez son dossier dans Réglages")?;
+    let todo = manifest_fallback::pending();
+    if todo.is_empty() {
+        return Ok(ManifestFallbackRun { fetched: 0, missing: 0 });
+    }
+    let keys = manifest_fallback::load_keys(&config::data_dir());
+    let now = chrono::Utc::now().timestamp();
+    if !keys.any_usable(now) {
+        return Err("Aucune clé valide : collez-en une d'abord.".to_string());
+    }
+    let left = fetch_pending(&state.fallback_http, &steam, &keys, todo.clone(), now).await;
+    info!("manifest_fallback: {} récupéré(s), {} manquant(s)", todo.len() - left.len(), left.len());
+    Ok(ManifestFallbackRun { fetched: todo.len() - left.len(), missing: left.len() })
+}
+
+#[tauri::command]
+pub async fn manifest_fallback_run(state: State<'_, AppState>) -> Result<ManifestFallbackRun, String> {
+    run_pending(&state).await
+}
+
+/// Resolve each file; what is in place leaves the pending list, the rest is returned.
+pub(crate) async fn fetch_pending(
+    client: &manifest_fallback::FallbackClient,
+    steam: &Path,
+    keys: &manifest_fallback::Keys,
+    todo: Vec<manifest_fallback::Missing>,
+    now: i64,
+) -> Vec<manifest_fallback::Missing> {
+    let mut left = Vec::new();
+    for m in todo {
+        if manifest_fallback::resolve(client, steam, keys, &m, now).await == manifest_fallback::Resolved::Done {
+            manifest_fallback::forget(&m);
+        } else {
+            left.push(m);
+        }
+    }
+    left
+}
+
+/// Store (or clear, with an empty string) the ManifestHub key the user got on the site, then
+/// try the files that are waiting. The key never enters a backup.
+#[tauri::command]
+pub async fn set_manifesthub_key(state: State<'_, AppState>, key: String) -> Result<ManifestFallbackRun, String> {
+    let dir = config::data_dir();
+    let mut keys = manifest_fallback::load_keys(&dir);
+    let now = chrono::Utc::now().timestamp();
+    keys.manifesthub = if key.trim().is_empty() {
+        None
+    } else {
+        Some(manifest_fallback::check_manifesthub_key(&key, now).map_err(|e| e.to_string())?)
+    };
+    manifest_fallback::save_keys(&dir, &keys).map_err(|e| e.to_string())?;
+    run_after_key(&state, keys.any_usable(now)).await
+}
+
+/// Same for the Hubcap key, which does not expire.
+#[tauri::command]
+pub async fn set_hubcap_key(state: State<'_, AppState>, key: String) -> Result<ManifestFallbackRun, String> {
+    let dir = config::data_dir();
+    let mut keys = manifest_fallback::load_keys(&dir);
+    keys.hubcap = if key.trim().is_empty() { None } else { Some(manifest_fallback::check_hubcap_key(&key).map_err(|e| e.to_string())?) };
+    manifest_fallback::save_keys(&dir, &keys).map_err(|e| e.to_string())?;
+    run_after_key(&state, keys.any_usable(chrono::Utc::now().timestamp())).await
+}
+
+async fn run_after_key(state: &AppState, usable: bool) -> Result<ManifestFallbackRun, String> {
+    if usable {
+        run_pending(state).await
+    } else {
+        Ok(ManifestFallbackRun { fetched: 0, missing: manifest_fallback::pending().len() })
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DownloadsWatch {
     pub enabled: bool,
@@ -3299,6 +3429,15 @@ pub async fn artwork_cache_clear() -> Result<artwork::CacheStats, String> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn only_the_two_known_providers_have_a_page() {
+        assert_eq!(manifest_page_url("manifesthub").as_deref(), Some("https://manifesthub2.filegear-sg.me/"));
+        assert_eq!(manifest_page_url("hubcap").as_deref(), Some("https://hubcapmanifest.com/"));
+        for other in ["", "ManifestHub", "https://evil.example/", "file:///C:/", "steamrun"] {
+            assert_eq!(manifest_page_url(other), None, "{other}");
+        }
+    }
+
+    #[test]
     fn watched_folders_are_real_distinct_and_never_a_drive_root() {
         let a = std::env::temp_dir().join(format!("lv-dirs-a-{}", std::process::id()));
         let b = std::env::temp_dir().join(format!("lv-dirs-b-{}", std::process::id()));
@@ -3397,6 +3536,7 @@ mod tests {
             reachability: std::sync::Mutex::new(reachability::ReachabilityState::default()),
             update_http: update::UpdateClient::new(),
             artwork_http: artwork::ArtworkClient::new(),
+            fallback_http: manifest_fallback::FallbackClient::new(),
             config: std::sync::Mutex::new(config::AppConfig::default()),
             downloads_generation: std::sync::atomic::AtomicU64::new(0),
             downloads_watch: std::sync::Mutex::new(downloads::WatchState::default()),

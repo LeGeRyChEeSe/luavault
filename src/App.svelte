@@ -18,6 +18,7 @@
   import DownloadsModal from "./components/DownloadsModal.svelte";
   import { downloadsState } from "./lib/downloads-state.svelte";
   import WorkaroundBanner from "./components/WorkaroundBanner.svelte";
+  import ManifestBanner from "./components/ManifestBanner.svelte";
   import { appState } from "./lib/app-state.svelte";
   import { listen } from "@tauri-apps/api/event";
   import {
@@ -107,8 +108,27 @@
 
     // Steam installs and downloads finish outside the app; keep states honest.
     const timer = setInterval(() => void appState.refreshStatuses(), 20_000);
+    // Game files Steam is stuck on: the backend pushes a change, a short poll and the window
+    // coming back to the front are the safety nets (a hidden window's timers sleep).
+    void appState.refreshManifest();
+    const manifestTimer = setInterval(() => void appState.refreshManifest(), 5_000);
+    const onWake = () => void appState.refreshManifest();
+    window.addEventListener("focus", onWake);
+    document.addEventListener("visibilitychange", onWake);
+    const unlistenManifest = listen("manifest-fallback://changed", () => void appState.refreshManifest());
+    // The click on the notification opened the key page in the browser: bring the user to
+    // the tab where the key is pasted.
+    const unlistenManifestOpen = listen("manifest-fallback://open", () => {
+      view = "tools";
+      void appState.refreshManifest();
+    });
     return () => {
       clearInterval(timer);
+      clearInterval(manifestTimer);
+      window.removeEventListener("focus", onWake);
+      document.removeEventListener("visibilitychange", onWake);
+      void unlistenManifest.then((fn) => fn());
+      void unlistenManifestOpen.then((fn) => fn());
       unmountTooltips();
       void unlistenReachability.then((fn) => fn());
       downloadsState.dispose();
@@ -312,6 +332,9 @@
   <div class="flex min-w-0 flex-1 flex-col gap-3">
     {#if appState.workaround?.needed && appState.motd && !showOnboarding}
       <WorkaroundBanner />
+    {/if}
+    {#if appState.manifest && appState.manifest.pending > 0 && !appState.manifest.key_ready && !showOnboarding}
+      <ManifestBanner onpaste={() => (view = "tools")} />
     {/if}
     <main class="min-h-0 flex-1 overflow-hidden rounded-xl2">
     {#key view}

@@ -198,6 +198,18 @@ const CREDIT_GROUPS_DATA = [
         url: "https://partner.steamgames.com/doc/webapi_overview",
         licence: undefined,
       },
+      {
+        id: "manifesthub",
+        name: "ManifestHub",
+        url: "https://manifesthub2.filegear-sg.me/",
+        licence: undefined,
+      },
+      {
+        id: "hubcap",
+        name: "Hubcap Manifest",
+        url: "https://hubcapmanifest.com/",
+        licence: undefined,
+      },
     ],
   },
   {

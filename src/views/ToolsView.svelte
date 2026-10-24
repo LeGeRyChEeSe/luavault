@@ -6,8 +6,20 @@
   import StatusBadge from "../components/StatusBadge.svelte";
   import { appState } from "../lib/app-state.svelte";
   import { onMount } from "svelte";
-  import { installSteam, installSteamtools, restartSteam, runMotdAction, setSteamDir, steamPinStatus, steamUnpin } from "../lib/api";
-  import type { SteamPinStatus } from "../lib/api";
+  import {
+    installSteam,
+    installSteamtools,
+    manifestFallbackRun,
+    openManifestPage,
+    restartSteam,
+    runMotdAction,
+    setHubcapKey,
+    setManifesthubKey,
+    setSteamDir,
+    steamPinStatus,
+    steamUnpin,
+  } from "../lib/api";
+  import type { ManifestProvider, SteamPinStatus } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
   import { steamDowngradeOffer } from "../lib/motd";
   import { openFolder } from "../lib/open-folder";
@@ -75,6 +87,50 @@
     await run("unpin", steamUnpin);
     await readPin();
     await appState.refresh();
+  }
+
+  // Game files Steam could not get a code for. The card exists only while some are waiting,
+  // or for whoever stored a key (it is pasted here, where it is used). The keys come from the
+  // providers' own pages, opened in the browser: the verification there is the user's.
+  const fallback = $derived(appState.manifest);
+  let hubDraft = $state("");
+  let hubcapDraft = $state("");
+  onMount(() => void appState.refreshManifest());
+
+  async function openPage(provider: ManifestProvider) {
+    try {
+      await openManifestPage(provider);
+    } catch (e) {
+      appState.toast("error", String(e));
+    }
+  }
+
+  async function saveKey(provider: ManifestProvider, key: string) {
+    busy = provider;
+    try {
+      const r = await (provider === "hubcap" ? setHubcapKey(key) : setManifesthubKey(key));
+      if (provider === "hubcap") hubcapDraft = "";
+      else hubDraft = "";
+      appState.toast("info", key.trim() ? t("tools.manifests.saved") : t("tools.manifests.cleared"));
+      appState.announceManifestRun(r);
+    } catch (e) {
+      appState.toast("error", String(e));
+    } finally {
+      busy = null;
+      await appState.refreshManifest();
+    }
+  }
+
+  async function fetchNow() {
+    busy = "fetch";
+    try {
+      appState.announceManifestRun(await manifestFallbackRun());
+    } catch (e) {
+      appState.toast("error", String(e));
+    } finally {
+      busy = null;
+      await appState.refreshManifest();
+    }
   }
 
   const doInstallSteam = () => run("steam", installSteam);
@@ -177,6 +233,87 @@
         </div>
       {/if}
     </div>
+
+    <!-- Game files Steam is stuck on: the key comes from the provider's own page -->
+    {#if steam && st?.installed && fallback && (fallback.pending > 0 || fallback.manifesthub || fallback.hubcap)}
+      <div class="glass enter-up flex flex-col gap-4 rounded-xl2 p-5 col-span-2 max-xl:col-span-1" data-tools-manifests>
+        <div class="flex flex-wrap items-center gap-2">
+          <h3 class="flex items-center gap-2 font-semibold">
+            <Icon name="download" size={18} />
+            {t("tools.manifests.title")}
+          </h3>
+          {#if fallback.pending > 0}
+            <StatusBadge
+              label={t("tools.manifests.badge", { count: fallback.pending })}
+              icon="alert"
+              tone="action"
+              compact
+              tip={t("tools.manifests.badge_tip")}
+            />
+          {/if}
+        </div>
+        <p class="text-sm text-azure-900/70">{t("tools.manifests.explain")}</p>
+        {#if fallback.pending > 0}
+          <p class="text-xs text-azure-900/50">
+            {fallback.key_ready ? t("tools.manifests.key_ready") : t("tools.manifests.key_needed")}
+          </p>
+          {#if fallback.key_ready}
+            <div class="flex flex-wrap gap-2">
+              <ActionButton
+                label={t("tools.manifests.fetch")}
+                icon="download"
+                variant="primary"
+                disabled={busy !== null}
+                busy={busy === "fetch"}
+                busyLabel={t("tools.manifests.busy")}
+                onclick={fetchNow}
+                tip={t("tools.manifests.fetch_tip")}
+              />
+            </div>
+          {/if}
+        {/if}
+        {#each [
+          { id: "manifesthub", draft: hubDraft, set: fallback.manifesthub, title: t("tools.manifests.hub.title"), note: fallback.manifesthub ? t("tools.manifests.hub.set") : t("tools.manifests.hub.hint"), placeholder: t("tools.manifests.hub.placeholder") },
+          { id: "hubcap", draft: hubcapDraft, set: fallback.hubcap, title: t("tools.manifests.hubcap.title"), note: fallback.hubcap ? t("tools.manifests.hubcap.set") : t("tools.manifests.hubcap.hint"), placeholder: t("tools.manifests.hubcap.placeholder") },
+        ] as p (p.id)}
+          <div class="flex flex-col gap-2" data-manifest-provider={p.id}>
+            <p class="text-sm font-medium">{p.title}</p>
+            <p class="text-xs text-azure-900/50">{p.note}</p>
+            <div class="flex flex-wrap gap-2">
+              <ActionButton
+                label={t("tools.manifests.open")}
+                icon="globe"
+                disabled={busy !== null}
+                onclick={() => openPage(p.id as ManifestProvider)}
+                tip={t("tools.manifests.open_tip")}
+              />
+              <input
+                type="password"
+                value={p.draft}
+                oninput={(e) => (p.id === "hubcap" ? (hubcapDraft = e.currentTarget.value) : (hubDraft = e.currentTarget.value))}
+                autocomplete="off"
+                class="min-w-0 flex-1 rounded-lg border border-surface/65 bg-surface px-3 py-1.5 text-sm outline-none placeholder-azure-400 focus:border-azure-500"
+                placeholder={p.placeholder}
+              />
+              <ActionButton
+                label={t("tools.manifests.save")}
+                icon="check"
+                disabled={busy !== null || p.draft.trim() === ""}
+                onclick={() => saveKey(p.id as ManifestProvider, p.draft)}
+              />
+              {#if p.set}
+                <ActionButton
+                  label={t("tools.manifests.clear")}
+                  icon="trash"
+                  disabled={busy !== null}
+                  onclick={() => saveKey(p.id as ManifestProvider, "")}
+                />
+              {/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
 
     <!-- Steam compatibility: a signed message offers the fix, or Steam is already pinned -->
     {#if steam && (offer || pin?.pinned)}

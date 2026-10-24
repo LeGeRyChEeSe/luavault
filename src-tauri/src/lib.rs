@@ -15,6 +15,7 @@ mod guard_service;
 mod headless;
 mod install;
 mod library;
+mod manifest_fallback;
 mod motd;
 mod motd_run;
 mod notify;
@@ -50,6 +51,9 @@ pub struct AppState {
     pub update_http: update::UpdateClient,
     /// Dedicated client for the artwork CDNs (LOT-14).
     pub artwork_http: artwork::ArtworkClient,
+    /// Dedicated client for the game-file providers (`manifest_fallback`): third-party
+    /// hosts, no redirect, none of this app's other headers.
+    pub fallback_http: manifest_fallback::FallbackClient,
     pub config: Mutex<config::AppConfig>,
     /// Every new listener advances this generation; older tasks leave on their
     /// next poll without requiring a join handle or an async mutex.
@@ -190,6 +194,7 @@ pub fn run() {
                 reachability: Mutex::new(reachability::ReachabilityState::default()),
                 update_http: update::UpdateClient::new(),
                 artwork_http: artwork::ArtworkClient::new(),
+                fallback_http: manifest_fallback::FallbackClient::new(),
                 config: Mutex::new(cfg),
                 downloads_generation: AtomicU64::new(0),
                 downloads_watch: Mutex::new(downloads::WatchState::default()),
@@ -312,6 +317,11 @@ pub fn run() {
             commands::get_background_notify,
             commands::set_background_notify,
             commands::open_source_site,
+            commands::manifest_fallback_status,
+            commands::manifest_fallback_run,
+            commands::open_manifest_page,
+            commands::set_manifesthub_key,
+            commands::set_hubcap_key,
             commands::downloads_watch_start,
             commands::downloads_watch_stop,
             commands::downloads_watch_status,

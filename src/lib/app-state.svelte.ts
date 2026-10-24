@@ -1,5 +1,5 @@
-import { checkMotd, checkUpdate, detectAll, getBackgroundNotify, getReachability, getUpdateNotified, libraryStatus, listLibrary, markUpdateNotified, motdActionStatuses, motdWorkaround, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeUpdateResult } from "./api";
-import type { DetectionReport, GameStatus, LibraryEntry, MotdActionStatus, MotdMessage, Reachability, Workaround, UpdateAvailable, UpdateResult } from "./api";
+import { checkMotd, checkUpdate, detectAll, getBackgroundNotify, getReachability, getUpdateNotified, libraryStatus, listLibrary, manifestFallbackStatus, markUpdateNotified, motdActionStatuses, motdWorkaround, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeUpdateResult } from "./api";
+import type { DetectionReport, GameStatus, LibraryEntry, ManifestFallbackRun, ManifestFallbackView, MotdActionStatus, MotdMessage, Reachability, Workaround, UpdateAvailable, UpdateResult } from "./api";
 import { themeStore } from "./theme.svelte";
 import { i18n, t } from "./i18n.svelte";
 import { LONG_TOAST_MS, resolveToastDuration } from "./toast-duration";
@@ -175,6 +175,31 @@ class AppStore {
    * the network.
    */
   workaround = $state<Workaround | null>(null);
+
+  /**
+   * Game files Steam is stuck on (`manifest_fallback`). The banner and the tools card read
+   * it; it is refreshed by the backend's own event, on focus, and on a short poll.
+   */
+  manifest = $state<ManifestFallbackView | null>(null);
+
+  async refreshManifest() {
+    try {
+      this.manifest = await manifestFallbackStatus();
+    } catch {
+      // Keep the last reading: a failed read must not make the banner flicker away.
+    }
+  }
+
+  /** Say what a key paste did: the files it fetched, or that none was found. */
+  announceManifestRun(r: ManifestFallbackRun) {
+    if (r.fetched === 0 && r.missing === 0) return;
+    this.toast(
+      "info",
+      r.missing === 0
+        ? t("tools.manifests.done", { count: r.fetched })
+        : t("tools.manifests.partial", { fetched: r.fetched, missing: r.missing }),
+    );
+  }
 
   /** Where each button of the current message stands (`motd::statuses`), by action id. */
   motdStatuses = $state<Record<string, MotdActionStatus>>({});

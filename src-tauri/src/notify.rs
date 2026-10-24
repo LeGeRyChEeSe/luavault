@@ -550,8 +550,30 @@ mod win {
     /// notification centre instead of piling up. `silent` updates the entry without
     /// raising a banner (the retry counter moving is not worth interrupting for).
     pub fn show_toast_tagged(xml: &str, tag: &str, silent: bool) -> Result<(), RegisterError> {
-        use windows::core::HSTRING;
+        raise_toast(xml, tag, silent, None)
+    }
+
+    /// A tagged toast whose click runs `on_click` in this process. The click never goes
+    /// through the URL handler: that one starts a second, windowless process, which is no
+    /// use when the point of the click is to act on the one already running.
+    pub fn show_toast_clickable(
+        xml: &str,
+        tag: &str,
+        silent: bool,
+        on_click: impl Fn() + Send + Sync + 'static,
+    ) -> Result<(), RegisterError> {
+        raise_toast(xml, tag, silent, Some(Box::new(on_click)))
+    }
+
+    fn raise_toast(
+        xml: &str,
+        tag: &str,
+        silent: bool,
+        on_click: Option<Box<dyn Fn() + Send + Sync>>,
+    ) -> Result<(), RegisterError> {
+        use windows::core::{IInspectable, HSTRING};
         use windows::Data::Xml::Dom::XmlDocument;
+        use windows::Foundation::TypedEventHandler;
         use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
         use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 
@@ -563,6 +585,13 @@ mod win {
         toast.SetGroup(&HSTRING::from(aumid())).map_err(|e| fail("notification", e))?;
         if silent {
             toast.SetSuppressPopup(true).map_err(|e| fail("notification", e))?;
+        }
+        if let Some(on_click) = on_click {
+            let handler = TypedEventHandler::<ToastNotification, IInspectable>::new(move |_, _| {
+                on_click();
+                Ok(())
+            });
+            toast.Activated(&handler).map_err(|e| fail("notification", e))?;
         }
         ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(aumid()))
             .and_then(|n| n.Show(&toast))
@@ -607,7 +636,7 @@ mod win {
 }
 
 #[cfg(windows)]
-pub use win::{ensure_toast_identity, register, register_handler, remove_toast, set_guard_autostart, show_toast, show_toast_tagged, system_locale, unregister};
+pub use win::{ensure_toast_identity, register, register_handler, remove_toast, set_guard_autostart, show_toast, show_toast_clickable, show_toast_tagged, system_locale, unregister};
 #[cfg(all(windows, test))]
 use win::{register_as, unregister_as};
 
@@ -629,6 +658,15 @@ pub fn show_toast(_xml: &str) -> Result<(), RegisterError> {
 }
 #[cfg(not(windows))]
 pub fn show_toast_tagged(_xml: &str, _tag: &str, _silent: bool) -> Result<(), RegisterError> {
+    Err(RegisterError::Failed("Windows uniquement".into()))
+}
+#[cfg(not(windows))]
+pub fn show_toast_clickable(
+    _xml: &str,
+    _tag: &str,
+    _silent: bool,
+    _on_click: impl Fn() + Send + Sync + 'static,
+) -> Result<(), RegisterError> {
     Err(RegisterError::Failed("Windows uniquement".into()))
 }
 #[cfg(not(windows))]

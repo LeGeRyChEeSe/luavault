@@ -647,6 +647,29 @@ export interface SteamPinStatus {
 export const steamPinStatus = () => invoke<SteamPinStatus>("steam_pin_status");
 /** The way back from the downgrade: Steam updates itself again. */
 export const steamUnpin = () => invoke<string>("steam_unpin");
+
+export interface ManifestFallbackView {
+  /** Game files Steam asked for and could not get a code for, since this launch. */
+  pending: number;
+  /** A key is on hand: fetching them asks nothing more of the user. */
+  key_ready: boolean;
+  manifesthub: boolean;
+  hubcap: boolean;
+}
+export interface ManifestFallbackRun {
+  fetched: number;
+  missing: number;
+}
+export type ManifestProvider = "manifesthub" | "hubcap";
+/** A pure read: the pending list is in memory, the keys in a file of the data dir. */
+export const manifestFallbackStatus = () => invoke<ManifestFallbackView>("manifest_fallback_status");
+/** Fetch what Steam is stuck on with the keys on hand. Opens nothing. */
+export const manifestFallbackRun = () => invoke<ManifestFallbackRun>("manifest_fallback_run");
+/** Open a provider's key page in the browser. The verification there is the user's. */
+export const openManifestPage = (provider: ManifestProvider) => invoke<void>("open_manifest_page", { provider });
+/** Store the key pasted by the user (empty string clears it), then try what is waiting. */
+export const setManifesthubKey = (key: string) => invoke<ManifestFallbackRun>("set_manifesthub_key", { key });
+export const setHubcapKey = (key: string) => invoke<ManifestFallbackRun>("set_hubcap_key", { key });
 /** Re-read the verdict after applying the fix: no network, the message already
  *  verified plus the files on disk. */
 export const motdWorkaround = () => invoke<Workaround | null>("motd_workaround");

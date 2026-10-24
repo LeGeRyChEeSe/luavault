@@ -16,11 +16,11 @@ use std::time::{Duration, Instant};
 use log::{info, warn};
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::config::{self, AppConfig};
 use crate::source_guard::{note_texts, parse_event, tray_lines, Guard, Switch, Tail, View};
-use crate::{detect, notify, steamtools_source, AppState};
+use crate::{detect, manifest_fallback, notify, steamtools_source, AppState};
 
 const TRAY_ID: &str = "download-guard";
 /// One tag: each notification replaces the previous one instead of piling up.
@@ -34,9 +34,15 @@ static HINTED: AtomicBool = AtomicBool::new(false);
 struct Items {
     status: MenuItem<Wry>,
     detail: MenuItem<Wry>,
+    /// The way in that Do Not Disturb cannot silence: a game file is missing, one click.
+    manifest: MenuItem<Wry>,
     open: MenuItem<Wry>,
     quit: MenuItem<Wry>,
 }
+
+/// The head line of the tray as last shown, so the tooltip can carry the missing-file
+/// reminder after it without the two refreshes undoing each other.
+static HEAD: Mutex<String> = Mutex::new(String::new());
 
 static ITEMS: Mutex<Option<Items>> = Mutex::new(None);
 
@@ -61,6 +67,18 @@ fn show_main(app: &AppHandle) {
     }
 }
 
+/// The tray entry for a missing game file, and the line added to the tooltip. Windows' Do Not
+/// Disturb sends every toast straight to the notification centre, so this entry is the one
+/// signal that cannot be muted. No provider is named here, as nowhere in the tray.
+fn manifest_menu(lang: &str, pending: bool) -> (&'static str, Option<&'static str>) {
+    match (lang == "fr", pending) {
+        (true, true) => ("Un fichier de jeu manque : obtenir une clé", Some("Un fichier de jeu manque")),
+        (false, true) => ("A game file is missing: get a key", Some("A game file is missing")),
+        (true, false) => ("Aucun fichier de jeu manquant", None),
+        (false, false) => ("No game file missing", None),
+    }
+}
+
 fn labels(lang: &str) -> (String, &'static str) {
     let open = if lang == "fr" { format!("Ouvrir {}", notify::display_name()) } else { format!("Open {}", notify::display_name()) };
     (open, if lang == "fr" { "Quitter" } else { "Quit" })
@@ -75,15 +93,24 @@ fn build_tray(app: &AppHandle, cfg: &AppConfig) -> tauri::Result<()> {
     let (open_label, quit_label) = labels(l);
     let status = MenuItemBuilder::with_id("status", &head).enabled(false).build(app)?;
     let detail_item = MenuItemBuilder::with_id("detail", &detail).enabled(false).build(app)?;
+    let manifest = MenuItemBuilder::with_id("manifest", manifest_menu(l, false).0).enabled(false).build(app)?;
     let open = MenuItemBuilder::with_id("open", &open_label).build(app)?;
     let quit = MenuItemBuilder::with_id("quit", quit_label).build(app)?;
-    let menu = MenuBuilder::new(app).item(&status).item(&detail_item).separator().item(&open).item(&quit).build()?;
+    let menu = MenuBuilder::new(app)
+        .item(&status)
+        .item(&detail_item)
+        .item(&manifest)
+        .separator()
+        .item(&open)
+        .item(&quit)
+        .build()?;
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .tooltip(&head)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => show_main(app),
+            "manifest" => open_for_manifest(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -96,7 +123,7 @@ fn build_tray(app: &AppHandle, cfg: &AppConfig) -> tauri::Result<()> {
         tray = tray.icon(icon.clone());
     }
     tray.build(app)?;
-    *ITEMS.lock().unwrap() = Some(Items { status, detail: detail_item, open, quit });
+    *ITEMS.lock().unwrap() = Some(Items { status, detail: detail_item, manifest, open, quit });
     Ok(())
 }
 
@@ -163,7 +190,31 @@ fn refresh_tray(app: &AppHandle, l: &str, view: &View, last: &mut (String, Strin
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_tooltip(Some(&head));
     }
+    *HEAD.lock().unwrap() = head.clone();
     *last = (head, detail);
+}
+
+/// Keep the missing-file entry and the tooltip in step with the pending list. Cheap: it
+/// only touches the menu when what it would show changed.
+fn refresh_manifest(app: &AppHandle, l: &str, last: &mut (bool, String, String)) {
+    let pending = !manifest_fallback::pending().is_empty();
+    let head = HEAD.lock().unwrap().clone();
+    if (pending, head.as_str(), l) == (last.0, last.1.as_str(), last.2.as_str()) {
+        return;
+    }
+    let (label, hint) = manifest_menu(l, pending);
+    if let Some(items) = ITEMS.lock().unwrap().as_ref() {
+        let _ = items.manifest.set_text(label);
+        let _ = items.manifest.set_enabled(pending);
+    }
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let tip = match hint {
+            Some(h) => format!("{head}\n{h}"),
+            None => head.clone(),
+        };
+        let _ = tray.set_tooltip(Some(&tip));
+    }
+    *last = (pending, head, l.to_string());
 }
 
 async fn run(app: AppHandle) {
@@ -173,6 +224,7 @@ async fn run(app: AppHandle) {
     // The source the incident started on: where a lost round comes back to.
     let mut first_source: Option<String> = None;
     let mut last_shown = (String::new(), String::new());
+    let mut last_manifest = (false, String::new(), String::new());
     let mut n: u64 = 0;
     info!("service de téléchargement : surveillance démarrée");
     loop {
@@ -203,6 +255,9 @@ async fn run(app: AppHandle) {
         if n.is_multiple_of(2) {
             let lines = tail.as_mut().map(Tail::poll).unwrap_or_default();
             for line in lines {
+                if let Some(missing) = manifest_fallback::parse_missing(&line) {
+                    on_missing(&app, l, steam, missing).await;
+                }
                 let Some(event) = parse_event(&line) else { continue };
                 let was_online = guard.view(now).status == crate::source_guard::Status::Online;
                 if was_online {
@@ -234,6 +289,70 @@ async fn run(app: AppHandle) {
         }
         guard.tick(now);
         refresh_tray(&app, l, &guard.view(now), &mut last_shown);
+        refresh_manifest(&app, l, &mut last_manifest);
+    }
+}
+
+const MANIFEST_TAG: &str = "download-guard-manifest";
+
+fn manifest_texts(lang: &str, fetched: bool) -> (String, String) {
+    let name = notify::display_name();
+    match (lang == "fr", fetched) {
+        (true, true) => ("Fichier de jeu récupéré".into(), "Steam va réessayer tout seul d'ici une minute.".into()),
+        (false, true) => ("Game file retrieved".into(), "Steam will retry on its own within a minute.".into()),
+        (true, false) => (
+            "Un fichier de jeu manque".into(),
+            format!("Steam n'arrive pas à l'obtenir. Cliquez ici : la page d'une clé gratuite s'ouvre, puis collez la clé dans {name}."),
+        ),
+        (false, false) => (
+            "A game file is missing".into(),
+            format!("Steam cannot get it. Click here: the page for a free key opens, then paste the key into {name}."),
+        ),
+    }
+}
+
+/// The click on the "a file is missing" toast, or on the tray entry: open the page where the
+/// user gets a key and show the window, on the tools tab, where the key is pasted. The
+/// verification on the page is theirs to pass; nothing here touches it.
+fn open_for_manifest(app: &AppHandle) {
+    if let Err(e) = crate::commands::open_manifest_page_in_browser("manifesthub") {
+        warn!("service de téléchargement : page de clé non ouverte ({e})");
+    }
+    show_main(app);
+    let _ = app.emit("manifest-fallback://open", ());
+}
+
+/// Steam was refused a manifest request code. With a key on hand the file is fetched at once
+/// and silently; without one the user is told, once, and the click on the notification takes
+/// them to the page that hands out a key.
+async fn on_missing(app: &AppHandle, l: &str, steam: &std::path::Path, m: manifest_fallback::Missing) {
+    // Steam writes the refusal twice per attempt: once the file is there, stay quiet.
+    if manifest_fallback::depotcache_path(steam, m.depot_id, m.gid).exists() {
+        manifest_fallback::forget(&m);
+        return;
+    }
+    let first = manifest_fallback::note_missing(m);
+    let keys = manifest_fallback::load_keys(&config::data_dir());
+    let now = chrono::Utc::now().timestamp();
+    let mut fetched = false;
+    if keys.any_usable(now) {
+        let state = app.state::<AppState>();
+        fetched = crate::commands::fetch_pending(&state.fallback_http, steam, &keys, vec![m], now).await.is_empty();
+    }
+    // The page learns at once, not at its next poll: a hidden window may not poll at all.
+    let _ = app.emit("manifest-fallback://changed", ());
+    if fetched || first {
+        let (title, body) = manifest_texts(l, fetched);
+        let xml = notify::toast_xml(&title, &body, "", &[]);
+        let click_app = app.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            if fetched {
+                notify::show_toast_tagged(&xml, MANIFEST_TAG, true)
+            } else {
+                notify::show_toast_clickable(&xml, MANIFEST_TAG, false, move || open_for_manifest(&click_app))
+            }
+        })
+        .await;
     }
 }
 
@@ -251,5 +370,43 @@ pub fn sync_autostart(enabled: bool) {
         }
     } else {
         let _ = notify::set_guard_autostart(std::path::Path::new(""), false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_tray_entry_speaks_both_languages_and_only_invites_when_a_file_is_missing() {
+        for lang in ["fr", "en"] {
+            let (idle, idle_hint) = manifest_menu(lang, false);
+            let (busy, busy_hint) = manifest_menu(lang, true);
+            assert_ne!(idle, busy);
+            assert!(idle_hint.is_none(), "nothing to add to the tooltip when nothing is missing");
+            assert!(busy_hint.is_some_and(|h| !h.is_empty()));
+            for text in [idle, busy, busy_hint.unwrap()] {
+                assert!(!text.contains('\u{2014}'), "no em dash in a user text: {text}");
+                for provider in ["ManifestHub", "Hubcap", "wudrm", "steamrun"] {
+                    assert!(!text.to_lowercase().contains(&provider.to_lowercase()), "{text} names {provider}");
+                }
+            }
+        }
+        assert!(manifest_menu("fr", true).0.contains("fichier de jeu"));
+    }
+
+    #[test]
+    fn the_toast_texts_name_no_provider_and_no_dash() {
+        for lang in ["fr", "en"] {
+            for fetched in [false, true] {
+                let (title, body) = manifest_texts(lang, fetched);
+                for text in [title, body] {
+                    assert!(!text.contains('\u{2014}'), "{text}");
+                    for provider in ["manifesthub", "hubcap", "wudrm", "steamrun"] {
+                        assert!(!text.to_lowercase().contains(provider), "{text} names {provider}");
+                    }
+                }
+            }
+        }
     }
 }
