@@ -91,6 +91,10 @@ Run-Step "Frontend: charte d'apparence" "npx --yes tsx@4.19.2 scripts/test-chart
 # Le script de publication est exécuté contre une fixture temporaire : cette étape
 # couvre son parsing bilingue et sa garde changelog sans artefact ni clé de release.
 Run-Step "Publication: manifeste simulé" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-publish-release.ps1" "$root" "publish-release"
+# `tauri build` refuse un paquet npm et sa crate Rust qui ne partagent pas le meme mineur,
+# et Dependabot les met a jour dans deux PR distinctes : sans cette etape l'ecart n'apparait
+# qu'au moment de la release.
+Run-Step "Dependances: Tauri npm et Rust alignes" "npx --yes tsx@4.19.2 scripts/test-tauri-versions.ts" "$root" "tauri-versions"
 Run-Step "Frontend: audit de lignage" "npx --yes tsx@4.19.2 scripts/test-lineage.ts" "$root" "lineage"
 
 if (-not $Quiet) { Write-Host "`n==============================" -ForegroundColor Yellow }
