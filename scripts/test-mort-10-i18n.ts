@@ -12,7 +12,7 @@ const FORBIDDEN: Readonly<Record<Catalog, RegExp>> = {
 };
 
 function valueFor(source: string, key: string, catalog: Catalog): string {
-  const match = source.match(new RegExp(`^\\s*"${key.replace(/\./g, "\\.")}":\\s*"((?:\\\\.|[^"\\\\])*)",\\s*$`, "m"));
+  const match = source.match(new RegExp(`^\\s*"${key.replace(/\W/g, "\\$&")}":\\s*"((?:\\\\.|[^"\\\\])*)",\\s*$`, "m"));
   if (match === null) {
     throw new Error(`MORT-10 ${catalog}.${key}: targeted catalog value is missing or is no longer a string literal`);
   }

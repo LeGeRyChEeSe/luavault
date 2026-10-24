@@ -195,7 +195,7 @@ for (const [key, field, word] of [
   );
   // Les points de la clé sont échappés : sans cela `.` reste le joker des
   // expressions régulières et le motif ne dit pas ce qu'il prétend dire.
-  const value = new RegExp(`"${key.replace(/\./g, "\\.")}":\\s*"([^"]*)"`).exec(frCatalogue);
+  const value = new RegExp(`"${key.replace(/\W/g, "\\$&")}":\\s*"([^"]*)"`).exec(frCatalogue);
   assertOk(
     value !== null && word.test(value[1]),
     `S2-5c: la valeur de ${key} doit parler de « ${word} » — trouvé « ${value?.[1] ?? "(absente)"} »`,

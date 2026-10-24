@@ -105,6 +105,10 @@ Current version: **1.1.5** — see [`CHANGELOG.md`](CHANGELOG.md).
   itself. It can be turned off in Settings.
 - **Detection and repair** of Steam and SteamTools, with elevation only when
   it's actually needed.
+- **Download guard**: a tray icon follows failing Steam downloads and switches the
+  SteamTools server by itself. When no server gives Steam the code of a game file, it
+  fetches that file for you with a free key you get yourself on the provider's page:
+  the notification opens the page, you pass its check and paste the key in the app.
 - **Themes** (Azure, Emerald, Orchid, Amber, Slate) and an independent light/dark
   mode.
 - **Keyboard shortcuts**, full keyboard navigation, and focus traps on modal

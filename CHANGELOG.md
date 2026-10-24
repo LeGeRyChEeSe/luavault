@@ -15,6 +15,20 @@ Two rules to follow when editing this file, because the script depends on them:
   publish script then places them separately in `notes_i18n`, with French kept as
   the `notes` fallback for older clients.
 
+## 1.1.6 - 2026-10-24
+
+### fr
+- Quand aucun serveur ne donne à Steam le code d'un fichier de jeu, l'application peut maintenant aller chercher ce fichier elle-même et le poser là où Steam le cherche en premier. Steam réessaie ensuite tout seul. Cela demande une clé gratuite que vous obtenez vous-même sur le site d'un fournisseur : l'application n'automatise jamais la vérification Cloudflare.
+- Une notification vous prévient. Un clic dessus ouvre la page où obtenir la clé dans votre navigateur et amène sur l'onglet Steam & Outils, où il suffit de la coller. Une bannière reste en haut de tous les onglets tant qu'un fichier manque, et le menu de l'icône près de l'horloge propose la même chose : le mode « Ne pas déranger » de Windows cache les notifications, pas ces deux-là.
+- Deux fournisseurs sont possibles : une clé de 24 heures, ou une clé sans date limite qui demande une connexion Discord pour être créée. Les clés restent sur l'ordinateur et n'entrent jamais dans une sauvegarde.
+- Le fichier récupéré est vérifié avant d'être posé (il doit être celui du jeu demandé) et un fichier déjà présent n'est jamais remplacé.
+
+### en
+- When no server gives Steam the code for a game file, the app can now fetch that file itself and put it where Steam looks first. Steam then retries on its own. This needs a free key that you get yourself on a provider's site: the app never automates the Cloudflare check.
+- A notification tells you. One click opens the page where the key is issued in your browser and takes you to the Steam & Tools tab, where you just paste it. A banner stays at the top of every tab while a file is missing, and the menu of the icon next to the clock offers the same: Windows' Do Not Disturb hides notifications, not those two.
+- Two providers are supported: a 24-hour key, or a key with no expiry that needs a Discord sign-in to create. Keys stay on the computer and never enter a backup.
+- The fetched file is checked before it is put in place (it must be the one for the requested game) and a file that is already there is never replaced.
+
 ## 1.1.5 - 2026-10-21
 
 ### fr

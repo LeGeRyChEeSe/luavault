@@ -5,7 +5,7 @@
 //! nothing here worth a unit test that the pure module does not already have. What can
 //! only be checked on a desktop (the icon, the menu, the banners) is checked by hand.
 //!
-//! Off in a debug build unless `AST_GUARD` is set: the bench runs debug binaries, and a
+//! Off in a debug build unless `LV_GUARD` is set: the bench runs debug binaries, and a
 //! resident icon, a hidden window and a registered logon entry pointing at a throwaway
 //! sandbox executable have no place there.
 
@@ -52,7 +52,7 @@ pub fn is_on() -> bool {
 
 /// The user's choice: on unless switched off. A debug build never starts it by itself.
 pub fn wanted(cfg: &AppConfig) -> bool {
-    cfg.background_guard != Some(false) && (!cfg!(debug_assertions) || std::env::var_os("AST_GUARD").is_some())
+    cfg.background_guard != Some(false) && (!cfg!(debug_assertions) || std::env::var_os("LV_GUARD").is_some())
 }
 
 fn lang(cfg: &AppConfig) -> &'static str {

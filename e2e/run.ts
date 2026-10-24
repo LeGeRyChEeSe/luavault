@@ -32,11 +32,12 @@ import motdFixed from './tests/motd-fixed.e2e.ts';
 import notifyOffer from './tests/notify-offer.e2e.ts';
 import motdTamper from './tests/motd-tamper.e2e.ts';
 import downloads from './tests/downloads.e2e.ts';
+import manifests from './tests/manifests.e2e.ts';
 
 // `isolation` runs first on purpose: if the app under test is not the sandboxed
 // one, every result that follows is meaningless — better to fail on the first
 // suite than to report 20 green cases obtained against the user's real install.
-const SUITES: Suite[] = [isolation, shell, library, shortcuts, integrity, onboarding, selection, virtual, tooltip, i18n, i18nLiterals, passwordFix, motd, motdActions, motdFixed, notifyOffer, motdTamper, downloads];
+const SUITES: Suite[] = [isolation, shell, library, shortcuts, integrity, onboarding, selection, virtual, tooltip, i18n, i18nLiterals, passwordFix, motd, motdActions, motdFixed, notifyOffer, motdTamper, downloads, manifests];
 
 const filter = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const keepSandbox = process.argv.includes('--keep');

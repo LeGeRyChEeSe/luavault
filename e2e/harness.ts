@@ -49,6 +49,9 @@ export interface Seed {
   files?: Record<string, string | Uint8Array>;
   /// Skip copying the developer licence — for testing the licence gate itself.
   withoutLicence?: boolean;
+  /// Start the resident download guard, which a debug build leaves off. It adds a tray
+  /// icon for the length of the run and reads the fake Steam's `content_log.txt`.
+  guard?: boolean;
   /// What the stand-in release host serves (message of the day). Absent →
   /// nothing published, which is also what every other suite gets.
   update?: UpdateStubOptions;
@@ -222,6 +225,7 @@ export class App {
           LV_MOTD_BASE: updateStub.url,
           // Debug builds only: the watcher observes this folder instead of the real Downloads.
           LV_DOWNLOADS_DIR: join(sandbox, 'downloads'),
+          ...(seed.guard ? { LV_GUARD: '1' } : {}),
         },
       },
     );
