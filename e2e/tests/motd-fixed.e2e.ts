@@ -33,7 +33,7 @@ export default defineSuite({
     files: {
       'steam/OpenSteamTool.dll': 'x',
       'steam/xinput1_4.dll': 'x',
-      'steam/package/steam_client_win64.manifest': '"win64"\n{\n\t"version"\t\t"1791918634"\n}\n',
+      'steam/package/steam_client_win64.manifest': '"win64"\n{\n\t"version"\t\t"1788652215"\n}\n',
       'steam/steam.cfg': 'BootStrapperInhibitAll=enable\r\nBootStrapperForceSelfUpdate=disable\r\n',
     },
   },
@@ -62,6 +62,9 @@ export default defineSuite({
       assert.equal(await s.maybeFind('[data-workaround-banner]'), null, 'Steam est figé : pas de bannière');
       await (await s.waitFor('nav button[data-tip="Steam & Outils"]')).click();
       const card = await s.waitFor('[data-tools-pin]');
+      // The badge pops in once the pin is read, and an element still scaled to nothing is
+      // not part of what WebDriver calls visible text: wait for it instead of reading once.
+      await s.waitUntil('la carte dit que Steam est figé', async () => (await card.text()).includes('mises à jour bloquées'));
       const text = await card.text();
       assert.includes(text, 'mises à jour bloquées', 'la carte dit que Steam est figé');
       assert.includes(text, 'Rétablir les mises à jour', 'et offre le retour arrière');
