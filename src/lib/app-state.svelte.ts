@@ -1,4 +1,4 @@
-import { checkMotd, checkUpdate, detectAll, getBackgroundNotify, getReachability, getUpdateNotified, libraryStatus, listLibrary, manifestFallbackStatus, markUpdateNotified, motdActionStatuses, motdWorkaround, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeUpdateResult } from "./api";
+import { checkMotd, checkUpdate, detectAll, downloadUpdate, getAutoUpdate, getBackgroundNotify, installUpdate, getReachability, getUpdateNotified, libraryStatus, listLibrary, manifestFallbackStatus, markUpdateNotified, motdActionStatuses, motdWorkaround, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeSteamtoolsRepairResult, takeUpdateResult } from "./api";
 import type { DetectionReport, GameStatus, LibraryEntry, ManifestFallbackRun, ManifestFallbackView, MotdActionStatus, MotdMessage, Reachability, Workaround, UpdateAvailable, UpdateResult } from "./api";
 import { themeStore } from "./theme.svelte";
 import { i18n, t } from "./i18n.svelte";
@@ -130,6 +130,23 @@ class AppStore {
           LONG_TOAST_MS,
         );
       }
+    } catch {
+      // Backend command failed — nothing to show.
+    }
+  }
+
+  /**
+   * Say how the SteamTools repair went, when this launch is the relaunch that
+   * follows one. Silent otherwise. Called once at startup, after `refresh`.
+   */
+  async checkSteamtoolsRepair() {
+    try {
+      const r = await takeSteamtoolsRepairResult();
+      if (!r) return;
+      if (r.ok) this.toast("success", t("state.steamtools.repair.ok"), LONG_TOAST_MS);
+      else if (r.refused) this.toast("error", t("state.steamtools.repair.refused"), LONG_TOAST_MS);
+      else this.toast("error", t("state.steamtools.repair.failed", { code: r.exit_code }), LONG_TOAST_MS);
+      await this.refresh();
     } catch {
       // Backend command failed — nothing to show.
     }
@@ -279,6 +296,7 @@ class AppStore {
       const update = await checkUpdate();
       if (!update) return;
       this.updateAvailable = update;
+      void this.installAutomatically(update);
       const notified = await getUpdateNotified();
       if (notified !== update.version) {
         this.toast("info", t("state.update.available", { version: update.version }), LONG_TOAST_MS);
@@ -286,6 +304,33 @@ class AppStore {
       }
     } catch {
       // Offline or server error — the nominal case, nothing to show.
+    }
+  }
+
+  /** One automatic installation per session: a failed one is retried next launch. */
+  private autoInstalling = false;
+
+  /**
+   * The automatic update, for an app that is open: when the user has not switched it
+   * off, the new version is downloaded, verified and installed with the very path of
+   * the window's button, and the app comes back by itself. The background check
+   * (`headless.rs`) does the same with the app closed and leaves a visible window to
+   * this. Never past a pivot the user must cross by hand.
+   */
+  async installAutomatically(update: UpdateAvailable) {
+    if (this.autoInstalling) return;
+    if (update.upgrade_blocked || update.artifacts.length === 0) return;
+    try {
+      const s = await getAutoUpdate();
+      if (!s.active) return;
+      this.autoInstalling = true;
+      this.toast("info", t("state.update.auto", { version: update.version }), LONG_TOAST_MS);
+      const a = update.artifacts[0];
+      const path = await downloadUpdate(update.version, a.file, a.sha256, a.size);
+      await installUpdate(path);
+    } catch (e) {
+      this.autoInstalling = false;
+      this.addLog("warn", t("state.update.auto-failed", { error: String(e) }));
     }
   }
 

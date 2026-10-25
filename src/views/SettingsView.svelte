@@ -17,7 +17,9 @@
     exportBackup,
     exportLibrary,
     getAppInfo,
+    getAutoUpdate,
     getBackgroundNotify,
+    setAutoUpdate,
     getDownloadsWatch,
     setDownloadsWatch,
     getDownloadsDirs,
@@ -38,7 +40,7 @@
     wipePreview,
     wipeProtectedPaths,
   } from "../lib/api";
-  import type { BackgroundGuard, BackgroundNotify, DownloadsDirs, DownloadsWatch, BackupProbe, ImportCandidate, ImportPreview } from "../lib/api";
+  import type { AutoUpdate, BackgroundGuard, BackgroundNotify, DownloadsDirs, DownloadsWatch, BackupProbe, ImportCandidate, ImportPreview } from "../lib/api";
   import type {
     AppInfo,
     ArtworkCacheInfo,
@@ -116,6 +118,21 @@
     }
   }
   let guardBusy = $state(false);
+  // Automatic updates: on unless switched off here.
+  let autoUpdate = $state<AutoUpdate | null>(null);
+  let autoUpdateBusy = $state(false);
+
+  async function toggleAutoUpdate(enable: boolean) {
+    autoUpdateBusy = true;
+    try {
+      autoUpdate = await setAutoUpdate(enable);
+    } catch (e) {
+      appState.toast("error", String(e));
+      autoUpdate = await getAutoUpdate().catch(() => autoUpdate);
+    } finally {
+      autoUpdateBusy = false;
+    }
+  }
 
   async function toggleGuard(enable: boolean) {
     guardBusy = true;
@@ -398,6 +415,9 @@
   $effect(() => {
     void getBackgroundNotify()
       .then((n) => (notify = n))
+      .catch(() => {});
+    void getAutoUpdate()
+      .then((a) => (autoUpdate = a))
       .catch(() => {});
     void getBackgroundGuard()
       .then((g) => (guard = g))
@@ -1641,6 +1661,33 @@
       {:else}
         <p class="text-xs text-azure-900/55">{t("settings.notify.unsupported")}</p>
       {/if}
+    </section>
+  {/if}
+
+  <!-- ------------------------------------------------------ automatic update -->
+  {#if autoUpdate}
+    <section class="glass enter-up flex flex-col gap-3 rounded-xl2 p-5" data-settings-autoupdate>
+      <div class="min-w-0">
+        <h3 class="flex items-center gap-2 text-sm font-semibold">
+          <Icon name="update" size={16} />
+          {t("settings.autoupdate.title")}
+        </h3>
+        <p class="mt-0.5 text-xs text-azure-900/55">{t("settings.autoupdate.desc")}</p>
+      </div>
+      <label class="flex cursor-pointer items-center gap-3 rounded-xl bg-surface/55 px-4 py-2.5 text-sm">
+        <input
+          type="checkbox"
+          class="accent-azure-500"
+          data-settings-autoupdate-switch
+          checked={autoUpdate.enabled}
+          disabled={autoUpdateBusy}
+          onchange={(e) => void toggleAutoUpdate(e.currentTarget.checked)}
+        />
+        <span class="min-w-0 flex-1">{t("settings.autoupdate.switch")}</span>
+      </label>
+      <p class="text-xs text-azure-900/45">
+        {autoUpdate.background ? t("settings.autoupdate.how") : t("settings.autoupdate.howPortable")}
+      </p>
     </section>
   {/if}
 

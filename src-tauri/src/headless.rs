@@ -72,8 +72,12 @@ async fn notify_check() -> i32 {
     let cfg = AppConfig::load().unwrap_or_default();
     // The registrations outlive a "no" only if something went wrong: honour the
     // choice anyway.
-    if cfg.background_notify != Some(true) {
-        log_line("vérification ignorée : notifications en arrière-plan non activées");
+    // Two reasons to run: the notifications the user accepted, and the automatic
+    // updates (on by default). Each part below only does what its own reason allows.
+    let notify_on = cfg.background_notify == Some(true);
+    let auto_on = cfg.auto_update_wanted();
+    if !notify_on && !auto_on {
+        log_line("vérification ignorée : ni notifications ni mise à jour automatique activées");
         return 0;
     }
     let http = UpdateClient::new();
@@ -91,10 +95,8 @@ async fn notify_check() -> i32 {
     // (what to log, the toast) — the nonces are issued while building them.
     let mut toasts: Vec<(String, String)> = Vec::new();
 
-    if let Some(message) = motd::fetch_verified_motd(&http, &motd_base)
-        .await
-        .and_then(|doc| motd::evaluate(doc, Utc::now()))
-    {
+    let motd_doc = if notify_on { motd::fetch_verified_motd(&http, &motd_base).await } else { None };
+    if let Some(message) = motd_doc.and_then(|doc| motd::evaluate(doc, Utc::now())) {
         // A message that offers the Steam fix goes to the people who need it, not to
         // someone without SteamTools or already fixed (`motd::relevant_for_toast`).
         let facts = motd::SteamFacts::read(cfg.steam_dir.clone().or_else(detect::detect_steam_path).as_deref());
@@ -107,7 +109,13 @@ async fn notify_check() -> i32 {
     }
 
     if let Some(offer) = current_offer(&http, &cfg, &update_base).await {
-        if notify::wants_update_toast(&offer)
+        // The automatic update first: when it starts there is nothing left to announce.
+        // A visible window, a failed download or a missing licence leave it for the
+        // toast below (when notifications are on) or for the app itself.
+        if auto_on && notify::wants_update_toast(&offer) && install_offer(&offer, &update_base, lang, true).await {
+            log_line(&format!("mise à jour automatique {} lancée", offer.version));
+        } else if notify_on
+            && notify::wants_update_toast(&offer)
             && notify::should_notify_update(
                 &offer.version,
                 cfg.update_notified_version.as_deref(),
@@ -239,8 +247,7 @@ async fn motd_action(raw: &str) -> i32 {
 
 /// The « update » button: the window's own path, without the window. Read the
 /// signed manifest again (the version announced must still be the offered one),
-/// download, verify size and SHA-256, re-hash against the pair
-/// just recorded, then open the installer.
+/// then bring it in with `install_offer`.
 async fn update_click(version: &str, base: &str, cfg: &AppConfig, lang: &str) {
     let http = UpdateClient::new();
     let Some(offer) = current_offer(&http, cfg, base)
@@ -259,13 +266,46 @@ async fn update_click(version: &str, base: &str, cfg: &AppConfig, lang: &str) {
         );
         return;
     };
+    install_offer(&offer, base, lang, false).await;
+}
+
+/// Download the offered version with the licence, verify size and SHA-256, re-hash
+/// against the pair just recorded, and have the helper install it silently once this
+/// process is gone. Returns whether the installation was started.
+///
+/// `quiet` is the automatic update: nobody asked, so nothing is announced, a visible
+/// window is never disturbed, and the app comes back the way it was (hidden in the tray
+/// when it was running, closed when it was not). Otherwise a person clicked a toast:
+/// the app reopens with its window, and a window that is already open gets the focus
+/// instead, since the update is one click away in it.
+async fn install_offer(offer: &update::UpdateAvailable, base: &str, lang: &str, quiet: bool) -> bool {
+    let http = UpdateClient::new();
+    let version = offer.version.as_str();
     let artifact = offer.artifacts[0].clone();
 
-    report(
-        lang,
-        true,
-        say(lang, "Téléchargement de la mise à jour…", "Downloading the update…"),
-    );
+    // Who is running, before anything is downloaded: a visible window decides it all.
+    let image = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_default();
+    // This process counts as one.
+    let others = instances_running(&image).saturating_sub(1);
+    if others > 0 && visible_windows(&image) > 0 {
+        if quiet {
+            log_line(&format!("mise à jour {version} : une fenêtre est ouverte, l'application s'en occupe"));
+        } else {
+            log_line(&format!("mise à jour {version} : une fenêtre est ouverte, elle prend le relais"));
+            // A second start hands over to the first (single instance): its window comes up.
+            if let Ok(exe) = std::env::current_exe() {
+                let _ = std::process::Command::new(exe).spawn();
+            }
+        }
+        return false;
+    }
+
+    if !quiet {
+        report(lang, true, say(lang, "Téléchargement de la mise à jour…", "Downloading the update…"));
+    }
     let path = match update::download_and_verify_from(
         &http,
         base,
@@ -279,8 +319,10 @@ async fn update_click(version: &str, base: &str, cfg: &AppConfig, lang: &str) {
         Ok(p) => p,
         Err(e) => {
             log_line(&format!("mise à jour : téléchargement refusé ou échoué : {e}"));
-            report(lang, false, &e.to_string());
-            return;
+            if !quiet {
+                report(lang, false, &e.to_string());
+            }
+            return false;
         }
     };
 
@@ -289,14 +331,23 @@ async fn update_click(version: &str, base: &str, cfg: &AppConfig, lang: &str) {
         Ok(Ok(t)) => t,
         Ok(Err(e)) => {
             log_line(&format!("mise à jour : fichier refusé : {e}"));
-            report(lang, false, &e);
-            return;
+            if !quiet {
+                report(lang, false, &e);
+            }
+            return false;
         }
         Err(e) => {
             log_line(&format!("mise à jour : vérification interrompue : {e}"));
-            return;
+            return false;
         }
     };
+    if !target.to_string_lossy().to_ascii_lowercase().ends_with(".exe") {
+        log_line("mise à jour : ce n'est pas un installeur, rien n'est lancé");
+        if !quiet {
+            report(lang, false, say(lang, "Fichier inattendu : mise à jour annulée.", "Unexpected file: update cancelled."));
+        }
+        return false;
+    }
 
     // Remember the version we update FROM, before the installer starts, so the next
     // launch can say whether it worked (`commands::install_update` does the same).
@@ -304,16 +355,23 @@ async fn update_click(version: &str, base: &str, cfg: &AppConfig, lang: &str) {
     cfg.update_from_version = Some(env!("CARGO_PKG_VERSION").to_string());
     let _ = cfg.save();
 
-    if !target.to_string_lossy().to_ascii_lowercase().ends_with(".exe") {
-        log_line("mise à jour : ce n'est pas un installeur, rien n'est lancé");
-        report(lang, false, say(lang, "Fichier inattendu : mise à jour annulée.", "Unexpected file: update cancelled."));
-        return;
-    }
-    match tauri_plugin_opener::open_path(target.to_string_lossy().as_ref(), None::<&str>) {
-        Ok(()) => log_line(&format!("mise à jour {version} : installeur ouvert")),
+    let relaunch = match (quiet, others > 0) {
+        (false, _) => crate::relaunch::Relaunch::Window,
+        (true, true) => crate::relaunch::Relaunch::Background,
+        (true, false) => crate::relaunch::Relaunch::Nothing,
+    };
+    // Only instances with no window are left: the helper stops them, installs, reopens.
+    match crate::relaunch::update_then_relaunch(&target, true, relaunch) {
+        Ok(()) => {
+            log_line(&format!("mise à jour {version} : installation silencieuse lancée ({relaunch:?})"));
+            true
+        }
         Err(e) => {
-            log_line(&format!("mise à jour : ouverture de l'installeur impossible : {e}"));
-            report(lang, false, &format!("ouverture de l'installeur : {e}"));
+            log_line(&format!("mise à jour : installation impossible ({e})"));
+            if !quiet {
+                report(lang, false, &format!("installation impossible : {e}"));
+            }
+            false
         }
     }
 }
@@ -341,6 +399,28 @@ fn open_app() {
         return;
     }
     let _ = std::process::Command::new(exe).spawn();
+}
+
+/// How many instances of the app have a window on screen. A hidden window (the app
+/// kept alive in the tray) has no titled main window: the only window it keeps is the
+/// tray icon's own message window, whose title ends in `-siw` (a bare handle test counts it,
+/// measured on the real tray instance).
+#[cfg(windows)]
+fn visible_windows(image: &str) -> usize {
+    use std::os::windows::process::CommandExt;
+    let stem = image.trim_end_matches(".exe");
+    let out = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", "(Get-Process -Name $env:LV_PROBE -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -and $_.MainWindowTitle -notmatch '-siw$' } | Measure-Object).Count"])
+        .env("LV_PROBE", stem)
+        .creation_flags(0x0800_0000)
+        .output();
+    // A probe that fails says "a window may be there": the safe answer is the interactive installer.
+    out.ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok()).unwrap_or(1)
+}
+
+#[cfg(not(windows))]
+fn visible_windows(_image: &str) -> usize {
+    1
 }
 
 #[cfg(windows)]

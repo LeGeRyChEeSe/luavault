@@ -24,7 +24,7 @@ import, automatic adoption of anything already sitting in `{Steam}\config\lua`,
 online fixes with backup and integrity checks, and Steam/SteamTools install and
 repair — all from one dependency-free window.
 
-Current version: **1.1.5** — see [`CHANGELOG.md`](CHANGELOG.md).
+Current version: **1.2.0** — see [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Screenshots
 
@@ -92,7 +92,11 @@ Current version: **1.1.5** — see [`CHANGELOG.md`](CHANGELOG.md).
 - **News**: patch notes from the whole library, aggregated into one feed.
 - **Automatic self-update**: the app detects its own variant (installer or
   portable), reports the available version, says what changed **since yours**,
-  and installs it in one gesture.
+  and installs it with a single click: the app closes, updates itself with no
+  installer screens to click through, then reopens on the new version by itself.
+  **Automatic update is on by default**: the app updates itself even while closed
+  (checked at logon, then every 6 hours) and never interrupts an open window. A
+  setting turns it off; manual updating stays one click, always silent.
 - **Message of the day**: a signed notice (outage, warning, "do not update yet")
   shown at launch until it expires, with optional action buttons. When a Steam
   update breaks SteamTools, one click returns Steam to a build that works,
@@ -104,7 +108,9 @@ Current version: **1.1.5** — see [`CHANGELOG.md`](CHANGELOG.md).
   manifest downloads keep failing, switches SteamTools to another upstream by
   itself. It can be turned off in Settings.
 - **Detection and repair** of Steam and SteamTools, with elevation only when
-  it's actually needed.
+  it's actually needed. The SteamTools repair closes the app while the script runs
+  (the script closes Steam), then reopens it by itself and says whether the repair
+  worked, was declined or failed.
 - **Download guard**: a tray icon follows failing Steam downloads and switches the
   SteamTools server by itself. When no server gives Steam the code of a game file, it
   fetches that file for you with a free key you get yourself on the provider's page:
@@ -216,6 +222,7 @@ src-tauri/src/
 ├─ stats.rs       # library statistics
 ├─ wipe.rs        # granular, previewable cleanup
 ├─ update.rs      # signed manifest (GitHub Releases), download, SHA-256 check
+├─ relaunch.rs    # hidden helper: update / SteamTools repair outside the app, then relaunch
 ├─ motd.rs        # message of the day: signed notice, expiry, action buttons
 ├─ motd_run.rs    # the one place a message action runs (window or toast)
 ├─ steam_downgrade.rs  # Steam pinned to a verified build, and the way back

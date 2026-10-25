@@ -56,6 +56,12 @@ pub struct AppConfig {
     /// startup entries: never imported from a backup.
     #[serde(default)]
     pub background_guard: Option<bool>,
+    /// Automatic updates (see `AppConfig::auto_update_wanted`): `None` = never touched,
+    /// which means ON; `Some(false)` = switched off in Settings. On, the app installs a
+    /// new version by itself, in the background, even when it is not running. A fact about
+    /// THIS machine's scheduler: never imported from a backup.
+    #[serde(default)]
+    pub auto_update: Option<bool>,
     /// Which message buttons were pressed and went through on this machine
     /// (`motd::record_run`): what lets a button say "already done" instead of
     /// leaving the user to wonder. A fact about THIS machine, like the registry
@@ -154,6 +160,7 @@ pub fn merge_imported(
             watch_downloads: local.watch_downloads,
             watch_dirs: local.watch_dirs.clone(),
             background_guard: local.background_guard,
+            auto_update: local.auto_update,
             motd_actions_done: local.motd_actions_done.clone(),
         },
         kept_local,
@@ -161,6 +168,19 @@ pub fn merge_imported(
 }
 
 impl AppConfig {
+    /// The user's choice of automatic updates: on unless switched off.
+    pub fn auto_update_chosen(&self) -> bool {
+        self.auto_update != Some(false)
+    }
+
+    /// Whether this process should act on it. A debug build never updates by itself
+    /// (the bench runs debug binaries against throwaway sandboxes, and a scheduled task
+    /// pointing at one is not wanted), unless `LV_AUTO_UPDATE` is set.
+    pub fn auto_update_wanted(&self) -> bool {
+        self.auto_update_chosen()
+            && (!cfg!(debug_assertions) || std::env::var_os("LV_AUTO_UPDATE").is_some())
+    }
+
     pub fn load() -> Result<Self> {
         let path = config_path();
         if path.exists() {
@@ -247,6 +267,7 @@ mod tests {
             watch_downloads: None,
             watch_dirs: None,
             background_guard: None,
+            auto_update: None,
             motd_actions_done: Vec::new(),
         }
     }
@@ -345,6 +366,23 @@ mod tests {
     }
 
     /// Démonstration 4 : un champ non-chemin (theme) est importé dans tous les cas
+    #[test]
+    fn auto_update_is_on_unless_switched_off_and_never_imported() {
+        assert!(AppConfig::default().auto_update_chosen(), "never touched means on");
+        assert!(AppConfig { auto_update: Some(true), ..Default::default() }.auto_update_chosen());
+        assert!(!AppConfig { auto_update: Some(false), ..Default::default() }.auto_update_chosen());
+        // A backup from another machine must neither switch it off nor on here.
+        let off_here = AppConfig { auto_update: Some(false), ..Default::default() };
+        let on_there = AppConfig { auto_update: Some(true), ..Default::default() };
+        assert_eq!(merge_imported(&off_here, &on_there, |_| true).merged.auto_update, Some(false));
+        assert_eq!(merge_imported(&AppConfig::default(), &off_here, |_| true).merged.auto_update, None);
+        // The debug gate: this very test binary is a debug build.
+        assert_eq!(
+            AppConfig::default().auto_update_wanted(),
+            !cfg!(debug_assertions) || std::env::var_os("LV_AUTO_UPDATE").is_some()
+        );
+    }
+
     #[test]
     fn merge_imported_never_imports_background_notify() {
         // The registrations live in THIS machine's registry and task scheduler: a
@@ -566,6 +604,7 @@ mod tests {
             watch_downloads: None,
             watch_dirs: None,
             background_guard: None,
+            auto_update: None,
             motd_actions_done: Vec::new(),
         };
         let imported = AppConfig {
@@ -584,6 +623,7 @@ mod tests {
             watch_downloads: None,
             watch_dirs: None,
             background_guard: None,
+            auto_update: None,
             motd_actions_done: Vec::new(),
         };
         let result = merge_imported(&local, &imported, exists_false);

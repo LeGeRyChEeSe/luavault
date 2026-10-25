@@ -20,6 +20,7 @@ mod motd;
 mod motd_run;
 mod notify;
 mod reachability;
+mod relaunch;
 mod stats;
 mod steam_downgrade;
 mod source_guard;
@@ -142,7 +143,9 @@ pub fn run() {
             // The registrations of the background notifications point at this exact
             // executable: re-write them at every launch, so an update or a move
             // cannot leave Windows starting something that no longer exists.
-            if cfg.background_notify == Some(true) && !config::is_portable() {
+            // Automatic updates (on by default) need the same registrations, so a
+            // machine that never answered the notification offer gets them too.
+            if notify::registration_wanted(&cfg, config::is_portable()) {
                 std::thread::spawn(|| {
                     if let Ok(exe) = std::env::current_exe() {
                         if let Err(e) = notify::register(&exe) {
@@ -316,6 +319,8 @@ pub fn run() {
             commands::steam_unpin,
             commands::get_background_notify,
             commands::set_background_notify,
+            commands::get_auto_update,
+            commands::set_auto_update,
             commands::open_source_site,
             commands::manifest_fallback_status,
             commands::manifest_fallback_run,
@@ -339,6 +344,7 @@ pub fn run() {
             commands::mark_update_notified,
             commands::get_update_notified,
             commands::take_update_result,
+            commands::take_steamtools_repair_result,
             commands::artwork_cached,
             commands::artwork_fetch,
             commands::artwork_cache_info,

@@ -15,6 +15,22 @@ Two rules to follow when editing this file, because the script depends on them:
   publish script then places them separately in `notes_i18n`, with French kept as
   the `notes` fallback for older clients.
 
+## Unreleased
+
+## 1.2.0 - 2026-10-25
+
+### fr
+- La mise à jour se fait maintenant en un seul clic : l'application se ferme, installe la nouvelle version sans afficher l'installeur, puis se rouvre toute seule.
+- Réparer SteamTools ne laisse plus l'application fermée : elle se ferme pendant que le script tourne (il ferme Steam), puis se rouvre toute seule et dit si la réparation a abouti, a été refusée ou a échoué.
+- Mise à jour automatique, activée par défaut : l'application installe seule les nouvelles versions, même quand elle est fermée (vérification à l'ouverture de session puis toutes les 6 heures), sans jamais interrompre une fenêtre ouverte. Un réglage dans Réglages permet de la désactiver ; la mise à jour manuelle reste à un clic.
+- L'installeur n'est plus jamais affiché : toutes les mises à jour, y compris celle du bouton de la notification, s'installent en silence.
+
+### en
+- Updating is now a single click: the app closes, installs the new version without showing the installer, then reopens by itself.
+- Repairing SteamTools no longer leaves the app closed: it closes while the script runs (the script closes Steam), then reopens by itself and says whether the repair worked, was declined or failed.
+- Automatic update, on by default: the app installs new versions by itself, even when it is closed (checked at logon then every 6 hours), and never interrupts an open window. A setting in Settings turns it off; manual updating stays one click away.
+- The installer is never shown any more: every update, including the one from the notification button, installs silently.
+
 ## 1.1.6 - 2026-10-24
 
 ### fr

@@ -745,6 +745,18 @@ export const setDownloadsDirs = (dirs: string[] | null) => invoke<DownloadsDirs>
 export const downloadsInventory = () => invoke<DownloadFound[]>("downloads_inventory");
 export const setDownloadsWatch = (enabled: boolean) =>
   invoke<DownloadsWatch>("set_downloads_watch", { enabled });
+export interface AutoUpdate {
+  /** What the user chose: on unless switched off. */
+  enabled: boolean;
+  /** Whether this process acts on it (a debug build does not). */
+  active: boolean;
+  /** Whether updates also run with the app closed (not in portable mode). */
+  background: boolean;
+}
+/** A pure read of the config. */
+export const getAutoUpdate = () => invoke<AutoUpdate>("get_auto_update");
+/** Switch the automatic updates; registers or removes the background check. */
+export const setAutoUpdate = (enabled: boolean) => invoke<AutoUpdate>("set_auto_update", { enabled });
 export interface BackgroundGuard {
   /** What the user chose: on unless switched off. */
   enabled: boolean;
@@ -770,6 +782,17 @@ export interface UpdateResult {
 }
 
 export const takeUpdateResult = () => invoke<UpdateResult | null>("take_update_result");
+
+/** How the SteamTools repair went, read once at the launch that follows it. */
+export interface SteamtoolsRepairResult {
+  ok: boolean;
+  refused: boolean;
+  exit_code: number;
+  installed: boolean;
+}
+
+export const takeSteamtoolsRepairResult = () =>
+  invoke<SteamtoolsRepairResult | null>("take_steamtools_repair_result");
 
 // ── Reachability (offline mode, LOT-11) ──
 // The command only seeds the initial state; transitions arrive as
