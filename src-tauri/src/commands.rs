@@ -4632,7 +4632,7 @@ mod tests {
             installed_at: chrono::Utc::now().to_rfc3339(),
             files: vec![fixes::FixFile {
                 rel: "steam_api64.dll".to_string(),
-                sha256: format!("{:x}", hasher.finalize()),
+                sha256: crate::hmac::bytes_to_hex(&hasher.finalize()),
                 size: 7,
             }],
             backup_zip: None,
