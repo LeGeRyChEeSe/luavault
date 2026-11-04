@@ -43,7 +43,7 @@ base64 = "0.22"
 thiserror = "2"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
-dirs = "6"
+dirs = "7"
 urlencoding = "2"
 unrar = "0.5"
 sha2 = "0.11"
