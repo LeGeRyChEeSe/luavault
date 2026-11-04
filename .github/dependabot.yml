@@ -16,6 +16,20 @@ updates:
         patterns: ["tauri", "tauri-*"]
       rust-minor-and-patch:
         update-types: [minor, patch]
+    # Majors that cannot land as a version bump. Patch and minor updates for these
+    # crates keep flowing through the group above; only the major step is held back,
+    # because each one needs a coordinated change that a bot cannot write.
+    ignore:
+      # `name()` and `file_names()` became fallible in 9, which took five call sites
+      # with it. A major here is a migration with tests, not a lock refresh.
+      - dependency-name: zip
+        update-types: [version-update:semver-major]
+      # `Hmac<sha2::Sha256>` only compiles when both crates sit on the same `digest`
+      # line, so they have to move in one commit. Two separate majors break the build.
+      - dependency-name: sha2
+        update-types: [version-update:semver-major]
+      - dependency-name: hmac
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: npm
     directory: /
@@ -27,8 +41,29 @@ updates:
         patterns: ["@tauri-apps/*"]
       npm-minor-and-patch:
         update-types: [minor, patch]
+    # Majors blocked by a peer range declared by another package, not by our own
+    # configuration. Each one fails `npm ci` before any build step, so a weekly pull
+    # request is noise: the pair has to move together, or not at all.
+    ignore:
+      # `@sveltejs/vite-plugin-svelte` 5 declares `vite: ^6`; vite 8 is ERESOLVE.
+      - dependency-name: vite
+        update-types: [version-update:semver-major]
+      # 7 declares `vite: ^8` and raises the `svelte` floor to 5.46.4. The `svelte`
+      # and `svelte-check` floors are what pin runes and the catalogue parity check.
+      - dependency-name: "@sveltejs/vite-plugin-svelte"
+        update-types: [version-update:semver-major]
+      # `svelte-check` declares `typescript: ^5 || ^6`, and `npm run check` is a
+      # required check on every pull request.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    # `init` and `analyze` must move in the same commit: one half at v4 with the
+    # other at v3 makes all three `Analyze (<language>)` jobs fail. Two pull requests
+    # per major, each red, is how the previous cycle looked.
+    ignore:
+      - dependency-name: github/codeql-action
+        update-types: [version-update:semver-major]
