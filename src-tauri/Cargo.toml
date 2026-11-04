@@ -56,7 +56,7 @@ zip = { version = "9", default-features = false, features = ["deflate", "aes-cry
 
 # LOT-21 — encrypted backup
 aes-gcm = { version = "0.10", features = ["stream", "alloc"] }
-argon2 = "0.5"
+argon2 = "0.6"
 zeroize = "1"
 # HMAC for index.json integrity guard
 hmac = "0.13"
