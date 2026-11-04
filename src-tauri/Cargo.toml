@@ -37,7 +37,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls",
 ] }
 tokio = { version = "1", features = ["macros", "sync", "time", "fs", "io-util", "rt-multi-thread", "net"] }
-winreg = "0.55"
+winreg = "0.56"
 rand = "0.10"
 base64 = "0.22"
 thiserror = "2"
