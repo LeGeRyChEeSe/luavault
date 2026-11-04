@@ -52,7 +52,7 @@ sha2 = "0.10"
 flate2 = "1"
 ed25519-dalek = "2"
 walkdir = "2"
-zip = { version = "8", default-features = false, features = ["deflate", "aes-crypto", "bzip2", "lzma", "zstd", "deflate64"] }
+zip = { version = "9", default-features = false, features = ["deflate", "aes-crypto", "bzip2", "lzma", "zstd", "deflate64"] }
 
 # LOT-21 — encrypted backup
 aes-gcm = { version = "0.10", features = ["stream", "alloc"] }

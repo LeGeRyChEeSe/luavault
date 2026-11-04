@@ -550,7 +550,16 @@ fn import_v1(archive: &Path, lib: &Path, data_dir: &Path) -> Result<ImportSummar
         if entry.is_dir() {
             continue;
         }
-        let name = entry.name().to_string();
+        // zip 9 made entry names fallible (`ZipResult<Cow<str>>`): a name whose
+        // bytes cannot be decoded has no textual form to hand back. In practice
+        // zip 9 maps every byte through cp437, so this arm is defensive rather
+        // than reachable — but an entry whose name cannot be read is an entry we
+        // cannot locate, and silently skipping it would restore a library missing
+        // one of its files. Fail closed.
+        let name = entry
+            .name()
+            .map_err(|e| anyhow!("nom d'entrée de sauvegarde illisible : {e}"))?
+            .into_owned();
         let dest = if name == "config.json" {
             summary.config_restored = true;
             // Collect raw bytes for merge; do NOT write directly.
@@ -1287,7 +1296,7 @@ mod tests {
 
         let file = std::fs::File::open(&dest).unwrap();
         let zip = zip::ZipArchive::new(file).unwrap();
-        let names: Vec<String> = zip.file_names().map(|n| n.to_string()).collect();
+        let names: Vec<String> = zip.file_names().map(|n| n.unwrap().into_owned()).collect();
         assert!(
             !names.iter().any(|n| n == "hmac.key" || n.ends_with("/hmac.key")),
             "la clé HMAC n'entre jamais dans une archive"
@@ -1761,7 +1770,7 @@ mod tests {
             let mut orig_zip = zip::ZipArchive::new(std::fs::File::open(&archive_path).unwrap()).unwrap();
             for i in 0..orig_zip.len() {
                 let mut entry = orig_zip.by_index(i).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 if name == "manifest.json" || name == "config.json" {
                     continue;
                 }
@@ -1867,7 +1876,7 @@ mod tests {
             let mut orig_zip = zip::ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();
             for i in 0..orig_zip.len() {
                 let mut entry = orig_zip.by_index(i).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 if name == "manifest.json" || name == "config.json" {
                     continue;
                 }
@@ -2033,7 +2042,7 @@ mod tests {
             let mut orig_zip = zip::ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();
             for i in 0..orig_zip.len() {
                 let mut entry = orig_zip.by_index(i).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 if name == "manifest.json" || name == "config.json" {
                     continue;
                 }
