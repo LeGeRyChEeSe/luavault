@@ -391,7 +391,10 @@ pub fn sha256_file(path: &Path) -> Result<String> {
         }
         hasher.update(&buf[..read]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    // `Output<Sha256>` is a generic array in sha2 0.11 and no longer formats as
+    // hex on its own; the crate-wide hex helper is what every other digest in
+    // this codebase already goes through.
+    Ok(crate::hmac::bytes_to_hex(&hasher.finalize()))
 }
 
 #[cfg(test)]
