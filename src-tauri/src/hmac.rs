@@ -21,7 +21,7 @@
 //! FileStamp)` — never by stamp alone.
 
 use anyhow::{anyhow, Context, Result};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use std::fs::File;
 use std::io::{ErrorKind, Write};
 use std::ops::Drop;
@@ -306,7 +306,7 @@ pub fn sign_bytes(key: &[u8; 32], data: &[u8]) -> [u8; 32] {
 /// differing byte.
 pub fn verify_tag(key: &[u8; 32], data: &[u8], tag: &[u8; 32]) -> bool {
     type HmacSha256 = Hmac<sha2::Sha256>;
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC key length is 32");
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key length is 32");
     mac.update(data);
     mac.verify_slice(tag).is_ok()
 }
@@ -328,7 +328,7 @@ pub fn verify(index_path: &Path, key: &[u8; 32]) -> Result<bool> {
         return Ok(false);
     };
     type HmacSha256 = Hmac<sha2::Sha256>;
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC key length is 32");
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key length is 32");
     mac.update(&raw);
     Ok(mac.verify_slice(&stored).is_ok())
 }
@@ -619,6 +619,56 @@ mod tests {
         let mut bad = tag;
         bad[0] ^= 0x01;
         assert!(!verify_tag(&key, b"index bytes", &bad));
+    }
+
+    // Golden tags, computed independently (RFC 4231 test-vector machinery,
+    // cross-checked against another HMAC implementation) rather than produced
+    // by this crate. `sha2`, `hmac` and `digest` move in lockstep and the
+    // sidecars already on disk are the one artifact a user cannot regenerate:
+    // a tag that changed shape would fail closed and read as a tampered
+    // library. These three pins are what makes that visible as a test failure
+    // instead of as a mystery at the next launch.
+    fn seq_key() -> [u8; 32] {
+        let mut key = [0u8; 32];
+        key.iter_mut()
+            .enumerate()
+            .for_each(|(i, b)| *b = (i as u64 * 7 + 3) as u8);
+        key
+    }
+
+    #[test]
+    fn sign_bytes_matches_a_golden_hmac_sha256() {
+        let cases: &[(&[u8], &str)] = &[
+            (b"", "feffb2318c2191c4f11e1fc0ee3d808697d6073ae8a1c30be5f1a169ceff13e6"),
+            (b"index byteX", "609486cbc5d9f690a65ea4311550bb1d30f916bd913f518bb44f8f83da510d6a"),
+            (
+                b"luavaultluavault",
+                "ab5ec1e0f53227793e1a1588e5cf8d8dd7fa05ea25605c56b8ddafbd40db37bd",
+            ),
+        ];
+        for (data, expected) in cases {
+            let tag = sign_bytes(&seq_key(), data);
+            assert_eq!(
+                bytes_to_hex(&tag),
+                *expected,
+                "HMAC-SHA-256 golden drift for {} bytes of input",
+                data.len()
+            );
+            assert!(verify_tag(&seq_key(), data, &tag));
+        }
+    }
+
+    #[test]
+    fn sign_bytes_golden_covers_a_multiblock_input() {
+        // Past the SHA-256 block size: a golden that only covers one block
+        // would not catch a broken multi-block update path.
+        let data = vec![0xa5u8; 5000];
+        let tag = sign_bytes(&seq_key(), &data);
+        assert_eq!(
+            bytes_to_hex(&tag),
+            "f9eec38c85c576da15cd03f44eb5d927d38f231b2af7bdcc465e18328a12345b",
+            "HMAC-SHA-256 golden drift for a 5000-byte input"
+        );
     }
 
     // ------------------------------------------------------------------ 6. Adopt
