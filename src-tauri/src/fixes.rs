@@ -1151,7 +1151,7 @@ mod tests {
             use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
             hasher.update(data);
-            format!("{:x}", hasher.finalize())
+            crate::hmac::bytes_to_hex(&hasher.finalize())
         }
 
         for i in 0..16 {
