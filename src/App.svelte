@@ -84,6 +84,7 @@
       await appState.refresh();
       // Check whether an update just completed.
       await appState.checkUpdateResult();
+      await appState.checkSteamtoolsRepair();
       // Update check FIRST, and deliberately before `adoptFromSteam`. Adoption
       // walks the whole Steam library and calls the network per game — measured
       // at nearly a minute on a real install. Behind it, the update button only

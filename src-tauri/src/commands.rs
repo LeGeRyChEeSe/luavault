@@ -1,7 +1,7 @@
 use crate::{
     guard_service,
     archive, artwork, backup, cache, config, defender, detect, discover, encrypted_backup,
-    downloads, exchange, fixes, hmac, i18n_log, install, library, manifest_fallback, motd, motd_run, notify, reachability, stats, steam_downgrade, steamstore, update, vdf, wipe, AppState,
+    downloads, exchange, fixes, hmac, i18n_log, install, library, manifest_fallback, motd, motd_run, notify, reachability, relaunch, stats, steam_downgrade, steamstore, update, vdf, wipe, AppState,
 };
 use log::{debug, info, warn};
 use serde::Serialize;
@@ -2188,12 +2188,46 @@ pub async fn install_steam(state: State<'_, AppState>) -> Result<String, String>
     Ok("L'installateur Steam a été lancé en mode silencieux. Les jeux existants sont conservés.".to_string())
 }
 
+/// Close the app a moment after the command has answered, so the window can show
+/// what is about to happen. `exit` runs Tauri's own cleanup (tray icon, logs).
+fn exit_soon(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        app.exit(0);
+    });
+}
+
+/// The repair script closes Steam, and the app with it. So the app closes itself
+/// first, a helper runs the script elevated and waits for it, then reopens the app,
+/// which reads the outcome (`take_steamtools_repair_result`).
 #[tauri::command]
-pub async fn install_steamtools() -> Result<String, String> {
-    info!("install_steamtools: launching fix-st.ps1 elevated");
-    let (program, args) = install::steamtools_command();
-    install::run_elevated(program, &args).map_err(|e| e.to_string())?;
-    Ok("Script SteamTools lancé dans une fenêtre PowerShell élevée (Steam sera fermé par le script).".to_string())
+pub async fn install_steamtools(app: AppHandle) -> Result<String, String> {
+    info!("install_steamtools: handing fix-st.ps1 to the relaunch helper");
+    relaunch::repair_steamtools_then_relaunch().map_err(|e| e.to_string())?;
+    exit_soon(app);
+    Ok("L'application se ferme pour la réparation, puis se rouvre toute seule avec le résultat.".to_string())
+}
+
+/// Outcome of the repair run before this launch, consumed on first read.
+/// `None` when the app was not relaunched by a repair.
+#[tauri::command]
+pub async fn take_steamtools_repair_result(
+    state: State<'_, AppState>,
+) -> Result<Option<relaunch::RepairOutcome>, String> {
+    let path = relaunch::repair_result_path();
+    let Ok(json) = std::fs::read_to_string(&path) else {
+        return Ok(None);
+    };
+    let _ = std::fs::remove_file(&path);
+    let installed = {
+        let cfg = state.config.lock().unwrap();
+        resolve_steam(&cfg).map(|s| detect::inspect_steamtools(&s).installed).unwrap_or(false)
+    };
+    let outcome = relaunch::judge_repair(json.trim_start_matches('\u{feff}'), installed);
+    if let Some(o) = &outcome {
+        info!("steamtools repair: ok={} refused={} exit={} installed={}", o.ok, o.refused, o.exit_code, o.installed);
+    }
+    Ok(outcome)
 }
 
 #[tauri::command]
@@ -2605,17 +2639,73 @@ pub async fn set_background_notify(state: State<'_, AppState>, enabled: bool) ->
             .await
             .map_err(|e| e.to_string())?
             .map_err(|e| e.to_string())?;
-    } else {
-        tauri::async_runtime::spawn_blocking(notify::unregister)
-            .await
-            .map_err(|e| e.to_string())?;
     }
     let mut cfg = state.config.lock().unwrap().clone();
     cfg.background_notify = Some(enabled);
     cfg.save().map_err(|e| e.to_string())?;
     let view = background_notify_view(&cfg);
+    // Declining the notifications must not take the automatic updates down with it:
+    // the registrations stay while either reason holds.
+    if !enabled && !notify::registration_wanted(&cfg, config::is_portable()) {
+        tauri::async_runtime::spawn_blocking(notify::unregister)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     *state.config.lock().unwrap() = cfg;
     info!("set_background_notify: {enabled}");
+    Ok(view)
+}
+
+/// What Settings needs to know about the automatic updates.
+#[derive(Debug, Clone, Serialize)]
+pub struct AutoUpdate {
+    /// What the user chose (on unless switched off).
+    pub enabled: bool,
+    /// Whether this process acts on it (a debug build does not).
+    pub active: bool,
+    /// Whether updates can also run with the app closed (not in portable mode: the
+    /// folder may move, so nothing is registered with Windows).
+    pub background: bool,
+}
+
+fn auto_update_view(cfg: &config::AppConfig) -> AutoUpdate {
+    AutoUpdate {
+        enabled: cfg.auto_update_chosen(),
+        active: cfg.auto_update_wanted(),
+        background: cfg!(windows) && !config::is_portable(),
+    }
+}
+
+#[tauri::command]
+pub fn get_auto_update(state: State<'_, AppState>) -> AutoUpdate {
+    auto_update_view(&state.config.lock().unwrap())
+}
+
+/// Switch the automatic updates on or off: remember the choice, then make the
+/// registrations with Windows agree with it (`notify::registration_wanted`).
+/// Manual updates stay what they were, one click, silent, either way.
+#[tauri::command]
+pub async fn set_auto_update(state: State<'_, AppState>, enabled: bool) -> Result<AutoUpdate, String> {
+    let mut cfg = state.config.lock().unwrap().clone();
+    cfg.auto_update = Some(enabled);
+    cfg.save().map_err(|e| e.to_string())?;
+    let view = auto_update_view(&cfg);
+    let (wanted, portable) = (notify::registration_wanted(&cfg, config::is_portable()), config::is_portable());
+    *state.config.lock().unwrap() = cfg;
+    if !portable {
+        if wanted {
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            tauri::async_runtime::spawn_blocking(move || notify::register(&exe))
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+        } else {
+            tauri::async_runtime::spawn_blocking(notify::unregister)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    info!("set_auto_update: {enabled}");
     Ok(view)
 }
 
@@ -3181,7 +3271,7 @@ pub async fn take_update_result(state: State<'_, AppState>) -> Result<Option<Upd
 }
 
 #[tauri::command]
-pub async fn install_update(state: State<'_, AppState>, path: String) -> Result<(), String> {
+pub async fn install_update(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<(), String> {
     let verified = state.verified_update.lock().unwrap().clone();
 
     // Remember the version we're updating FROM, so the next startup can
@@ -3209,9 +3299,12 @@ pub async fn install_update(state: State<'_, AppState>, path: String) -> Result<
         .unwrap_or_default();
 
     if file_name.ends_with(".exe") {
-        // NSIS installer: open it directly.
-        tauri_plugin_opener::open_path(target.to_string_lossy().as_ref(), None::<&str>)
-            .map_err(|e| format!("ouverture de l'installeur : {e}"))?;
+        // NSIS installer: it cannot replace a running exe, so a helper waits for
+        // this process to exit, runs the installer silently (`currentUser` mode:
+        // no elevation) and reopens the app. No window to click through.
+        relaunch::update_then_relaunch(&target, false, relaunch::Relaunch::Window)
+            .map_err(|e| format!("lancement de l'installeur : {e}"))?;
+        exit_soon(app);
     } else {
         // Portable zip: extract, replace the running exe, relaunch.
         // ZIP I/O is ~20 Mo — keep it off the async pool (piège n°17).

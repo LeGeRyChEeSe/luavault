@@ -767,10 +767,34 @@ pub fn build_toast(
     toast_xml(&title, &body, &launch, &buttons)
 }
 
+/// Whether this machine should carry the background registrations (logon entry,
+/// URL handler, toast identity, scheduled task). Two reasons to: the user said yes to
+/// notifications, or automatic updates are on (the default), which need the very same
+/// check to run with the app closed. Never in portable mode: the folder may move.
+pub fn registration_wanted(cfg: &crate::config::AppConfig, portable: bool) -> bool {
+    !portable && (cfg.background_notify == Some(true) || cfg.auto_update_wanted())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn registration_follows_either_reason_and_never_portable() {
+        use crate::config::AppConfig;
+        let off = AppConfig { auto_update: Some(false), ..Default::default() };
+        let notify_only = AppConfig { auto_update: Some(false), background_notify: Some(true), ..Default::default() };
+        let declined = AppConfig { auto_update: Some(false), background_notify: Some(false), ..Default::default() };
+        assert!(!registration_wanted(&off, false), "nothing asked for it");
+        assert!(registration_wanted(&notify_only, false), "notifications alone are a reason");
+        assert!(!registration_wanted(&declined, false));
+        assert!(!registration_wanted(&notify_only, true), "portable never registers");
+        // Auto-update on (the default) is a reason by itself, in a release build.
+        let auto = AppConfig::default();
+        assert_eq!(registration_wanted(&auto, false), auto.auto_update_wanted());
+        assert!(!registration_wanted(&auto, true));
+    }
 
     fn nonce32() -> String {
         "0123456789abcdef0123456789abcdef".to_string()

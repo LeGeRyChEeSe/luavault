@@ -1,7 +1,7 @@
 {
   "name": "luavault",
   "private": true,
-  "version": "1.1.6",
+  "version": "1.2.0",
   "type": "module",
   "description": "Local library companion for Steam and SteamTools.",
   "scripts": {
@@ -34,7 +34,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
     "@tsconfig/svelte": "^5.0.4",
-    "svelte": "^5.57.2",
+    "svelte": "^5.57.3",
     "svelte-check": "^4.7.7",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.6.2",
