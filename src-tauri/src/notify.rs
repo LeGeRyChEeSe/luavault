@@ -394,6 +394,16 @@ pub fn check_command(exe: &Path) -> String {
     format!("\"{}\" --notify-check", exe.display())
 }
 
+/// Pure. Whether the scheduler's copy of the task (`schtasks /Query /XML`) already runs the
+/// check of `exe` every 6 hours: then there is nothing to rewrite. A task created by a process
+/// running as administrator can only be read by the user afterwards, and rewriting it (`/F`)
+/// is refused (« Accès refusé », 2026-11-12) although it is exactly right.
+pub fn task_runs(xml: &str, exe: &Path) -> bool {
+    let xml = xml.to_ascii_lowercase();
+    let command = format!("<command>\"{}\"</command>", exe.display()).to_ascii_lowercase();
+    xml.contains(&command) && xml.contains("<arguments>--notify-check</arguments>") && xml.contains("pt6h")
+}
+
 /// The URL handler's command: Windows substitutes `%1`.
 pub fn handler_command(exe: &Path) -> String {
     format!("\"{}\" --motd-action \"%1\"", exe.display())
@@ -466,14 +476,32 @@ mod win {
 
         write_handler(id, exe)?;
 
-        // Every 6 hours while the session is open; the Run key covers the logon.
+        // Every 6 hours while the session is open; the Run key covers the logon. A task that already
+        // runs this check is left as it is (`task_runs`): it may belong to the administrators.
+        let stored = std::process::Command::new("schtasks")
+            .args(["/Query", "/TN", &id.task, "/XML"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
+        if stored.as_deref().is_some_and(|xml| task_runs(xml, exe)) {
+            return Ok(());
+        }
         let out = std::process::Command::new("schtasks")
             .args(["/Create", "/TN", &id.task, "/SC", "HOURLY", "/MO", "6", "/TR", &check_command(exe), "/F"])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| fail("tâche planifiée", e))?;
         if !out.status.success() {
-            return Err(fail("tâche planifiée", String::from_utf8_lossy(&out.stderr).trim().to_string()));
+            let why = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if stored.is_some() {
+                // A task we may not rewrite (created as administrator): the Run key still brings the
+                // check at every logon, so what was asked for keeps working. Said in the log only.
+                log::warn!("tâche planifiée « {} » laissée telle quelle, non modifiable : {why}", id.task);
+                return Ok(());
+            }
+            return Err(fail("tâche planifiée", why));
         }
         Ok(())
     }
@@ -1000,6 +1028,24 @@ mod tests {
         let s: NotifyState = serde_json::from_str(old).unwrap();
         assert_eq!(s.pending[0].update_version, None);
         assert_eq!(s.last_update_notified, None);
+    }
+
+    /// The scheduler's own XML, read on the author's machine (2026-11-12), trimmed to its `Exec`
+    /// and trigger: the task an elevated start had created and the user could not rewrite.
+    #[test]
+    fn a_task_that_already_runs_the_check_is_left_alone() {
+        let xml = r#"<Triggers><TimeTrigger><Repetition><Interval>PT6H</Interval></Repetition></TimeTrigger></Triggers>
+    <Exec>
+      <Command>"C:\Users\kilian\AppData\Local\LuaVault\luavault.exe"</Command>
+      <Arguments>--notify-check</Arguments>
+    </Exec>"#;
+        let exe = Path::new(r"C:\Users\kilian\AppData\Local\LuaVault\luavault.exe");
+        assert!(task_runs(xml, exe));
+        assert!(task_runs(&xml.to_uppercase(), exe), "Windows paths ignore case");
+        assert!(!task_runs(xml, Path::new(r"D:\Ailleurs\luavault.exe")), "a moved exe is rewritten");
+        assert!(!task_runs(&xml.replace("PT6H", "PT1H"), exe), "another rhythm is rewritten");
+        assert!(!task_runs(&xml.replace("--notify-check", "--background"), exe));
+        assert!(!task_runs("", exe));
     }
 
     #[test]
