@@ -432,7 +432,7 @@ export const en: Record<Key, string> = {
   "workaround.update.apply": "Restart Steam",
   "workaround.update.confirm": "Confirm? (Steam restarts)",
   "workaround.update.tip": "Closes Steam and relaunches it: it updates at start. Your games and saves are not touched.",
-  "workaround.repair.tip": "Runs openlua.cloud's repair script in an administrator window: it closes Steam, installs the new SteamTools (click Next, Install, Finish) and moves your games there.",
+  "workaround.repair.tip": "Runs the SteamTools repair script in an administrator window: it closes Steam, installs the new SteamTools (click Next, Install, Finish) and moves your games there.",
   "tools.pin.required": "required",
   "notify.offer.title": "Get warned even when the app is closed?",
   "notify.offer.body": "For important messages (an outage, a Steam update that causes trouble) and for new versions of the app, you can get a Windows notification without having to open the app.",

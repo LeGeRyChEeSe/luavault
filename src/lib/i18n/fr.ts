@@ -438,7 +438,7 @@ export const fr = {
   "workaround.update.apply": "Redémarrer Steam",
   "workaround.update.confirm": "Confirmer ? (Steam redémarre)",
   "workaround.update.tip": "Ferme Steam puis le relance : il se met à jour au démarrage. Vos jeux et vos sauvegardes ne sont pas touchés.",
-  "workaround.repair.tip": "Lance le script de réparation d'openlua.cloud dans une fenêtre administrateur : il ferme Steam, installe le nouveau SteamTools (cliquez Next, Install, Finish) et y déplace vos jeux.",
+  "workaround.repair.tip": "Lance le script de réparation de SteamTools dans une fenêtre administrateur : il ferme Steam, installe le nouveau SteamTools (cliquez Next, Install, Finish) et y déplace vos jeux.",
   "tools.pin.required": "requis",
   "notify.offer.title": "Être prévenu même quand l'application est fermée ?",
   "notify.offer.body": "Pour les messages importants (une panne, une mise à jour de Steam qui pose problème) et pour les nouvelles versions de l'application, vous pouvez recevoir une notification Windows, sans avoir à ouvrir l'application.",
