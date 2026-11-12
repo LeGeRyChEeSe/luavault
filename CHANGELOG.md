@@ -17,6 +17,14 @@ Two rules to follow when editing this file, because the script depends on them:
 
 ## Unreleased
 
+## 1.3.1 - 2026-11-12
+
+### fr
+- Activer les notifications ou la mise à jour automatique ne renvoie plus « Tâche planifiée : accès refusé » quand la tâche de vérification avait été créée par l'application lancée en administrateur : une tâche déjà correcte est laissée telle quelle, et une tâche que Windows refuse de modifier ne fait plus échouer le réglage.
+
+### en
+- Turning on notifications or automatic updates no longer answers « Scheduled task: access denied » when the check task had been created by the app run as administrator: a task already correct is left as it is, and a task Windows refuses to change no longer fails the setting.
+
 ## 1.3.0 - 2026-11-12
 
 ### fr
