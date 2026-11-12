@@ -17,6 +17,28 @@ Two rules to follow when editing this file, because the script depends on them:
 
 ## Unreleased
 
+## 1.2.1 - 2026-11-12
+
+### fr
+- SteamTools réinstallé par le bouton « Réparer SteamTools » est de nouveau reconnu : le script de réparation installe maintenant la version classique de SteamTools, que l'application prenait pour absente et proposait de réparer en boucle.
+- Les jeux sont déposés là où cette version les lit (dossier config\stplug-in de Steam) et l'application y retrouve ceux qui y sont déjà.
+- Steam ne reste plus bloqué sur « Chargement des données du compte » : la copie donnée à Steam ne porte plus la clé du jeu principal, qui figeait Steam au démarrage avec cette version de SteamTools. Les fichiers déjà en place sont corrigés à l'ouverture de l'application.
+- Le nettoyage ne propose plus de supprimer le dossier config\stplug-in quand il contient des jeux.
+- Un jeu pas encore installé se télécharge aussi après un redémarrage de Steam : l'application donne ses clés à Steam quand il est fermé, et Steam n'a plus besoin d'elle pour démarrer et télécharger.
+- Avec cette version de SteamTools, Steam peut de nouveau se mettre à jour : l'application retire le blocage des mises à jour posé par le retour à l'ancienne version de Steam, ne propose plus ce retour en arrière, et met Steam à jour toute seule en affichant la progression.
+- Encore sous OpenSteamTool, qui n'est plus mis à jour ? Un bandeau reste affiché avec un bouton pour réparer SteamTools ; l'application se ferme pendant la réparation, se rouvre toute seule et met ensuite Steam à jour.
+- L'application démarre aussi sur un Windows où le runtime Visual C++ n'est pas installé : elle s'arrêtait sur « MSVCP140.dll introuvable ».
+
+### en
+- SteamTools reinstalled by the "Repair SteamTools" button is recognised again: the repair script now installs the classic SteamTools, which the app took for missing and kept offering to repair.
+- Games are placed where that version reads them (Steam's config\stplug-in folder) and the app finds the ones already there.
+- Steam no longer hangs on "Loading account data": the copy given to Steam no longer carries the main game's key, which froze Steam at start with that SteamTools. Files already in place are fixed when the app opens.
+- The cleanup no longer offers to delete the config\stplug-in folder when it holds games.
+- A game not installed yet also downloads after Steam restarts: the app hands its keys to Steam while it is closed, and Steam no longer needs the app to start and download.
+- With that SteamTools, Steam can update again: the app lifts the update block set by the return to the old Steam, no longer offers that return, and updates Steam by itself while showing the progress.
+- Still on OpenSteamTool, which is no longer updated? A banner stays with a button to repair SteamTools; the app closes during the repair, reopens by itself, then updates Steam.
+- The app also starts on a Windows without the Visual C++ runtime: it stopped on "MSVCP140.dll was not found".
+
 ## 1.2.0 - 2026-10-25
 
 ### fr

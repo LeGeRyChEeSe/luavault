@@ -46,7 +46,8 @@ Current version: **1.2.0** — see [`CHANGELOG.md`](CHANGELOG.md).
 
 **Library**
 
-- **Automatic import** at startup of any `.lua` already sitting in `{Steam}\config\lua`,
+- **Automatic import** at startup of any `.lua` already sitting where SteamTools reads it
+  (`{Steam}\config\stplug-in`, or `{Steam}\config\lua` for OpenSteamTool),
   named from the Steam manifest, with a check that the game is actually installed.
 - **One state per game** (`stage`): each card shows only the action that makes sense
   right now — download, copy, install, patch, repair.
