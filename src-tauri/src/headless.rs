@@ -58,11 +58,17 @@ fn say<'a>(lang: &str, fr: &'a str, en: &'a str) -> &'a str {
     if lang == "fr" { fr } else { en }
 }
 
-/// The offer this binary would get from `base`, as the window's own check
-/// computes it (`commands::check_update`).
-async fn current_offer(http: &UpdateClient, _cfg: &AppConfig, base: &str) -> Option<update::UpdateAvailable> {
-    let manifest = update::fetch_verified_manifest(http, base).await?;
-    update::evaluate_manifest(manifest, env!("CARGO_PKG_VERSION"), config::is_portable())
+/// The offer this binary would get, as the window's own check computes it
+/// (`commands::check_update`): same channel, same way back to the stable. `base` is the stable
+/// channel's address (a toast remembers it); the experimental's follows from it.
+async fn current_offer(http: &UpdateClient, cfg: &AppConfig, base: &str) -> Option<update::UpdateAvailable> {
+    let channel = update::Channel::effective(cfg.update_channel.as_deref(), update::Channel::running());
+    let bases = update::Bases::from_stable(base);
+    let offer = update::offer_for_edition(http, &bases, channel, update::LocalEdition::running()).await;
+    if offer.as_ref().is_some_and(|o| o.returning) {
+        config::record_return_to_stable();
+    }
+    offer
 }
 
 async fn notify_check() -> i32 {
@@ -282,6 +288,16 @@ async fn install_offer(offer: &update::UpdateAvailable, base: &str, lang: &str, 
     let http = UpdateClient::new();
     let version = offer.version.as_str();
     let artifact = offer.artifacts[0].clone();
+    if let Err(why) = update::artifact_matches_channel(&artifact.file, offer.channel) {
+        log_line(&format!("mise à jour : artefact refusé ({why})"));
+        if !quiet {
+            report(lang, false, &format!("artefact refusé : {why}"));
+        }
+        return false;
+    }
+    // The file is served where its channel is: `base` is the stable's address.
+    let bases = update::Bases::from_stable(base);
+    let base = bases.of(offer.channel);
 
     // Who is running, before anything is downloaded: a visible window decides it all.
     let image = std::env::current_exe()

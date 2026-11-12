@@ -18,6 +18,8 @@
     "tauri": "tauri",
     "build:app": "tauri build",
     "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
+    "build:app:exp": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-exp.ps1",
+    "build:portable:exp": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1 -Edition experimental",
     "icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-icon.ps1",
     "validate": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate.ps1",
     "validate:quiet": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate.ps1 -Quiet"

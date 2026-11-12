@@ -97,6 +97,147 @@ pub struct UpdateAvailable {
     pub minimum_upgradable_from: Option<String>,
     /// History entries strictly newer than the local version, most recent first.
     pub changes: Vec<HistoryEntry>,
+    /// The channel this offer was read from. `download_update` checks the artefact's name
+    /// against it, and downloads from that channel's address, before a single byte is fetched.
+    pub channel: Channel,
+    /// True when the offered version is NOT newer than the running one. Only the return to the
+    /// stable channel from an experimental binary produces it.
+    pub downgrade: bool,
+    /// The experimental that replaced the stable going back to it by itself: the experimental
+    /// channel was withdrawn, or a stable newer than it was published. A downgrade the person
+    /// asked for when they chose the experimental, so it installs automatically like an update.
+    #[serde(default)]
+    pub returning: bool,
+}
+
+// -------------------------------------------------------------------- channels
+
+/// The two update channels. Each has its own signed manifest, same keys, same `schema`, same
+/// caps; on GitHub the stable lives in the latest release, the experimental in the release
+/// tagged `experimental` (a pre-release, never "latest").
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Channel {
+    #[default]
+    Stable,
+    Experimental,
+}
+
+impl Channel {
+    /// The channel of the running binary: a build fact (`config::EXPERIMENTAL`).
+    pub fn running() -> Channel {
+        Channel::parse(crate::config::edition_channel()).unwrap_or(Channel::Stable)
+    }
+
+    /// Read a config value. Anything but the two names is `None`, which the caller resolves to
+    /// the running edition's channel: a typo in `config.json` must not point the stable at a
+    /// manifest it never chose.
+    pub fn parse(raw: &str) -> Option<Channel> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "stable" => Some(Channel::Stable),
+            "experimental" => Some(Channel::Experimental),
+            _ => None,
+        }
+    }
+
+    /// The channel to read: the user's choice when it is a known one, else the running edition's.
+    pub fn effective(configured: Option<&str>, running: Channel) -> Channel {
+        configured.and_then(Channel::parse).unwrap_or(running)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Channel::Stable => "stable",
+            Channel::Experimental => "experimental",
+        }
+    }
+
+    /// The manifest file of this channel. The `.sig` is `<name>.sig`.
+    pub fn manifest_file(self) -> &'static str {
+        match self {
+            Channel::Stable => "manifest.json",
+            Channel::Experimental => "manifest-experimental.json",
+        }
+    }
+
+}
+
+/// Where each channel's manifest and artefacts are served. `LV_UPDATE_BASE` (a local trial)
+/// serves both channels from one place; the signature stays the only trust decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bases {
+    pub stable: String,
+    pub experimental: String,
+}
+
+impl Bases {
+    /// The addresses of this process (the override, else production).
+    pub fn current() -> Bases {
+        Bases::from_override(std::env::var("LV_UPDATE_BASE").ok())
+    }
+
+    /// Pure. Both channels from the override when there is one, else production.
+    pub fn from_override(overridden: Option<String>) -> Bases {
+        match overridden {
+            Some(base) => Bases { stable: base.clone(), experimental: base },
+            None => Bases { stable: DEFAULT_BASE.to_string(), experimental: EXPERIMENTAL_BASE.to_string() },
+        }
+    }
+
+    /// Pure. The addresses behind a remembered stable address (a toast keeps the one it was
+    /// built from): production's stable address means production, anything else was a trial
+    /// that served both channels.
+    pub fn from_stable(stable: &str) -> Bases {
+        Bases::from_override((stable != DEFAULT_BASE).then(|| stable.to_string()))
+    }
+
+    pub fn of(&self, channel: Channel) -> &str {
+        match channel {
+            Channel::Stable => &self.stable,
+            Channel::Experimental => &self.experimental,
+        }
+    }
+}
+
+/// The name mark every experimental artefact carries, and no stable one does:
+/// `LuaVault-Experimental_1.3.0-exp.1_x64-setup.exe`,
+/// `LuaVault-Experimental-1.3.0-exp.1-portable-win64.zip`.
+pub const EXPERIMENTAL_MARK: &str = "experimental";
+
+/// Refuse an artefact whose name belongs to the other channel. The manifest decides what gets
+/// installed, but it is a document someone signed: this guard is the client's own and runs
+/// before any download.
+pub fn artifact_matches_channel(file: &str, channel: Channel) -> Result<(), String> {
+    let marked = file.to_ascii_lowercase().contains(EXPERIMENTAL_MARK);
+    match (channel, marked) {
+        (Channel::Experimental, false) => {
+            Err(format!("canal expérimental, artefact sans marque « Experimental » : {file}"))
+        }
+        (Channel::Stable, true) => Err(format!("canal stable, artefact marqué « Experimental » : {file}")),
+        _ => Ok(()),
+    }
+}
+
+/// What the running binary is, for [`offer_for_switch`].
+#[derive(Debug, Clone, Copy)]
+pub struct LocalEdition<'a> {
+    pub version: &'a str,
+    pub channel: Channel,
+    pub portable: bool,
+    /// The artefacts wanted are those of the edition beside the stable.
+    pub beside: bool,
+}
+
+impl LocalEdition<'static> {
+    /// The binary that is running.
+    pub fn running() -> Self {
+        LocalEdition {
+            version: env!("CARGO_PKG_VERSION"),
+            channel: Channel::running(),
+            portable: crate::config::is_portable(),
+            beside: crate::config::BESIDE,
+        }
+    }
 }
 
 // -------------------------------------------------------------------- base URL
@@ -104,8 +245,13 @@ pub struct UpdateAvailable {
 /// Production update server, overridable for local testing.
 const DEFAULT_BASE: &str = "https://github.com/LeGeRyChEeSe/luavault/releases/latest/download";
 
+/// The experimental channel: one pre-release with the fixed tag `experimental`, whose files are
+/// replaced at each experimental publication. GitHub never calls a pre-release "latest".
+const EXPERIMENTAL_BASE: &str = "https://github.com/LeGeRyChEeSe/luavault/releases/download/experimental";
+
+/// The stable channel's address (also where the message of the day is served).
 pub fn base_url() -> String {
-    std::env::var("LV_UPDATE_BASE").unwrap_or_else(|_| DEFAULT_BASE.to_string())
+    Bases::current().stable
 }
 
 // -------------------------------------------------------------------- http client
@@ -226,19 +372,37 @@ pub fn verify_manifest_with_keys(
 /// Fetch `manifest.json` + `manifest.json.sig`, verify the signature on the raw
 /// bytes BEFORE deserializing, and enforce the schema cap. Every failure path is
 /// the nominal offline/tampered case and yields `None` — never a visible error.
+#[cfg(test)]
 pub async fn fetch_verified_manifest(http: &UpdateClient, base: &str) -> Option<Manifest> {
-    fetch_verified_manifest_with_keys(http, base, &RELEASE_PUBLIC_KEYS).await
+    fetch_named_manifest_with_keys(http, base, Channel::Stable.manifest_file(), &RELEASE_PUBLIC_KEYS).await
+}
+
+/// The same fetch for a chosen channel, from that channel's address.
+pub async fn fetch_channel_manifest(http: &UpdateClient, bases: &Bases, channel: Channel) -> Option<Manifest> {
+    fetch_named_manifest_with_keys(http, bases.of(channel), channel.manifest_file(), &RELEASE_PUBLIC_KEYS).await
 }
 
 /// [`fetch_verified_manifest`] over a caller-supplied key list (tests).
+#[cfg(test)]
 pub async fn fetch_verified_manifest_with_keys(
     http: &UpdateClient,
     base: &str,
     keys: &[&str],
 ) -> Option<Manifest> {
+    fetch_named_manifest_with_keys(http, base, Channel::Stable.manifest_file(), keys).await
+}
+
+/// The one implementation behind both channels: `name` is the manifest file, its signature
+/// sits at `<name>.sig`.
+pub async fn fetch_named_manifest_with_keys(
+    http: &UpdateClient,
+    base: &str,
+    name: &str,
+    keys: &[&str],
+) -> Option<Manifest> {
     let (manifest_resp, sig_resp) = match tokio::join!(
-        http.inner().get(format!("{base}/manifest.json")).send(),
-        http.inner().get(format!("{base}/manifest.json.sig")).send(),
+        http.inner().get(format!("{base}/{name}")).send(),
+        http.inner().get(format!("{base}/{name}.sig")).send(),
     ) {
         (Ok(m), Ok(s)) => (m, s),
         (Err(e), _) | (_, Err(e)) => {
@@ -297,31 +461,110 @@ pub async fn fetch_verified_manifest_with_keys(
     Some(manifest)
 }
 
-/// Choose the artifact that matches the current edition.
-///
-/// Portable → `kind == "portable"`. Installed → `kind == "nsis"`.
-/// Returns `None` when the right variant is absent — no fallback.
-pub fn preferred_artifact(
-    artifacts: &[UpdateArtifact],
-    portable: bool,
-) -> Option<&UpdateArtifact> {
-    artifacts.iter().find(|a| {
-        if portable {
-            a.kind == "portable"
-        } else {
-            a.kind == "nsis"
-        }
+/// Choose the artifact that matches the current edition. Returns `None` when the right variant
+/// is absent: no fallback onto another kind.
+pub fn preferred_artifact(artifacts: &[UpdateArtifact], portable: bool, beside: bool) -> Option<&UpdateArtifact> {
+    let kind = artifact_kind(portable, beside);
+    artifacts.iter().find(|a| a.kind == kind)
+}
+
+/// The artefact kind an edition takes. The experimental channel carries two of each: the
+/// replacing edition (`nsis`, `portable`, what a stable switching channel installs over itself)
+/// and the one beside (`nsis-beside`, `portable-beside`, its own identity). A client older than
+/// the channels knows only the first two, so it can never install the one beside by mistake.
+pub fn artifact_kind(portable: bool, beside: bool) -> &'static str {
+    match (portable, beside) {
+        (false, false) => "nsis",
+        (true, false) => "portable",
+        (false, true) => "nsis-beside",
+        (true, true) => "portable-beside",
+    }
+}
+
+/// Pure. The experimental channel was withdrawn: a signed manifest with no artefact.
+pub fn withdrawn(manifest: &Manifest) -> bool {
+    manifest.artifacts.is_empty()
+}
+
+/// Pure. On the experimental channel, whether the stable takes over: the experimental was
+/// withdrawn (signed, no artefact), or a stable newer than it was published since (`1.3.0` beats
+/// `1.3.0-exp.1`). An experimental manifest that could not be read is no proof of anything for the
+/// experimental that replaced the stable (it would go back on a network hiccup); for any other
+/// binary the stable's own offer is harmless (it only ever offers a newer version).
+pub fn stable_takes_over(exp: Option<&Manifest>, stable: Option<&Manifest>, replacing: bool) -> bool {
+    match exp {
+        Some(e) => withdrawn(e) || stable.is_some_and(|s| is_newer(&s.version, &e.version)),
+        None => !replacing && stable.is_some(),
+    }
+}
+
+/// Pure. The experimental binary that took the stable's place (not the one beside).
+pub fn replacing(local: &LocalEdition<'_>) -> bool {
+    local.channel == Channel::Experimental && !local.beside
+}
+
+/// What this binary is offered: its channel's manifest, or the stable's when the stable takes
+/// over the experimental channel (`stable_takes_over`). The one path of the window and of the
+/// headless check. An offer `returning` is the experimental going back to the stable: the caller
+/// records the stable channel.
+pub async fn offer_for_edition(
+    http: &UpdateClient,
+    bases: &Bases,
+    channel: Channel,
+    local: LocalEdition<'_>,
+) -> Option<UpdateAvailable> {
+    if channel == Channel::Experimental {
+        let (exp, stable) = tokio::join!(
+            fetch_channel_manifest(http, bases, Channel::Experimental),
+            fetch_channel_manifest(http, bases, Channel::Stable),
+        );
+        return decide_offer(exp, stable, local);
+    }
+    let manifest = fetch_channel_manifest(http, bases, channel).await?;
+    let back = replacing(&local);
+    offer_for_switch(manifest, local, channel).map(|mut o| {
+        // The replacing experimental reading the stable: the person chose to go back.
+        o.returning = back && o.downgrade;
+        o
     })
 }
 
-/// Decide what an authenticated manifest means for this client: version must be
-/// strictly newer, unknown artifact kinds are filtered out, and a
-/// `minimum_upgradable_from` pivot below which direct installation is blocked.
-///
-/// `portable` selects which artifact variant to return — the function returns
-/// `None` when the right variant is absent (no fallback).
+/// Pure. The experimental channel's decision once both manifests were read (or not).
+pub fn decide_offer(exp: Option<Manifest>, stable: Option<Manifest>, local: LocalEdition<'_>) -> Option<UpdateAvailable> {
+    if stable_takes_over(exp.as_ref(), stable.as_ref(), replacing(&local)) {
+        let back = replacing(&local);
+        return offer_for_switch(stable?, local, Channel::Stable).map(|mut o| {
+            o.returning = back;
+            o
+        });
+    }
+    offer_for_switch(exp?, local, Channel::Experimental)
+}
+
+/// The stable binary's case of [`offer_for_switch`], kept for the tests that pin the ordinary
+/// update check.
+#[cfg(test)]
 pub fn evaluate_manifest(manifest: Manifest, local_version: &str, portable: bool) -> Option<UpdateAvailable> {
-    if !is_newer(&manifest.version, local_version) {
+    let local = LocalEdition { version: local_version, channel: Channel::Stable, portable, beside: false };
+    offer_for_switch(manifest, local, Channel::Stable)
+}
+
+/// What an authenticated manifest read on `channel` means for the running binary. Pure.
+///
+/// - On the experimental channel, and on the stable channel for a stable binary: the ordinary
+///   rule, strictly newer only.
+/// - **Return to the stable**: an experimental binary reading the stable channel is offered the
+///   latest stable **even when it is lower** than the running version (`downgrade` set). An
+///   equal version is nothing to offer.
+/// - Artefacts named for the other channel are dropped (`artifact_matches_channel`) before
+///   `preferred_artifact` runs.
+///
+/// Nothing else moves: signature, `schema`, `minimum_upgradable_from`, the SHA-256 before writing.
+pub fn offer_for_switch(manifest: Manifest, local: LocalEdition<'_>, channel: Channel) -> Option<UpdateAvailable> {
+    let newer = is_newer(&manifest.version, local.version);
+    let downgrade_allowed = channel == Channel::Stable && local.channel == Channel::Experimental;
+    let offered = if downgrade_allowed { manifest.version != local.version } else { newer };
+    if !offered {
         return None;
     }
 
@@ -330,19 +573,26 @@ pub fn evaluate_manifest(manifest: Manifest, local_version: &str, portable: bool
     let upgrade_blocked = manifest
         .minimum_upgradable_from
         .as_ref()
-        .map(|min| is_newer(min, local_version))
+        .map(|min| is_newer(min, local.version))
         .unwrap_or(false);
 
-    // Filter to known artifact kinds, then pick the one matching this edition.
+    // Filter to known artifact kinds AND to this channel's naming, then pick the one matching
+    // this edition.
     let known: Vec<UpdateArtifact> = manifest
         .artifacts
         .into_iter()
-        .filter(|a| a.kind == "nsis" || a.kind == "portable")
+        .filter(|a| ["nsis", "portable", "nsis-beside", "portable-beside"].contains(&a.kind.as_str()))
+        .filter(|a| match artifact_matches_channel(&a.file, channel) {
+            Ok(()) => true,
+            Err(why) => {
+                debug!("check_update: artefact écarté ({why})");
+                false
+            }
+        })
         .collect();
 
-    let preferred = preferred_artifact(&known, portable).cloned();
-
-    let changes = changes_since(&manifest.history, local_version);
+    let preferred = preferred_artifact(&known, local.portable, local.beside).cloned();
+    let changes = changes_since(&manifest.history, local.version);
 
     preferred.map(|artifact| UpdateAvailable {
         version: manifest.version,
@@ -353,6 +603,9 @@ pub fn evaluate_manifest(manifest: Manifest, local_version: &str, portable: bool
         upgrade_blocked,
         minimum_upgradable_from: manifest.minimum_upgradable_from,
         changes,
+        channel,
+        downgrade: !newer,
+        returning: false,
     })
 }
 
@@ -386,18 +639,23 @@ pub fn changes_since(history: &[HistoryEntry], current: &str) -> Vec<HistoryEntr
 /// newer than 1.9.0, which a string comparison gets backwards. At equal core, a
 /// version WITHOUT a pre-release suffix is newer than one with a suffix: the 1.0.0
 /// final must be offered to users sitting on 1.0.0-beta.
+///
+/// Two pre-releases of the same core are ordered by the segments of their suffix (after `-`,
+/// split on `.`): numeric segments compare as numbers (`exp.10` > `exp.9`, which a string
+/// comparison gets backwards), anything else lexicographically, and a shorter suffix that
+/// prefixes the other is the older one (`exp.1` < `exp.1.1`), semver's own rule.
 pub fn is_newer(remote: &str, local: &str) -> bool {
-    let parse = |s: &str| -> Option<(Vec<u64>, bool)> {
+    fn parse(s: &str) -> Option<(Vec<u64>, Option<&str>)> {
         let (core, prerelease) = match s.split_once('-') {
-            Some((c, _suffix)) => (c, true),
-            None => (s, false),
+            Some((c, suffix)) => (c, Some(suffix)),
+            None => (s, None),
         };
         if core.is_empty() {
             return None;
         }
         let parts: Option<Vec<u64>> = core.split('.').map(|p| p.parse::<u64>().ok()).collect();
         parts.map(|p| (p, prerelease))
-    };
+    }
 
     let ((r, r_pre), (l, l_pre)) = match (parse(remote), parse(local)) {
         (Some(r), Some(l)) => (r, l),
@@ -415,8 +673,40 @@ pub fn is_newer(remote: &str, local: &str) -> bool {
             return false;
         }
     }
-    // Cores equal: a final release outranks its pre-releases.
-    !r_pre && l_pre
+    // Cores equal: a final release outranks its pre-releases, and two pre-releases are ordered
+    // by their suffixes.
+    match (r_pre, l_pre) {
+        (None, Some(_)) => true,
+        (Some(_), None) | (None, None) => false,
+        (Some(r), Some(l)) => prerelease_cmp(r, l) == std::cmp::Ordering::Greater,
+    }
+}
+
+/// Order two pre-release suffixes (`exp.2` vs `exp.10`): segment by segment, numbers as numbers,
+/// otherwise text; a numeric segment ranks below a textual one at the same position (semver); the
+/// shorter suffix loses when it is a prefix of the longer.
+fn prerelease_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let mut left = a.split('.');
+    let mut right = b.split('.');
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) => {
+                let ord = match (x.parse::<u64>(), y.parse::<u64>()) {
+                    (Ok(nx), Ok(ny)) => nx.cmp(&ny),
+                    (Ok(_), Err(_)) => Ordering::Less,
+                    (Err(_), Ok(_)) => Ordering::Greater,
+                    (Err(_), Err(_)) => x.cmp(y),
+                };
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+        }
+    }
 }
 
 // -------------------------------------------------------------------- path safety
@@ -451,6 +741,7 @@ pub fn safe_segment(raw: &str) -> Option<&str> {
 /// file, or an error (nothing is written on any mismatch).
 pub async fn download_and_verify(
     http: &UpdateClient,
+    channel: Channel,
     version: &str,
     file: &str,
     expected_sha256: &str,
@@ -458,7 +749,7 @@ pub async fn download_and_verify(
 ) -> Result<String> {
     download_and_verify_from(
         http,
-        &base_url(),
+        Bases::current().of(channel),
         version,
         file,
         expected_sha256,
@@ -644,8 +935,8 @@ pub(crate) mod tests {
             UpdateArtifact { kind: "nsis".into(), file: "setup.exe".into(), size: 0, sha256: "a".into() },
             UpdateArtifact { kind: "portable".into(), file: "portable.zip".into(), size: 0, sha256: "b".into() },
         ];
-        assert!(preferred_artifact(&arts, true).is_some());
-        assert_eq!(preferred_artifact(&arts, true).unwrap().kind, "portable");
+        assert!(preferred_artifact(&arts, true, false).is_some());
+        assert_eq!(preferred_artifact(&arts, true, false).unwrap().kind, "portable");
     }
 
     #[test]
@@ -654,8 +945,8 @@ pub(crate) mod tests {
             UpdateArtifact { kind: "nsis".into(), file: "setup.exe".into(), size: 0, sha256: "a".into() },
             UpdateArtifact { kind: "portable".into(), file: "portable.zip".into(), size: 0, sha256: "b".into() },
         ];
-        assert!(preferred_artifact(&arts, false).is_some());
-        assert_eq!(preferred_artifact(&arts, false).unwrap().kind, "nsis");
+        assert!(preferred_artifact(&arts, false, false).is_some());
+        assert_eq!(preferred_artifact(&arts, false, false).unwrap().kind, "nsis");
     }
 
     #[test]
@@ -663,7 +954,7 @@ pub(crate) mod tests {
         let arts = vec![
             UpdateArtifact { kind: "nsis".into(), file: "setup.exe".into(), size: 0, sha256: "a".into() },
         ];
-        assert!(preferred_artifact(&arts, true).is_none());
+        assert!(preferred_artifact(&arts, true, false).is_none());
     }
 
     #[test]
@@ -671,14 +962,14 @@ pub(crate) mod tests {
         let arts = vec![
             UpdateArtifact { kind: "portable".into(), file: "portable.zip".into(), size: 0, sha256: "b".into() },
         ];
-        assert!(preferred_artifact(&arts, false).is_none());
+        assert!(preferred_artifact(&arts, false, false).is_none());
     }
 
     #[test]
     fn preferred_artifact_empty_list() {
         let arts: Vec<UpdateArtifact> = vec![];
-        assert!(preferred_artifact(&arts, true).is_none());
-        assert!(preferred_artifact(&arts, false).is_none());
+        assert!(preferred_artifact(&arts, true, false).is_none());
+        assert!(preferred_artifact(&arts, false, false).is_none());
     }
 
     // ── version comparison ──
@@ -1600,5 +1891,190 @@ pub(crate) mod tests {
         let entry_dict: HistoryEntry = serde_json::from_str(json_dict).unwrap();
         assert!(entry_dict.notes_i18n.is_some());
         assert_eq!(entry_dict.notes_i18n.unwrap().get("fr").unwrap(), "Notes en français");
+    }
+
+    // ── channels ──
+
+    #[test]
+    fn prereleases_of_the_same_core_compare_by_suffix() {
+        assert!(is_newer("1.3.0-exp.2", "1.3.0-exp.1"));
+        assert!(is_newer("1.3.0", "1.3.0-exp.9"));
+        // Numeric, not lexicographic: "10" < "9" as strings.
+        assert!(is_newer("1.3.0-exp.10", "1.3.0-exp.9"));
+        assert!(!is_newer("1.2.2", "1.3.0-exp.1"));
+        assert!(!is_newer("1.3.0-exp.1", "1.3.0-exp.2"));
+        assert!(!is_newer("1.3.0-exp.9", "1.3.0"));
+        assert!(!is_newer("1.3.0-exp.9", "1.3.0-exp.10"));
+        assert!(is_newer("1.3.0-exp.1", "1.2.2"));
+        assert!(is_newer("1.3.0-exp.1.1", "1.3.0-exp.1"));
+        assert!(!is_newer("1.3.0-exp.1", "1.3.0-exp.1.1"));
+        assert!(!is_newer("1.3.0-exp.3", "1.3.0-exp.3"));
+        assert!(is_newer("1.3.0-exp.rc", "1.3.0-exp.9"));
+    }
+
+    #[test]
+    fn channel_parse_is_lenient_on_case_and_strict_on_names() {
+        assert_eq!(Channel::parse("stable"), Some(Channel::Stable));
+        assert_eq!(Channel::parse(" Experimental "), Some(Channel::Experimental));
+        assert_eq!(Channel::parse("beta"), None);
+        assert_eq!(Channel::effective(Some("nightly"), Channel::Stable), Channel::Stable);
+        assert_eq!(Channel::effective(Some("nightly"), Channel::Experimental), Channel::Experimental);
+        assert_eq!(Channel::effective(None, Channel::Experimental), Channel::Experimental);
+        assert_eq!(Channel::effective(Some("stable"), Channel::Experimental), Channel::Stable);
+        assert_eq!(Channel::effective(Some("experimental"), Channel::Stable), Channel::Experimental);
+    }
+
+    #[test]
+    fn each_channel_has_its_manifest_and_its_address() {
+        assert_eq!(Channel::Stable.manifest_file(), "manifest.json");
+        assert_eq!(Channel::Experimental.manifest_file(), "manifest-experimental.json");
+        assert!(safe_segment("manifest-experimental.json.sig").is_some());
+        assert_eq!(serde_json::to_string(&Channel::Experimental).unwrap(), "\"experimental\"");
+        // The stable is GitHub's latest release; the experimental its own pre-release.
+        let prod = Bases::from_override(None);
+        assert!(prod.of(Channel::Stable).ends_with("/releases/latest/download"));
+        assert!(prod.of(Channel::Experimental).ends_with("/releases/download/experimental"));
+        // A local trial serves both from one place.
+        let local = Bases::from_override(Some("http://127.0.0.1:9".to_string()));
+        assert_eq!(local.of(Channel::Stable), "http://127.0.0.1:9");
+        assert_eq!(local.of(Channel::Experimental), "http://127.0.0.1:9");
+        // A toast remembers the stable address: production's means production for both.
+        assert_eq!(Bases::from_stable(prod.of(Channel::Stable)), prod);
+        assert_eq!(Bases::from_stable("http://127.0.0.1:9"), local);
+    }
+
+    #[test]
+    fn running_channel_follows_the_compiled_flag() {
+        let expected = if crate::config::EXPERIMENTAL { Channel::Experimental } else { Channel::Stable };
+        assert_eq!(Channel::running(), expected);
+        assert_eq!(Channel::running().as_str(), crate::config::edition_channel());
+    }
+
+    #[test]
+    fn artifact_naming_guard_refuses_the_other_channel() {
+        let exp_nsis = "LuaVault-Experimental_1.3.0-exp.1_x64-setup.exe";
+        let exp_zip = "LuaVault-Experimental-1.3.0-exp.1-portable-win64.zip";
+        let nsis = "LuaVault_1.2.2_x64-setup.exe";
+        let zip = "LuaVault-1.2.2-portable-win64.zip";
+        assert!(artifact_matches_channel(exp_nsis, Channel::Experimental).is_ok());
+        assert!(artifact_matches_channel(exp_zip, Channel::Experimental).is_ok());
+        assert!(artifact_matches_channel(nsis, Channel::Stable).is_ok());
+        assert!(artifact_matches_channel(zip, Channel::Stable).is_ok());
+        let err = artifact_matches_channel(nsis, Channel::Experimental).unwrap_err();
+        assert!(err.contains(nsis), "{err}");
+        let err = artifact_matches_channel(exp_zip, Channel::Stable).unwrap_err();
+        assert!(err.contains(exp_zip), "{err}");
+        assert!(artifact_matches_channel("luavault-EXPERIMENTAL-portable.zip", Channel::Stable).is_err());
+    }
+
+    fn manifest_of(version: &str, files: &[(&str, &str)]) -> Manifest {
+        let artifacts: Vec<serde_json::Value> = files
+            .iter()
+            .map(|(kind, file)| serde_json::json!({"kind": kind, "file": file, "size": 1, "sha256": "0".repeat(64)}))
+            .collect();
+        serde_json::from_value(serde_json::json!({
+            "schema": 1, "version": version, "published_at": "2026-11-12T00:00:00Z", "artifacts": artifacts
+        }))
+        .unwrap()
+    }
+
+    fn exp_of(version: &str) -> Manifest {
+        manifest_of(
+            version,
+            &[
+                ("nsis", &format!("LuaVault-Experimental_{version}_x64-setup.exe")),
+                ("portable", &format!("LuaVault-Experimental-{version}-portable-win64.zip")),
+                ("nsis-beside", &format!("LuaVault-Experimental-Beside_{version}_x64-setup.exe")),
+                ("portable-beside", &format!("LuaVault-Experimental-Beside-{version}-portable-win64.zip")),
+            ],
+        )
+    }
+
+    fn stable_of(version: &str) -> Manifest {
+        manifest_of(
+            version,
+            &[
+                ("nsis", &format!("LuaVault_{version}_x64-setup.exe")),
+                ("portable", &format!("LuaVault-{version}-portable-win64.zip")),
+            ],
+        )
+    }
+
+    const STABLE: LocalEdition<'static> =
+        LocalEdition { version: "1.2.2", channel: Channel::Stable, portable: false, beside: false };
+    const EXP: LocalEdition<'static> =
+        LocalEdition { version: "1.3.0-exp.1", channel: Channel::Experimental, portable: false, beside: false };
+
+    #[test]
+    fn switch_to_experimental_is_an_ordinary_upgrade() {
+        let up = offer_for_switch(exp_of("1.3.0-exp.1"), STABLE, Channel::Experimental).expect("offered");
+        assert_eq!(up.channel, Channel::Experimental);
+        assert!(!up.downgrade && !up.returning);
+        assert_eq!(up.artifacts[0].kind, "nsis", "the switch replaces the stable");
+        let newer_stable = LocalEdition { version: "1.4.0", ..STABLE };
+        assert!(offer_for_switch(exp_of("1.3.0-exp.1"), newer_stable, Channel::Experimental).is_none());
+        let peek = LocalEdition { beside: true, ..STABLE };
+        let up = offer_for_switch(exp_of("1.3.0-exp.1"), peek, Channel::Experimental).unwrap();
+        assert_eq!(up.artifacts[0].kind, "nsis-beside", "installing beside takes the edition beside");
+    }
+
+    #[test]
+    fn return_to_stable_offers_a_lower_version_and_says_so() {
+        let up = offer_for_switch(stable_of("1.2.2"), EXP, Channel::Stable).expect("offered");
+        assert!(up.downgrade);
+        assert_eq!(up.version, "1.2.2");
+        assert!(!offer_for_switch(stable_of("1.3.0"), EXP, Channel::Stable).unwrap().downgrade);
+        let same = LocalEdition { version: "1.2.2", ..EXP };
+        assert!(offer_for_switch(stable_of("1.2.2"), same, Channel::Stable).is_none());
+        // A stable binary never downgrades.
+        let ahead = LocalEdition { version: "1.2.5", ..STABLE };
+        assert!(offer_for_switch(stable_of("1.2.2"), ahead, Channel::Stable).is_none());
+    }
+
+    #[test]
+    fn switch_drops_artifacts_named_for_the_other_channel() {
+        let mut mixed = exp_of("1.3.0-exp.1");
+        mixed.artifacts[0].file = "LuaVault_1.3.0_x64-setup.exe".to_string();
+        assert!(offer_for_switch(mixed, STABLE, Channel::Experimental).is_none());
+        let mut leaked = stable_of("1.2.5");
+        leaked.artifacts[0].file = "LuaVault-Experimental_1.2.5_x64-setup.exe".to_string();
+        assert!(offer_for_switch(leaked, STABLE, Channel::Stable).is_none());
+    }
+
+    #[test]
+    fn the_stable_takes_over_a_withdrawn_or_overtaken_experimental() {
+        let exp = exp_of("1.3.0-exp.1");
+        let gone = manifest_of("1.3.0-exp.1", &[]);
+        let old_stable = stable_of("1.2.2");
+        let new_stable = stable_of("1.3.0");
+        assert!(!stable_takes_over(Some(&exp), Some(&old_stable), true), "experimental still ahead");
+        assert!(stable_takes_over(Some(&gone), Some(&old_stable), true), "withdrawn");
+        assert!(stable_takes_over(Some(&exp), Some(&new_stable), true), "the final beats its pre-release");
+        assert!(!stable_takes_over(None, Some(&new_stable), true), "unread is no proof for the replacing one");
+        assert!(stable_takes_over(None, Some(&new_stable), false));
+        assert!(!stable_takes_over(None, None, false));
+    }
+
+    #[test]
+    fn only_the_replacing_experimental_returns_by_itself() {
+        assert!(replacing(&EXP));
+        assert!(!replacing(&LocalEdition { beside: true, ..EXP }));
+        assert!(!replacing(&STABLE));
+        // Withdrawn: the replacing edition goes back, flagged `returning`.
+        let o = decide_offer(Some(manifest_of("1.3.0-exp.1", &[])), Some(stable_of("1.2.2")), EXP).unwrap();
+        assert_eq!(o.channel, Channel::Stable);
+        assert!(o.downgrade && o.returning);
+        // The one beside is offered the stable too, but never as a return.
+        let beside = LocalEdition { beside: true, ..EXP };
+        let o = decide_offer(Some(manifest_of("1.3.0-exp.1", &[])), Some(stable_of("1.2.2")), beside);
+        assert!(o.is_none_or(|o| !o.returning));
+        // Still published and ahead: the next experimental is offered, not the stable.
+        let o = decide_offer(Some(exp_of("1.3.0-exp.2")), Some(stable_of("1.2.2")), EXP).unwrap();
+        assert_eq!((o.channel, o.version.as_str(), o.returning), (Channel::Experimental, "1.3.0-exp.2", false));
+        // A network hiccup on the experimental manifest offers nothing to the replacing one.
+        assert!(decide_offer(None, Some(stable_of("1.2.2")), EXP).is_none());
+        // A stable newer than the experimental brings everyone back, upgraded.
+        let o = decide_offer(Some(exp_of("1.3.0-exp.2")), Some(stable_of("1.3.0")), EXP).unwrap();
+        assert_eq!((o.channel, o.downgrade, o.returning), (Channel::Stable, false, true));
     }
 }

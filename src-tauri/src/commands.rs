@@ -2488,15 +2488,89 @@ pub async fn preview_import(
 // ──────────────────────────────────────────────────────────────────────────
 // Update client
 
+/// What the running binary is, for the frontend's edition check.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AppEdition {
+    pub channel: update::Channel,
+    pub version: String,
+}
+
+/// The edition compiled into this binary. The frontend knows its own from `VITE_LV_EDITION`;
+/// this command is how it checks the two agree.
 #[tauri::command]
-pub async fn check_update(state: State<'_, AppState>) -> Result<Option<update::UpdateAvailable>, String> {
+pub async fn app_edition() -> Result<AppEdition, String> {
+    Ok(AppEdition { channel: update::Channel::running(), version: env!("CARGO_PKG_VERSION").to_string() })
+}
+
+/// The channel the running binary reads: the user's choice when it is a known name, the
+/// edition's own otherwise.
+fn effective_channel(state: &AppState) -> update::Channel {
+    let configured = state.config.lock().unwrap().update_channel.clone();
+    update::Channel::effective(configured.as_deref(), update::Channel::running())
+}
+
+/// Read one channel's signed manifest(s) and reduce them to an offer for this binary. `None`
+/// covers offline, unpublished, unsigned, older and every other quiet case alike. An offer that
+/// takes the experimental back to the stable records the stable channel at once.
+async fn offer_from_channel(state: &AppState, channel: update::Channel) -> Option<update::UpdateAvailable> {
     // Dedicated client: no LuaVault headers, no decompression (update::build_http_client).
     let http = state.update_http.clone();
-    let manifest = match update::fetch_verified_manifest(&http, &update::base_url()).await {
-        Some(m) => m,
-        None => return Ok(None),
+    let offer =
+        update::offer_for_edition(&http, &update::Bases::current(), channel, update::LocalEdition::running()).await;
+    if offer.as_ref().is_some_and(|o| o.returning) {
+        config::record_return_to_stable();
+        state.config.lock().unwrap().update_channel = Some("stable".to_string());
+    }
+    offer
+}
+
+#[tauri::command]
+pub async fn check_update(state: State<'_, AppState>) -> Result<Option<update::UpdateAvailable>, String> {
+    let channel = effective_channel(&state);
+    Ok(offer_from_channel(&state, channel).await)
+}
+
+/// The channel the update check reads, as Settings shows it.
+#[tauri::command]
+pub async fn get_update_channel(state: State<'_, AppState>) -> Result<update::Channel, String> {
+    Ok(effective_channel(&state))
+}
+
+/// Choose a channel and run the check on it at once. Towards `experimental`: the stable sees
+/// `1.3.0-exp.1` above its `1.2.2` and takes it through the ordinary path. Towards `stable` from
+/// an experimental binary: the latest stable is offered even when lower, flagged `downgrade`.
+/// The field is written first: a check that fails (offline) must not leave the choice unrecorded.
+#[tauri::command]
+pub async fn switch_channel(
+    state: State<'_, AppState>,
+    channel: String,
+) -> Result<Option<update::UpdateAvailable>, String> {
+    let Some(channel) = update::Channel::parse(&channel) else {
+        return Err(format!("canal inconnu : {channel}"));
     };
-    Ok(update::evaluate_manifest(manifest, env!("CARGO_PKG_VERSION"), config::is_portable()))
+    {
+        let mut cfg = state.config.lock().unwrap().clone();
+        cfg.update_channel = Some(channel.as_str().to_string());
+        cfg.save().map_err(|e| e.to_string())?;
+        *state.config.lock().unwrap() = cfg;
+    }
+    info!("switch_channel: canal {}", channel.as_str());
+    Ok(offer_from_channel(&state, channel).await)
+}
+
+/// The edition installed BESIDE the stable: the experimental channel's offer for the artefacts
+/// `nsis-beside` / `portable-beside`, without touching this binary's channel. The frontend
+/// downloads it and reveals it; `install_update` is never called on it.
+#[tauri::command]
+pub async fn peek_experimental(state: State<'_, AppState>) -> Result<Option<update::UpdateAvailable>, String> {
+    let http = state.update_http.clone();
+    let Some(manifest) =
+        update::fetch_channel_manifest(&http, &update::Bases::current(), update::Channel::Experimental).await
+    else {
+        return Ok(None);
+    };
+    let local = update::LocalEdition { beside: true, ..update::LocalEdition::running() };
+    Ok(update::offer_for_switch(manifest, local, update::Channel::Experimental))
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -2578,7 +2652,9 @@ pub async fn run_motd_action(
     // The repair goes the way of the Tools button: the app closes, the helper runs the script and
     // reopens the app, which then reports the result and brings Steam up to date (`steam_update`).
     let relaunch_repair = matches!(resolved, motd::ResolvedAction::RepairTools);
-    let result = if relaunch_repair {
+    let result = if let motd::ResolvedAction::SwitchChannel(channel) = resolved {
+        switch_edition(&app, &state, channel).await
+    } else if relaunch_repair {
         match motd_run::refusal(&resolved, motd_run::running_app_id()) {
             Some(reason) => Err(reason.to_string()),
             None => relaunch::repair_steamtools_then_relaunch()
@@ -2604,6 +2680,35 @@ pub async fn run_motd_action(
         }
     }
     result
+}
+
+/// The message's « change edition » button: what the Settings' channel switch does, then the
+/// update path at once (download, SHA-256, installer, reopen). Nothing to take = said, no change.
+async fn switch_edition(app: &AppHandle, state: &State<'_, AppState>, channel: update::Channel) -> Result<String, String> {
+    let Some(offer) = switch_channel(state.clone(), channel.as_str().to_string()).await? else {
+        return Ok(match channel {
+            update::Channel::Experimental => "Aucune version expérimentale n'est disponible pour cette installation.",
+            update::Channel::Stable => "Cette installation suit maintenant la version stable.",
+        }
+        .to_string());
+    };
+    let Some(artifact) = offer.artifacts.first().cloned() else {
+        return Err("Aucun fichier à installer pour cette installation.".to_string());
+    };
+    if offer.upgrade_blocked {
+        return Err("Cette version demande d'abord une mise à jour intermédiaire : passez par Réglages.".to_string());
+    }
+    let path = download_update(
+        state.clone(),
+        offer.version.clone(),
+        artifact.file,
+        artifact.sha256,
+        artifact.size,
+        Some(offer.channel),
+    )
+    .await?;
+    install_update(app.clone(), state.clone(), path).await?;
+    Ok(format!("La version {} est installée : l'application se ferme et se rouvre toute seule.", offer.version))
 }
 
 /// Where the app's update of Steam stands this session (`steam_update`), `None` when it never ran.
@@ -3218,9 +3323,18 @@ pub async fn download_update(
     file: String,
     sha256: String,
     size: u64,
+    channel: Option<update::Channel>,
 ) -> Result<String, String> {
+    // The artefact must be named for the channel it was offered on (the offer's `channel`;
+    // absent, the channel this binary reads), checked before any network call, and it is
+    // fetched from that channel's address.
+    let channel = channel.unwrap_or_else(|| effective_channel(&state));
+    if let Err(why) = update::artifact_matches_channel(&file, channel) {
+        debug!("download_update: refusé, {why}");
+        return Err(format!("artefact refusé : {why}"));
+    }
     let http = state.update_http.clone();
-    let path = update::download_and_verify(&http, &version, &file, &sha256, size)
+    let path = update::download_and_verify(&http, channel, &version, &file, &sha256, size)
         .await
         .map_err(|e| e.to_string())?;
 

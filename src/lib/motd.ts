@@ -62,6 +62,7 @@ const CONFIRMS: Record<MotdActionKind, boolean> = {
   repair_tools: true,
   open_url: false,
   steamtools_source: true,
+  switch_channel: true,
 };
 
 /** Does pressing it close Steam? Only those say so in the second click's wording. */
@@ -72,6 +73,7 @@ const CLOSES_STEAM: Record<MotdActionKind, boolean> = {
   repair_tools: true,
   open_url: false,
   steamtools_source: false,
+  switch_channel: false,
 };
 
 export function confirmKeyOf(kind: MotdActionKind): "motd.action.confirm" | "motd.action.confirm_light" {

@@ -1,0 +1,20 @@
+{
+  "productName": "LuaVault Experimental",
+  "identifier": "io.github.luavault.app.experimental",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "LuaVault Experimental",
+        "width": 1200,
+        "height": 780,
+        "minWidth": 880,
+        "minHeight": 560,
+        "center": true,
+        "visible": false,
+        "dragDropEnabled": true,
+        "backgroundColor": "#eaf3fa"
+      }
+    ]
+  }
+}

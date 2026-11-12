@@ -17,6 +17,16 @@ Two rules to follow when editing this file, because the script depends on them:
 
 ## Unreleased
 
+### fr
+- Une version expérimentale de l'application peut être essayée : Réglages, Canal de mise à jour, Expérimental. Ce choix n'apparaît que lorsqu'une version expérimentale est publiée. Elle remplace la version installée (même dossier, mêmes jeux, mêmes réglages) et revient d'elle-même à la stable quand la version expérimentale est retirée ou qu'une version stable plus récente sort. Réglages propose aussi de l'installer à côté, comme un second programme avec ses propres données.
+- Une version stable ne passe jamais toute seule à l'expérimentale : il faut la choisir. Restaurer une sauvegarde ne change pas non plus le canal de mise à jour.
+- Un message de l'application peut proposer un bouton pour changer d'édition, qui installe l'autre édition et rouvre l'application.
+
+### en
+- An experimental version of the app can be tried: Settings, Update channel, Experimental. The choice only shows while an experimental version is published. It replaces the installed version (same folder, same games, same settings) and goes back to the stable by itself when the experimental version is withdrawn or a newer stable version comes out. Settings also offers to install it beside, as a second program with its own data.
+- A stable version never moves to the experimental by itself: it has to be chosen. Restoring a backup does not change the update channel either.
+- A message from the app can offer a button to switch edition, which installs the other edition and reopens the app.
+
 ## 1.2.2 - 2026-11-12
 
 ### fr

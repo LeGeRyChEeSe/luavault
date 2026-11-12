@@ -1274,4 +1274,21 @@ const E2E_IMPORT_CASES = 24;
   );
 }
 
+// ── The two editions and the update channel choice ───
+const EDITION_CASES = 6;
+{
+  const mod = (await import("./test-edition-wiring")) as unknown as {
+    __editionWiringRan: boolean;
+    editionWiringSuite: Promise<void>;
+    editionWiringCases: () => number;
+  };
+  assert.ok(mod.__editionWiringRan === true, "la suite des éditions doit être importée par le runner");
+  await mod.editionWiringSuite;
+  assert.equal(
+    mod.editionWiringCases(),
+    EDITION_CASES,
+    `la suite des éditions doit aller au bout de ses ${EDITION_CASES} cas`,
+  );
+}
+
 console.log("\nTous les tests frontend passent.");

@@ -4,6 +4,33 @@ use std::path::{Path, PathBuf};
 
 pub const PORTABLE_MARKER: &str = "LuaVault.portable";
 
+/// The experimental edition (`--features experimental`): it reads the experimental update
+/// channel unless told otherwise, and shows itself as experimental.
+pub const EXPERIMENTAL: bool = cfg!(feature = "experimental");
+
+/// The experimental edition installed beside the stable (`--features beside`): its own data
+/// folder, its own registrations. Without it an experimental binary takes the stable's place,
+/// identity and data included.
+pub const BESIDE: bool = cfg!(feature = "beside");
+
+/// The channel name the running binary belongs to, as the frontend and the manifest name spell it.
+pub const fn edition_channel() -> &'static str {
+    if EXPERIMENTAL {
+        "experimental"
+    } else {
+        "stable"
+    }
+}
+
+/// The installed data folder's name under %LocalAppData%: the edition beside has its own.
+pub fn installed_data_dir_name(beside: bool) -> &'static str {
+    if beside {
+        "LuaVault Experimental"
+    } else {
+        "LuaVault"
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct AppConfig {
@@ -68,6 +95,11 @@ pub struct AppConfig {
     /// entries above: never imported from a backup.
     #[serde(default)]
     pub motd_actions_done: Vec<crate::motd::ActionRun>,
+    /// The update channel chosen in Settings: `None` = the running edition's own
+    /// (`update::Channel::effective`). A choice made on THIS machine: never imported from a
+    /// backup, so a backup taken on the experimental never moves a stable onto it.
+    #[serde(default)]
+    pub update_channel: Option<String>,
 }
 
 /// Result of merging an imported config into a local one.
@@ -162,6 +194,7 @@ pub fn merge_imported(
             background_guard: local.background_guard,
             auto_update: local.auto_update,
             motd_actions_done: local.motd_actions_done.clone(),
+            update_channel: local.update_channel.clone(),
         },
         kept_local,
     }
@@ -237,7 +270,19 @@ pub fn data_dir() -> PathBuf {
     } else {
         dirs::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("LuaVault")
+            .join(installed_data_dir_name(BESIDE))
+    }
+}
+
+/// The experimental that replaced the stable goes back to it: the channel is the stable's from now
+/// on, so a later experimental is a new choice, never an automatic one. Written on disk at once.
+pub fn record_return_to_stable() {
+    let mut cfg = AppConfig::load().unwrap_or_default();
+    if cfg.update_channel.as_deref() != Some("stable") {
+        cfg.update_channel = Some("stable".to_string());
+        if let Err(e) = cfg.save() {
+            log::warn!("retour à la stable : canal non enregistré ({e})");
+        }
     }
 }
 
@@ -269,6 +314,7 @@ mod tests {
             background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
+            update_channel: None,
         }
     }
 
@@ -585,6 +631,33 @@ mod tests {
         );
     }
 
+    /// Restoring a backup never changes the update channel: a stable does not move to the
+    /// experimental because the backup was taken there.
+    #[test]
+    fn merge_imported_keeps_the_local_update_channel() {
+        let local = AppConfig { update_channel: None, ..Default::default() };
+        let imported = AppConfig { update_channel: Some("experimental".to_string()), ..Default::default() };
+        assert_eq!(merge_imported(&local, &imported, exists_false).merged.update_channel, None);
+        let local = AppConfig { update_channel: Some("experimental".to_string()), ..Default::default() };
+        let imported = AppConfig { update_channel: Some("stable".to_string()), ..Default::default() };
+        assert_eq!(
+            merge_imported(&local, &imported, exists_false).merged.update_channel.as_deref(),
+            Some("experimental")
+        );
+    }
+
+    /// A `cfg` nothing exercises is a comment: the edition flags follow the features.
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn edition_flags_follow_the_features() {
+        assert_eq!(EXPERIMENTAL, cfg!(feature = "experimental"));
+        assert_eq!(edition_channel(), if EXPERIMENTAL { "experimental" } else { "stable" });
+        // The replacing experimental shares the stable's folder; the one beside has its own.
+        let expected = if BESIDE { "LuaVault Experimental" } else { "LuaVault" };
+        assert_eq!(installed_data_dir_name(BESIDE), expected);
+        assert!(!BESIDE || EXPERIMENTAL, "beside implies experimental");
+    }
+
     /// C4 : les 6 champs "importés tels quels" sont tous vérifiés.
     #[test]
     fn merge_imported_all_non_path_fields_imported_as_is() {
@@ -606,6 +679,7 @@ mod tests {
             background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
+            update_channel: None,
         };
         let imported = AppConfig {
             steam_dir: Some(PathBuf::from("Z:\\NonExistent")),
@@ -625,6 +699,7 @@ mod tests {
             background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
+            update_channel: None,
         };
         let result = merge_imported(&local, &imported, exists_false);
         // Les chemins locaux survivent.

@@ -75,6 +75,10 @@ Run-Step "Rust: cargo test" "cargo test" "$root\src-tauri" "cargo-test"
 # de mise a jour passait par clippy. Un avertissement toujours tolere est un
 # avertissement que plus personne ne lit.
 Run-Step "Rust: cargo clippy" "cargo clippy --all-targets -- -D warnings" "$root\src-tauri" "cargo-clippy"
+# L'edition experimentale est le meme code sous une feature : un test peut ne compiler qu'avec
+# elle (config::EXPERIMENTAL), une branche ne servir qu'a elle. Les deux configurations passent.
+Run-Step "Rust: cargo test (experimental)" "cargo test --features experimental" "$root\src-tauri" "cargo-test-exp"
+Run-Step "Rust: cargo clippy (a cote)" "cargo clippy --all-targets --features beside -- -D warnings" "$root\src-tauri" "cargo-clippy-beside"
 Run-Step "Frontend: npm run build" "npm run build" "$root" "vite-build"
 Run-Step "Frontend: svelte-check" "npm run check" "$root" "svelte-check"
 # Les tests unitaires frontend (virtual-scroll + tripwires structurels de

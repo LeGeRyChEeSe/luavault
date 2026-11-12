@@ -134,7 +134,51 @@ try {
     Assert-That ($LASTEXITCODE -eq 0) 'the default publication fixture must succeed.'
     Assert-That ($global:ghCalls[0] -notcontains '--draft') 'the default publication must remain non-draft.'
 
-    Write-Host 'OK: simulated publication - bilingual notes, history, changelog guard and draft flag'
+    # The experimental channel: its own changelog, only the files named « Experimental », the kind of
+    # the edition beside read from its name, a manifest of its own name.
+    $expDir = Join-Path $fixtureRoot 'releases\9.9.9-exp.1'
+    New-Item -ItemType Directory -Force $expDir | Out-Null
+    [System.IO.File]::WriteAllText(
+        (Join-Path $fixtureRoot 'CHANGELOG-EXPERIMENTAL.md'),
+        @'
+## 9.9.9-exp.1 - 2026-11-12
+
+### fr
+- Note expérimentale.
+
+### en
+- Experimental note.
+'@,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    foreach ($name in @(
+            'LuaVault-Experimental_9.9.9-exp.1_x64-setup.exe',
+            'LuaVault-Experimental-9.9.9-exp.1-portable-win64.zip',
+            'LuaVault-Experimental-Beside_9.9.9-exp.1_x64-setup.exe',
+            'LuaVault-Experimental-Beside-9.9.9-exp.1-portable-win64.zip',
+            'LuaVault_9.9.9_x64-setup.exe'
+        )) {
+        [System.IO.File]::WriteAllText((Join-Path $expDir $name), 'fixture', [System.Text.UTF8Encoding]::new($false))
+    }
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $publishScript -Version '9.9.9-exp.1' -Channel experimental -ProjectRoot $fixtureRoot -DryRun -SkipSigning
+    Assert-That ($LASTEXITCODE -eq 0) 'the experimental dry-run must succeed.'
+    $exp = Get-Content -Raw (Join-Path $expDir 'manifest-experimental.json') | ConvertFrom-Json
+    $kinds = @($exp.artifacts | ForEach-Object { "$($_.kind)=$($_.file)" } | Sort-Object)
+    Assert-That ($kinds.Count -eq 4) "the stable-named file must be left out ($($kinds -join ', '))."
+    Assert-That ($kinds -contains 'nsis=LuaVault-Experimental_9.9.9-exp.1_x64-setup.exe') 'the replacing installer is nsis.'
+    Assert-That ($kinds -contains 'portable-beside=LuaVault-Experimental-Beside-9.9.9-exp.1-portable-win64.zip') 'the zip beside is portable-beside.'
+    Assert-That ($kinds -contains 'nsis-beside=LuaVault-Experimental-Beside_9.9.9-exp.1_x64-setup.exe') 'the installer beside is nsis-beside.'
+    Assert-That ($exp.notes_i18n.en -ceq 'Experimental note.') 'the experimental notes come from CHANGELOG-EXPERIMENTAL.md.'
+    Assert-That (-not (Test-Path (Join-Path $expDir 'manifest.json'))) 'the experimental channel never writes the stable manifest.'
+
+    # Withdrawing the channel: a manifest with no artefact, no changelog entry needed.
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $publishScript -Version '9.9.9-exp.2' -Channel experimental -Withdraw -ProjectRoot $fixtureRoot -DryRun -SkipSigning
+    Assert-That ($LASTEXITCODE -eq 0) 'the withdrawal dry-run must succeed.'
+    $gone = Get-Content -Raw (Join-Path $fixtureRoot 'releases\withdrawn-9.9.9-exp.2\manifest-experimental.json') | ConvertFrom-Json
+    Assert-That (@($gone.artifacts).Count -eq 0) 'a withdrawal carries no artefact.'
+    Assert-That ($gone.version -ceq '9.9.9-exp.2') 'a withdrawal names the version it withdraws.'
+
+    Write-Host 'OK: simulated publication - bilingual notes, history, changelog guard and draft flag, experimental channel and withdrawal'
 } finally {
     if (Test-Path -LiteralPath $fixtureRoot) {
         Remove-Item -LiteralPath $fixtureRoot -Recurse -Force

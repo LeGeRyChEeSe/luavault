@@ -1,9 +1,10 @@
-import { checkMotd, checkUpdate, detectAll, downloadUpdate, getAutoUpdate, getBackgroundNotify, installUpdate, getReachability, getUpdateNotified, libraryStatus, listLibrary, manifestFallbackStatus, markUpdateNotified, motdActionStatuses, motdWorkaround, steamUpdateStatus, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeSteamtoolsRepairResult, takeUpdateResult } from "./api";
+import { appEdition, checkMotd, checkUpdate, detectAll, downloadUpdate, getAutoUpdate, getBackgroundNotify, installUpdate, getReachability, getUpdateNotified, libraryStatus, listLibrary, manifestFallbackStatus, markUpdateNotified, motdActionStatuses, motdWorkaround, steamUpdateStatus, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeSteamtoolsRepairResult, takeUpdateResult } from "./api";
 import type { DetectionReport, GameStatus, LibraryEntry, ManifestFallbackRun, ManifestFallbackView, MotdActionStatus, MotdMessage, Reachability, SteamUpdatePhase, Workaround, UpdateAvailable, UpdateResult } from "./api";
 import { themeStore } from "./theme.svelte";
 import { i18n, t } from "./i18n.svelte";
 import { LONG_TOAST_MS, resolveToastDuration } from "./toast-duration";
 import { isForced, shouldOpenMotdAtStartup } from "./motd";
+import { EDITION, editionsAgree } from "./edition";
 
 export interface Toast {
   id: number;
@@ -302,6 +303,18 @@ class AppStore {
     }
   }
 
+  /** Front and binary must be the same edition: logged, never fixed (only a rebuild fixes it). */
+  async checkEdition() {
+    try {
+      const backend = await appEdition();
+      if (!editionsAgree(EDITION, backend.channel)) {
+        this.addLog("debug", `edition: le front est « ${EDITION} », le binaire « ${backend.channel} » (reconstruire)`);
+      }
+    } catch {
+      // The command is not what decides the edition: nothing to do.
+    }
+  }
+
   /**
    * Background update check: silent on failure, toast once per version.
    * Called once at startup — never blocks the UI.
@@ -330,18 +343,20 @@ class AppStore {
    * off, the new version is downloaded, verified and installed with the very path of
    * the window's button, and the app comes back by itself. The background check
    * (`headless.rs`) does the same with the app closed and leaves a visible window to
-   * this. Never past a pivot the user must cross by hand.
+   * this. Never for a downgrade (a channel switch the user asks for in Settings) unless it is
+   * the experimental going back to the stable by itself (`returning`), never past a pivot the
+   * user must cross by hand.
    */
   async installAutomatically(update: UpdateAvailable) {
     if (this.autoInstalling) return;
-    if (update.upgrade_blocked || update.artifacts.length === 0) return;
+    if ((update.downgrade && !update.returning) || update.upgrade_blocked || update.artifacts.length === 0) return;
     try {
       const s = await getAutoUpdate();
       if (!s.active) return;
       this.autoInstalling = true;
       this.toast("info", t("state.update.auto", { version: update.version }), LONG_TOAST_MS);
       const a = update.artifacts[0];
-      const path = await downloadUpdate(update.version, a.file, a.sha256, a.size);
+      const path = await downloadUpdate(update.version, a.file, a.sha256, a.size, update.channel);
       await installUpdate(path);
     } catch (e) {
       this.autoInstalling = false;

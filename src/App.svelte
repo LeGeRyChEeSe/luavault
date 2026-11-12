@@ -35,6 +35,7 @@
   import { resolveShortcut, isEditableTarget } from "./lib/keyboard-shortcuts";
   import { focusTrap } from "./lib/focus-trap";
   import { t } from "./lib/i18n.svelte";
+  import { isExperimental } from "./lib/edition";
 
   type View =
     | "library"
@@ -95,6 +96,8 @@
       // went to Settings to press "check now". Nothing here depends on adoption,
       // so it starts now and resolves whenever it resolves.
       void appState.checkForUpdate();
+      // Front and binary must agree on the edition (logged, never fixed).
+      void appState.checkEdition();
       // The message of the day rides the same priority: a notice about an
       // outage is exactly what must not wait behind a minute of adoption.
       void appState.checkForMotd();
@@ -237,6 +240,16 @@
       <div class="max-lg:hidden">
         <h1 class="text-sm leading-tight font-semibold">LuaVault</h1>
         <p class="text-xs text-azure-700/70">{t("shell.brand.tagline")}</p>
+        {#if isExperimental}
+          <!-- A label, not an alert: lilac carries "experimental", rose would read as a problem. -->
+          <span
+            data-edition-badge
+            data-tip={t("shell.edition.experimental.tip")}
+            class="mt-1 inline-block rounded-full bg-lilac-soft/70 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-lilac-deep uppercase"
+          >
+            {t("shell.edition.experimental")}
+          </span>
+        {/if}
       </div>
     </div>
 

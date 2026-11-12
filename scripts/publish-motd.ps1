@@ -52,6 +52,11 @@
 #   steamtools_source  change l'amont ou SteamTools demande les codes de manifeste (-Source), sans
 #                    redemarrer Steam : la valeur est relue a chaud. Un nom connu, jamais une URL.
 #   open_url         ouvre une page https (-OpenUrl)
+#   switch_experimental  passe cette installation à l'édition expérimentale (elle remplace la
+#                    stable : même dossier, mêmes données), la télécharge, l'installe, rouvre l'app
+#   switch_stable    le retour à la stable, même chemin. Les deux sont l'action `switch_channel`
+#                    (LuaVault 1.3.0 et suivantes ; un client plus ancien n'affiche pas le bouton).
+#                    Chacun s'affiche « fait » chez qui tourne déjà sur l'édition demandée.
 #   -Persistent      le message ne peut plus être réduit au silence tant que le correctif
 #                    reste nécessaire sur la machine (la case « Ne plus afficher » disparaît,
 #                    une banniere reste sur tous les onglets). Sans effet pour qui n'a pas
@@ -78,7 +83,7 @@ param(
     [ValidateSet('info', 'warning', 'critical')][string]$Severity = 'info',
     [string]$Id = '',
     # Boutons du message (voir plus haut), dans l'ordre d'affichage.
-    [ValidateSet('steam_downgrade', 'steam_undo', 'restart_steam', 'repair_tools', 'open_url', 'steamtools_source')][string[]]$Actions = @(),
+    [ValidateSet('steam_downgrade', 'steam_undo', 'restart_steam', 'repair_tools', 'open_url', 'steamtools_source', 'switch_experimental', 'switch_stable')][string[]]$Actions = @(),
     # Capture Wayback du manifeste Steam (14 chiffres) pour steam_downgrade.
     [string]$Snapshot = '',
     [string]$ManifestSha256 = '',
@@ -192,6 +197,16 @@ function New-MotdActions([string[]]$Kinds) {
         if ($kind -eq 'open_url') {
             if ($OpenUrl -notmatch '^https://[^\s/@]+(/\S*)?$') { throw "open_url demande -OpenUrl en https:// sans identifiants." }
             $a['url'] = $OpenUrl
+        }
+        if ($kind -eq 'switch_experimental' -or $kind -eq 'switch_stable') {
+            $a['kind'] = 'switch_channel'
+            if ($kind -eq 'switch_experimental') {
+                $a['channel'] = 'experimental'
+                $a['label'] = [ordered]@{ fr = "Passer $([char]0xE0) l'exp$([char]0xE9)rimentale"; en = 'Switch to experimental' }
+            } else {
+                $a['channel'] = 'stable'
+                $a['label'] = [ordered]@{ fr = "Revenir $([char]0xE0) la stable"; en = 'Back to stable' }
+            }
         }
         $list += $a
     }

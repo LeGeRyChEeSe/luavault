@@ -10,6 +10,9 @@
     artworkCacheClear,
     artworkCacheInfo,
     checkUpdate,
+    getUpdateChannel,
+    peekExperimental,
+    switchChannel,
     createSnapshot,
     deleteBackup,
     downloadUpdate,
@@ -47,6 +50,7 @@
     BackupOptions,
     SnapshotInfo,
     UpdateAvailable,
+    UpdateChannel,
     WipeAction,
     WipeLevel,
     WipePlan,
@@ -57,6 +61,7 @@
   import { focusTrap } from "../lib/focus-trap";
   import { openFolder, openSteamtoolsFolder } from "../lib/open-folder";
   import { t } from "../lib/i18n.svelte";
+  import { isExperimental, showChannelChoice } from "../lib/edition";
   import ThemePicker from "../components/ThemePicker.svelte";
   import LanguagePicker from "../components/LanguagePicker.svelte";
 
@@ -285,6 +290,7 @@
         artifact.file,
         artifact.sha256,
         artifact.size,
+        updateAvailable.channel,
       );
       appState.toast("success", t("settings.update.downloaded"));
     } catch (e) {
@@ -300,6 +306,70 @@
     busy = "install-update";
     try {
       await installUpdate(downloadedPath);
+    } catch (e) {
+      appState.toast("error", String(e));
+    } finally {
+      busy = null;
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Update channel
+  /** The channel the check reads: the user's choice, else the edition's own. */
+  let updateChannel = $state<UpdateChannel | null>(null);
+  /** An experimental version is published right now, with an artefact for this
+   *  edition. Offline, unpublished or withdrawn: false, and the choice stays hidden. */
+  let experimentalOffered = $state(false);
+  const CHANNELS: UpdateChannel[] = ["stable", "experimental"];
+  const CHANNEL_TEXT = {
+    stable: { label: "settings.channel.stable.label", detail: "settings.channel.stable.detail" },
+    experimental: { label: "settings.channel.experimental.label", detail: "settings.channel.experimental.detail" },
+  } as const;
+
+  /** Record the channel and take whatever it offers, through the ordinary update path. Towards
+   *  "stable" from an experimental binary the offer may be lower than the running version:
+   *  `downgrade` is what the toast says. A file downloaded from the previous channel is dropped. */
+  async function doSwitchChannel(channel: UpdateChannel) {
+    if (channel === updateChannel) return;
+    busy = "switch-channel";
+    try {
+      const offer = await switchChannel(channel);
+      updateChannel = channel;
+      downloadedPath = null;
+      updateChecked = true;
+      updateInfo = offer;
+      appState.updateAvailable = offer;
+      if (offer) {
+        appState.toast(
+          "info",
+          offer.downgrade
+            ? t("settings.channel.offer.downgrade", { version: offer.version })
+            : t("settings.channel.offer.newer", { version: offer.version }),
+        );
+      } else {
+        appState.toast("info", t("settings.channel.offer.none"));
+      }
+    } catch (e) {
+      appState.toast("error", String(e));
+    } finally {
+      busy = null;
+    }
+  }
+
+  /** The edition beside: fetch its artefact (portable or installer), verify it, reveal it. This
+   *  installation's channel does not move and `installUpdate` is never called. */
+  async function doInstallExperimentalBeside() {
+    busy = "clone-experimental";
+    try {
+      const offer = await peekExperimental();
+      if (!offer || !offer.artifacts[0]) {
+        appState.toast("info", t("settings.channel.clone.none"));
+        return;
+      }
+      const artifact = offer.artifacts[0];
+      const path = await downloadUpdate(offer.version, artifact.file, artifact.sha256, artifact.size, "experimental");
+      await openFolder(path);
+      appState.toast("success", t("settings.channel.clone.ready", { version: offer.version }));
     } catch (e) {
       appState.toast("error", String(e));
     } finally {
@@ -418,6 +488,12 @@
       .catch(() => {});
     void getAutoUpdate()
       .then((a) => (autoUpdate = a))
+      .catch(() => {});
+    void getUpdateChannel()
+      .then((c) => (updateChannel = c))
+      .catch(() => {});
+    void peekExperimental()
+      .then((offer) => (experimentalOffered = !!offer && offer.artifacts.length > 0))
       .catch(() => {});
     void getBackgroundGuard()
       .then((g) => (guard = g))
@@ -1787,6 +1863,58 @@
       {/if}
     {/if}
   </section>
+
+  <!-- --------------------------------------------------------------- update channel -->
+  <!-- Only while an experimental version is published, or on the way back (showChannelChoice). -->
+  {#if showChannelChoice({ experimental: isExperimental, channel: updateChannel, offered: experimentalOffered })}
+    <section data-update-channel class="glass enter-up flex flex-col gap-4 rounded-xl2 p-5">
+      <div class="min-w-0 flex-1">
+        <h3 class="flex items-center gap-2 text-sm font-semibold">
+          <Icon name="layers" size={16} />
+          {t("settings.channel.title")}
+        </h3>
+        <p class="mt-0.5 text-xs text-azure-900/55">{t("settings.channel.intro")}</p>
+      </div>
+
+      <div class="flex flex-wrap gap-2" role="radiogroup" aria-label={t("settings.channel.title")}>
+        {#each CHANNELS as channel (channel)}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={updateChannel === channel}
+            data-channel={channel}
+            disabled={busy !== null || updateChannel === null}
+            onclick={() => doSwitchChannel(channel)}
+            class="lift flex min-w-0 flex-1 basis-56 flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left text-sm disabled:opacity-60 {updateChannel === channel
+              ? channel === 'experimental'
+                ? 'border-lilac/40 bg-lilac-soft/60 text-lilac-deep'
+                : 'border-azure-500/40 bg-surface/80 text-azure-800'
+              : 'border-surface/60 bg-surface/45 text-azure-900/70 hover:bg-surface/70'}"
+          >
+            <span class="font-semibold">{t(CHANNEL_TEXT[channel].label)}</span>
+            <span class="text-xs opacity-80">{t(CHANNEL_TEXT[channel].detail)}</span>
+          </button>
+        {/each}
+      </div>
+
+      <p class="text-xs text-azure-900/55">{t("settings.channel.replaces")}</p>
+
+      {#if !isExperimental && experimentalOffered}
+        <div class="flex flex-wrap items-center gap-3 rounded-xl bg-surface/55 px-4 py-2.5 text-sm">
+          <span class="min-w-0 flex-1 text-xs text-azure-900/60">{t("settings.channel.clone.detail")}</span>
+          <ActionButton
+            label={t("settings.channel.clone.action")}
+            icon="download"
+            size="sm"
+            disabled={busy !== null}
+            busy={busy === "clone-experimental"}
+            busyLabel={t("settings.update.download.busy")}
+            onclick={doInstallExperimentalBeside}
+          />
+        </div>
+      {/if}
+    </section>
+  {/if}
 
   <!-- --------------------------------------------------------------- info -->
   <section class="glass enter-up grid grid-cols-2 gap-3 rounded-xl2 p-5 text-sm max-lg:grid-cols-1">

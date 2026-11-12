@@ -16,7 +16,16 @@ param(
     # Annonce Discord écrite à la main (voir scripts/announce-discord.ps1), postée
     # une fois la release publiée. Sans ce fichier, rien n'est annoncé : le texte
     # des notes de version est technique, une annonce se rédige.
-    [string]$AnnounceFile = ''
+    [string]$AnnounceFile = '',
+    # The experimental channel: notes from CHANGELOG-EXPERIMENTAL.md, only the files named
+    # « Experimental » (the client refuses the others there), a manifest named
+    # manifest-experimental.json, published on GitHub as the pre-release tagged `experimental`
+    # (rebuilt at each publication; GitHub never calls a pre-release "latest").
+    [ValidateSet('stable', 'experimental')]
+    [string]$Channel = 'stable',
+    # Withdraw the experimental channel: a signed manifest-experimental.json with no artefact.
+    # Every experimental that replaced the stable then goes back to it by itself.
+    [switch]$Withdraw
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +39,12 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 if ($SkipSigning -and -not $DryRun) {
     throw '-SkipSigning est réservé aux simulations -DryRun.'
 }
+$experimental = ($Channel -eq 'experimental')
+if ($Withdraw -and -not $experimental) {
+    throw '-Withdraw ne retire que le canal expérimental (-Channel experimental).'
+}
+$changelogName = if ($experimental) { 'CHANGELOG-EXPERIMENTAL.md' } else { 'CHANGELOG.md' }
+$manifestName = if ($experimental) { 'manifest-experimental.json' } else { 'manifest.json' }
 
 function Get-SectionNotes {
     param(
@@ -120,8 +135,8 @@ function Get-SectionNoteFields {
     }
 }
 
-$changelogPath = Join-Path $root 'CHANGELOG.md'
-$changelog = [System.IO.File]::ReadAllText($changelogPath)
+$changelogPath = Join-Path $root $changelogName
+$changelog = if ($Withdraw) { '' } else { [System.IO.File]::ReadAllText($changelogPath) }
 $headings = [regex]::Matches(
     $changelog,
     '(?m)^## (?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?) - (?<date>\d{4}-\d{2}-\d{2})\s*$'
@@ -136,10 +151,17 @@ for ($i = 0; $i -lt $headings.Count; $i++) {
 
 # This check is intentionally before release files, keys, signing and `gh`: a
 # missing CHANGELOG entry must reject a publication at its earliest frontier.
-if ($targetIndex -lt 0) {
-    throw "Publication refusée : CHANGELOG.md ne contient aucune entrée pour la version $Version."
+if ($targetIndex -lt 0 -and -not $Withdraw) {
+    throw "Publication refusée : $changelogName ne contient aucune entrée pour la version $Version."
+}
+if ($Withdraw) {
+    $targetIndex = $null
 }
 
+if ($Withdraw) {
+    $targetNoteFields = [pscustomobject][ordered]@{ notes = "Version expérimentale retirée : retour à la version stable."; notes_i18n = $null }
+    $history = @()
+} else {
 $targetHeading = $headings[$targetIndex]
 $targetStart = $targetHeading.Index + $targetHeading.Length
 $targetEnd = if ($targetIndex + 1 -lt $headings.Count) {
@@ -149,7 +171,7 @@ $targetEnd = if ($targetIndex + 1 -lt $headings.Count) {
 }
 $targetNoteFields = Get-SectionNoteFields -Text $changelog -Start $targetStart -End $targetEnd
 if ([string]::IsNullOrWhiteSpace($targetNoteFields.notes)) {
-    throw "Publication refusée : l'entrée CHANGELOG.md de $Version ne contient aucune puce de description (- ou *)."
+    throw "Publication refusée : l'entrée $changelogName de $Version ne contient aucune puce de description (- ou *)."
 }
 
 $history = foreach ($i in 0..($headings.Count - 1)) {
@@ -165,17 +187,27 @@ $history = foreach ($i in 0..($headings.Count - 1)) {
     }
 }
 
-$releaseDir = Join-Path $root "releases\$Version"
+}
+
+$releaseDir = if ($Withdraw) { Join-Path $root "releases\withdrawn-$Version" } else { Join-Path $root "releases\$Version" }
+if ($Withdraw) {
+    New-Item -ItemType Directory -Force $releaseDir | Out-Null
+}
 if (-not (Test-Path -LiteralPath $releaseDir -PathType Container)) {
     throw "Dossier des artefacts introuvable : $releaseDir. Construisez d'abord la release."
 }
 
+# The kind follows the name: the edition installed beside the stable carries « Beside »
+# (build-portable.ps1 -Edition beside). Only the files of this channel are kept.
 $artifacts = @(
     Get-ChildItem -LiteralPath $releaseDir -File |
+        Where-Object { -not $Withdraw } |
+        Where-Object { ($_.Name -match 'experimental') -eq $experimental } |
         ForEach-Object {
+            $beside = $_.Name -match 'beside'
             $kind = switch -Regex ($_.Name) {
-                '\.exe$' { 'nsis'; break }
-                '\.zip$' { 'portable'; break }
+                '\.exe$' { if ($beside) { 'nsis-beside' } else { 'nsis' }; break }
+                '\.zip$' { if ($beside) { 'portable-beside' } else { 'portable' }; break }
                 default { $null }
             }
             if ($null -ne $kind) {
@@ -188,8 +220,8 @@ $artifacts = @(
             }
         }
 )
-if ($artifacts.Count -eq 0) {
-    throw "Aucun artefact .exe ou .zip à publier dans $releaseDir."
+if ($artifacts.Count -eq 0 -and -not $Withdraw) {
+    throw "Aucun artefact .exe ou .zip du canal $Channel à publier dans $releaseDir."
 }
 
 $manifest = [pscustomobject][ordered]@{
@@ -201,7 +233,7 @@ $manifest = [pscustomobject][ordered]@{
     history = @($history)
     artifacts = $artifacts
 }
-$manifestPath = Join-Path $releaseDir 'manifest.json'
+$manifestPath = Join-Path $releaseDir $manifestName
 [System.IO.File]::WriteAllText(
     $manifestPath,
     ($manifest | ConvertTo-Json -Depth 6 -Compress),
@@ -221,7 +253,7 @@ if (-not $SkipSigning) {
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($signature)) {
         throw 'La signature Ed25519 du manifeste a échoué.'
     }
-    $signaturePath = Join-Path $releaseDir 'manifest.json.sig'
+    $signaturePath = Join-Path $releaseDir "$manifestName.sig"
     [System.IO.File]::WriteAllText($signaturePath, $signature.Trim(), $utf8NoBom)
 }
 
@@ -237,10 +269,10 @@ if ($null -eq $gh) {
     throw 'GitHub CLI (gh) est requis pour publier la release.'
 }
 
-$tag = "v$Version"
+$tag = if ($experimental) { 'experimental' } else { "v$Version" }
 # Installer, then portable, then the manifest pair below them — a fixed,
 # readable order on the release page rather than filesystem enumeration order.
-$assetOrder = @('nsis', 'portable')
+$assetOrder = @('nsis', 'portable', 'nsis-beside', 'portable-beside')
 $orderedArtifacts = foreach ($kind in $assetOrder) { $artifacts | Where-Object { $_.kind -eq $kind } }
 $assets = @(
     $orderedArtifacts | ForEach-Object { Join-Path $releaseDir $_.file }
@@ -265,6 +297,19 @@ $releaseNotes = ($githubNotesSource -split "`n" | ForEach-Object { "- $_" }) -jo
 # order — measured directly against the API after a run, so don't reintroduce
 # a comment claiming otherwise.
 $releaseArguments = @('release', 'create', $tag, '--title', "LuaVault $Version", '--notes', $releaseNotes)
+if ($experimental) {
+    # One pre-release for the channel, rebuilt from scratch: its files are exactly this
+    # publication's. Between the removal and the new upload a client reads nothing, and an
+    # unread experimental manifest changes nothing for anyone (update::stable_takes_over).
+    & gh release view $tag *> $null
+    if ($LASTEXITCODE -eq 0) {
+        & gh release delete $tag --cleanup-tag --yes
+        if ($LASTEXITCODE -ne 0) { throw "La release $tag n'a pas pu être retirée avant sa mise à jour." }
+    }
+    $head = (& git -C $root rev-parse HEAD).Trim()
+    $title = if ($Withdraw) { "LuaVault Experimental (retirée)" } else { "LuaVault Experimental $Version" }
+    $releaseArguments = @('release', 'create', $tag, '--prerelease', '--target', $head, '--title', $title, '--notes', $releaseNotes)
+}
 if ($Draft) {
     $releaseArguments += '--draft'
 }
@@ -280,7 +325,7 @@ foreach ($asset in $assets) {
     }
 }
 
-Write-Host "Release GitHub $tag publiée avec $($artifacts.Count) artefact(s), manifest.json et manifest.json.sig."
+Write-Host "Release GitHub $tag publiée avec $($artifacts.Count) artefact(s), $manifestName et $manifestName.sig."
 
 # Une release en brouillon n'est pas visible : l'annoncer maintenant serait mentir.
 if ($AnnounceFile -and -not $Draft) {

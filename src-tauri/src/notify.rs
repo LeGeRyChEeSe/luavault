@@ -37,18 +37,24 @@ pub const MAX_BUTTONS: usize = 2;
 
 // -------------------------------------------------------------------- identity
 
+/// An edition installed beside the stable owns its registrations; the replacing experimental
+/// takes the stable's (same identity, same exe path).
+fn beside() -> bool {
+    crate::config::BESIDE
+}
+
 /// Custom URL scheme of the toast buttons.
 pub fn scheme() -> &'static str {
-    "luavault"
+    if beside() { "luavault-exp" } else { "luavault" }
 }
 
 /// The toast sender's identity (what Windows shows as the app, and lets a user mute).
 pub fn aumid() -> &'static str {
-    "io.github.luavault.app"
+    if beside() { "io.github.luavault.app.experimental" } else { "io.github.luavault.app" }
 }
 
 pub fn display_name() -> &'static str {
-    "LuaVault"
+    crate::config::installed_data_dir_name(beside())
 }
 
 fn task_name() -> String {
@@ -688,8 +694,11 @@ pub fn system_locale() -> Option<String> {
 /// client (`upgrade_blocked`: it must reach a pivot first), and only for the
 /// installer: the portable folder cannot be registered at all.
 pub fn wants_update_toast(offer: &crate::update::UpdateAvailable) -> bool {
-    !offer.upgrade_blocked
-        && offer.artifacts.first().is_some_and(|a| a.kind == "nsis")
+    // A downgrade is a channel switch the person asks for in Settings, except the experimental
+    // going back to the stable by itself (`returning`), which installs like an update.
+    (!offer.downgrade || offer.returning)
+        && !offer.upgrade_blocked
+        && offer.artifacts.first().is_some_and(|a| a.kind == "nsis" || a.kind == "nsis-beside")
 }
 
 /// One toast per version, and none for a version the window already announced.
@@ -1016,6 +1025,9 @@ mod tests {
             upgrade_blocked: blocked,
             minimum_upgradable_from: None,
             changes: vec![],
+            channel: crate::update::Channel::Stable,
+            downgrade: false,
+            returning: false,
         }
     }
 
@@ -1027,6 +1039,12 @@ mod tests {
         let mut none = offer("nsis", false);
         none.artifacts.clear();
         assert!(!wants_update_toast(&none), "nothing to download");
+        // A downgrade is a channel switch asked for in Settings, except the way back by itself.
+        let down = crate::update::UpdateAvailable { downgrade: true, ..offer("nsis", false) };
+        assert!(!wants_update_toast(&down));
+        assert!(wants_update_toast(&crate::update::UpdateAvailable { returning: true, ..down }));
+        // The edition beside updates itself too.
+        assert!(wants_update_toast(&offer("nsis-beside", false)));
     }
 
     #[test]

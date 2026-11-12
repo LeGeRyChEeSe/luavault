@@ -570,9 +570,37 @@ export interface UpdateAvailable {
    *  shows the information but hides the download buttons. */
   upgrade_blocked: boolean;
   minimum_upgradable_from?: string | null;
+  /** The channel this offer was read from; passed back to `downloadUpdate`. */
+  channel: UpdateChannel;
+  /** True when the offered version is not newer than the running one: only the
+   *  return to the stable channel from an experimental binary produces it. */
+  downgrade: boolean;
+  /** The experimental that replaced the stable going back to it by itself
+   *  (experimental withdrawn, or a newer stable): installs like an update. */
+  returning?: boolean;
 }
 
 export const checkUpdate = () => invoke<UpdateAvailable | null>("check_update");
+
+// ── Editions and update channels ──
+
+export type UpdateChannel = "stable" | "experimental";
+
+/** What the running binary is: the channel it was compiled for, its version. */
+export interface AppEdition {
+  channel: UpdateChannel;
+  version: string;
+}
+export const appEdition = () => invoke<AppEdition>("app_edition");
+/** The channel the update check reads: the user's choice, else the edition's own. */
+export const getUpdateChannel = () => invoke<UpdateChannel>("get_update_channel");
+/** Record the channel and run the check on it at once. Towards "stable" from an
+ *  experimental binary, the offer may be lower (`downgrade`). */
+export const switchChannel = (channel: UpdateChannel) =>
+  invoke<UpdateAvailable | null>("switch_channel", { channel });
+/** The edition beside: the experimental channel's offer for its own artefacts,
+ *  without touching this binary's channel. */
+export const peekExperimental = () => invoke<UpdateAvailable | null>("peek_experimental");
 
 // ── Message of the day (signed notice beside the releases) ──
 
@@ -598,7 +626,14 @@ export interface MotdMessage {
 }
 
 /** The closed set of things a message's button can do (`motd::ResolvedAction`). */
-export type MotdActionKind = "steam_downgrade" | "steam_undo" | "restart_steam" | "repair_tools" | "open_url" | "steamtools_source";
+export type MotdActionKind =
+  | "steam_downgrade"
+  | "steam_undo"
+  | "restart_steam"
+  | "repair_tools"
+  | "open_url"
+  | "steamtools_source"
+  | "switch_channel";
 
 export interface MotdAction {
   id: string;
@@ -788,8 +823,13 @@ export const getBackgroundGuard = () => invoke<BackgroundGuard>("get_background_
 /** Start or stop the resident download guard (tray icon, surveillance, logon entry). */
 export const setBackgroundGuard = (enabled: boolean) =>
   invoke<BackgroundGuard>("set_background_guard", { enabled });
-export const downloadUpdate = (version: string, file: string, sha256: string, size: number) =>
-  invoke<string>("download_update", { version, file, sha256, size });
+export const downloadUpdate = (
+  version: string,
+  file: string,
+  sha256: string,
+  size: number,
+  channel?: UpdateChannel,
+) => invoke<string>("download_update", { version, file, sha256, size, channel: channel ?? null });
 export const installUpdate = (path: string) => invoke<void>("install_update", { path });
 export const markUpdateNotified = (version: string) =>
   invoke<void>("mark_update_notified", { version });

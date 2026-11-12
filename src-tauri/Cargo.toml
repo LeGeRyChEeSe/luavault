@@ -13,6 +13,14 @@ default-run = "luavault"
 name = "luavault_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# The experimental edition. Alone, it takes the stable's place (same identity, same data):
+# what a stable switching to the experimental channel installs over itself.
+experimental = []
+# The experimental edition installed beside the stable: its own data folder and registrations
+# (with `src-tauri/tauri.exp.conf.json` for its own name and identifier).
+beside = ["experimental"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

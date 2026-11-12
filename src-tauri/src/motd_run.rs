@@ -17,7 +17,10 @@ use crate::{install, steam_downgrade};
 /// Does this action close, relaunch or reinstall Steam?
 pub fn closes_steam(action: &ResolvedAction) -> bool {
     // Changing the manifest source is read live by SteamTools: Steam stays open.
-    !matches!(action, ResolvedAction::OpenUrl(_) | ResolvedAction::SteamToolsSource(_))
+    !matches!(
+        action,
+        ResolvedAction::OpenUrl(_) | ResolvedAction::SteamToolsSource(_) | ResolvedAction::SwitchChannel(_)
+    )
 }
 
 /// Steam keeps the AppID of the game it is running in `RunningAppID`; `0` or
@@ -114,6 +117,8 @@ pub async fn execute(
             tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())?;
             Ok(String::new())
         }
+        // It needs the window's update path (download, verify, install, reopen).
+        ResolvedAction::SwitchChannel(_) => Err("Changement d'édition : à faire depuis la fenêtre de l'application.".to_string()),
     }
 }
 
@@ -130,13 +135,14 @@ mod tests {
             ResolvedAction::RepairTools,
             ResolvedAction::OpenUrl("https://example.org/".into()),
             ResolvedAction::SteamToolsSource("wudrm".into()),
+            ResolvedAction::SwitchChannel(crate::update::Channel::Experimental),
         ]
     }
 
     #[test]
     fn only_opening_a_page_or_editing_a_config_leaves_steam_alone() {
         let closers: Vec<bool> = all_actions().iter().map(closes_steam).collect();
-        assert_eq!(closers, [true, true, true, true, false, false]);
+        assert_eq!(closers, [true, true, true, true, false, false, false]);
     }
 
     #[test]

@@ -82,6 +82,9 @@ pub struct MotdAction {
     /// number, the button is dropped: a typo must not turn a diagnosis into "always".
     #[serde(default, skip_serializing)]
     pub affects_from: Option<String>,
+    /// `switch_channel`: the edition to take, `stable` or `experimental`.
+    #[serde(default, skip_serializing)]
+    pub channel: Option<String>,
     /// `steamtools_source`: which upstream SteamTools asks for manifest request codes
     /// (`steamtools_source::SOURCES`). A name, never a URL: the binary knows the rest.
     #[serde(default, skip_serializing)]
@@ -102,6 +105,9 @@ pub enum ResolvedAction {
     OpenUrl(String),
     /// Point SteamTools at another upstream for manifest request codes (a known name).
     SteamToolsSource(String),
+    /// Take the other edition (the Settings' channel switch): the update path installs it and the
+    /// app reopens. Run by `commands::run_motd_action`, never by `motd_run::execute`.
+    SwitchChannel(crate::update::Channel),
 }
 
 impl MotdAction {
@@ -124,6 +130,7 @@ impl MotdAction {
                 crate::steamtools_source::is_known(name).then(|| ResolvedAction::SteamToolsSource(name.to_string()))
             }
             "open_url" => safe_https_url(self.url.as_deref()?).map(ResolvedAction::OpenUrl),
+            "switch_channel" => crate::update::Channel::parse(self.channel.as_deref()?).map(ResolvedAction::SwitchChannel),
             _ => None,
         }
     }
@@ -218,6 +225,8 @@ pub struct SteamFacts {
     pub manifest_source: Option<String>,
     /// The classic SteamTools: no `opensteamtool.toml`, no manifest source to change.
     pub classic_steamtools: bool,
+    /// The edition running (`switch_channel` is done once it is the one asked for).
+    pub edition: crate::update::Channel,
 }
 
 impl SteamFacts {
@@ -230,8 +239,9 @@ impl SteamFacts {
                 steamtools_installed: crate::detect::inspect_steamtools(dir).installed,
                 manifest_source: Some(crate::steamtools_source::current(dir)),
                 classic_steamtools: crate::detect::flavor(dir) == crate::detect::Flavor::Classic,
+                edition: crate::update::Channel::running(),
             },
-            None => Self::default(),
+            None => Self { edition: crate::update::Channel::running(), ..Self::default() },
         }
     }
 }
@@ -461,6 +471,13 @@ pub fn probe(action: &MotdAction, resolved: &ResolvedAction, facts: &SteamFacts)
             }
         }
         ResolvedAction::RestartSteam | ResolvedAction::OpenUrl(_) => Probe::Gesture,
+        ResolvedAction::SwitchChannel(want) => {
+            if facts.edition == *want {
+                Probe::Holds
+            } else {
+                Probe::Absent
+            }
+        }
     }
 }
 
@@ -1081,6 +1098,7 @@ mod tests {
             steamtools_installed: st,
             manifest_source: None,
             classic_steamtools: false,
+            edition: crate::update::Channel::Stable,
         }
     }
 
@@ -1212,6 +1230,7 @@ mod tests {
             url: None,
             affects_from: affects_from.map(String::from),
             source: None,
+            channel: None,
         }
     }
 
@@ -1225,7 +1244,21 @@ mod tests {
             url: None,
             affects_from: None,
             source: None,
+            channel: None,
         }
+    }
+
+    #[test]
+    fn switch_channel_takes_a_known_edition_and_is_done_once_running_it() {
+        let mut a: MotdAction = serde_json::from_value(serde_json::json!({"id": "sw", "kind": "switch_channel"})).unwrap();
+        assert_eq!(a.resolve(), None, "no channel, no button");
+        a.channel = Some("nightly".into());
+        assert_eq!(a.resolve(), None, "unknown channel, no button");
+        a.channel = Some("experimental".into());
+        assert_eq!(a.resolve(), Some(ResolvedAction::SwitchChannel(crate::update::Channel::Experimental)));
+        let on = |edition| SteamFacts { edition, ..SteamFacts::default() };
+        assert_eq!(probe_of(&a, &on(crate::update::Channel::Stable)), Probe::Absent);
+        assert_eq!(probe_of(&a, &on(crate::update::Channel::Experimental)), Probe::Holds);
     }
 
     fn probe_of(a: &MotdAction, f: &SteamFacts) -> Probe {
@@ -1240,6 +1273,7 @@ mod tests {
             steamtools_installed: steamtools,
             manifest_source: None,
             classic_steamtools: false,
+            edition: crate::update::Channel::Stable,
         }
     }
 
@@ -1371,6 +1405,7 @@ mod tests {
             steamtools_installed: installed,
             manifest_source: source.map(String::from),
             classic_steamtools: false,
+            edition: crate::update::Channel::Stable,
         };
         assert_eq!(probe_of(&a, &with(true, Some("wudrm"))), Probe::Holds, "already configured");
         assert_eq!(probe_of(&a, &with(true, Some("steamrun"))), Probe::Absent, "the common case");

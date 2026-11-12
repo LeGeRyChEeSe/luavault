@@ -5,9 +5,18 @@ import tailwindcss from "@tailwindcss/vite";
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
+// The edition this bundle is built for: `scripts/build-exp.ps1` sets
+// VITE_LV_EDITION=experimental; anything else is the stable. Frozen here so the
+// UI knows its edition before any command answers (src/lib/edition.ts).
+// @ts-expect-error process is a nodejs global
+const edition = process.env.VITE_LV_EDITION === "experimental" ? "experimental" : "stable";
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],
+  define: {
+    "import.meta.env.VITE_LV_EDITION": JSON.stringify(edition),
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
