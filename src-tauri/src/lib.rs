@@ -24,6 +24,7 @@ mod relaunch;
 mod stats;
 mod steam_downgrade;
 mod source_guard;
+mod patch_guard;
 mod steam_keys;
 mod steam_update;
 mod steamtools_source;
@@ -232,6 +233,8 @@ pub fn run() {
             });
             // The classic SteamTools on the old Steam: the app brings Steam up to date by itself.
             steam_update::spawn(app.handle().clone());
+            // A fix Steam's update of a game took away is put back (`patch_guard`).
+            patch_guard::spawn(app.handle().clone());
             if guard_on {
                 guard_service::set_running(app.handle(), true);
                 std::thread::spawn(|| guard_service::sync_autostart(true));

@@ -1605,7 +1605,7 @@ pub async fn install_online_fix(
 
 /// Download the fix archive (if not already present) and install it in one go.
 /// Extract and apply an already-downloaded fix. Shared with the bulk run.
-async fn install_fix_inner(
+pub(crate) async fn install_fix_inner(
     cfg: &config::AppConfig,
     app_id: &str,
     password: Option<&str>,

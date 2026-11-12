@@ -27,6 +27,7 @@ Two rules to follow when editing this file, because the script depends on them:
 - Un jeu pas encore installé se télécharge aussi après un redémarrage de Steam : l'application donne ses clés à Steam quand il est fermé, et Steam n'a plus besoin d'elle pour démarrer et télécharger.
 - Avec cette version de SteamTools, Steam peut de nouveau se mettre à jour : l'application retire le blocage des mises à jour posé par le retour à l'ancienne version de Steam, ne propose plus ce retour en arrière, et met Steam à jour toute seule en affichant la progression.
 - Encore sous OpenSteamTool, qui n'est plus mis à jour ? Un bandeau reste affiché avec un bouton pour réparer SteamTools ; l'application se ferme pendant la réparation, se rouvre toute seule et met ensuite Steam à jour.
+- Les correctifs se reposent tout seuls quand Steam met un jeu à jour et les retire : l'application le voit au changement de version du jeu, repose le correctif depuis l'archive gardée et prévient par une notification.
 - L'application démarre aussi sur un Windows où le runtime Visual C++ n'est pas installé : elle s'arrêtait sur « MSVCP140.dll introuvable ».
 
 ### en
@@ -37,6 +38,7 @@ Two rules to follow when editing this file, because the script depends on them:
 - A game not installed yet also downloads after Steam restarts: the app hands its keys to Steam while it is closed, and Steam no longer needs the app to start and download.
 - With that SteamTools, Steam can update again: the app lifts the update block set by the return to the old Steam, no longer offers that return, and updates Steam by itself while showing the progress.
 - Still on OpenSteamTool, which is no longer updated? A banner stays with a button to repair SteamTools; the app closes during the repair, reopens by itself, then updates Steam.
+- Fixes are put back by themselves when Steam updates a game and removes them: the app sees the game's version change, applies the fix again from the kept archive and says so in a notification.
 - The app also starts on a Windows without the Visual C++ runtime: it stopped on "MSVCP140.dll was not found".
 
 ## 1.2.0 - 2026-10-25

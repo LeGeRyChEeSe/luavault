@@ -33,6 +33,8 @@ pub struct GameInstall {
     pub steam_name: Option<String>,
     pub state_flags: u64,
     pub size_on_disk: u64,
+    /// Steam's build of the installed game (`buildid`): it changes when Steam updates the game.
+    pub build_id: Option<String>,
 }
 
 // ================================================================ Caches
@@ -549,6 +551,7 @@ pub fn locate_game(steam: &Path, app_id: &str) -> GameInstall {
             let map = &cached_map;
             result.known_to_steam = true;
             result.steam_name = map.get("name").cloned();
+            result.build_id = map.get("buildid").cloned();
             result.state_flags = map
                 .get("stateflags")
                 .and_then(|v| v.parse::<u64>().ok())
@@ -583,6 +586,7 @@ pub fn locate_game(steam: &Path, app_id: &str) -> GameInstall {
 
         result.known_to_steam = true;
         result.steam_name = map.get("name").cloned();
+        result.build_id = map.get("buildid").cloned();
         result.state_flags = map
             .get("stateflags")
             .and_then(|v| v.parse::<u64>().ok())
