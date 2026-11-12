@@ -3333,7 +3333,13 @@ pub async fn install_update(app: AppHandle, state: State<'_, AppState>, path: St
         // NSIS installer: it cannot replace a running exe, so a helper waits for
         // this process to exit, runs the installer silently (`currentUser` mode:
         // no elevation) and reopens the app. No window to click through.
-        relaunch::update_then_relaunch(&target, false, relaunch::Relaunch::Window)
+        // A tray instance (window hidden, started at logon) installs in silence and
+        // comes back hidden: nobody asked to see the window.
+        let visible = app
+            .get_webview_window("main")
+            .and_then(|w| w.is_visible().ok())
+            .unwrap_or(false);
+        relaunch::update_then_relaunch(&target, false, relaunch::Relaunch::after_in_app_update(visible))
             .map_err(|e| format!("lancement de l'installeur : {e}"))?;
         exit_soon(app);
     } else {

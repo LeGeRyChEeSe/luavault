@@ -125,6 +125,13 @@ pub enum Relaunch {
 }
 
 impl Relaunch {
+    /// After an update the open app installed itself: the window comes back only if it
+    /// was on screen. An instance living in the tray (its window hidden) updates in silence
+    /// and comes back the way it was, with no window nobody asked for.
+    pub fn after_in_app_update(window_visible: bool) -> Relaunch {
+        if window_visible { Relaunch::Window } else { Relaunch::Background }
+    }
+
     fn word(self) -> &'static str {
         match self {
             Relaunch::Window => "window",
@@ -248,6 +255,12 @@ mod tests {
     }
 
     /// The scripts are constants: whatever varies must come through the environment.
+    #[test]
+    fn an_update_from_the_tray_brings_no_window_back() {
+        assert_eq!(Relaunch::after_in_app_update(true), Relaunch::Window);
+        assert_eq!(Relaunch::after_in_app_update(false), Relaunch::Background);
+    }
+
     #[test]
     fn scripts_read_every_variable_part_from_the_environment() {
         for s in [UPDATE_SCRIPT, REPAIR_SCRIPT] {
