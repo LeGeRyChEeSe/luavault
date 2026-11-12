@@ -1,5 +1,5 @@
-import { checkMotd, checkUpdate, detectAll, downloadUpdate, getAutoUpdate, getBackgroundNotify, installUpdate, getReachability, getUpdateNotified, libraryStatus, listLibrary, manifestFallbackStatus, markUpdateNotified, motdActionStatuses, motdWorkaround, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeSteamtoolsRepairResult, takeUpdateResult } from "./api";
-import type { DetectionReport, GameStatus, LibraryEntry, ManifestFallbackRun, ManifestFallbackView, MotdActionStatus, MotdMessage, Reachability, Workaround, UpdateAvailable, UpdateResult } from "./api";
+import { checkMotd, checkUpdate, detectAll, downloadUpdate, getAutoUpdate, getBackgroundNotify, installUpdate, getReachability, getUpdateNotified, libraryStatus, listLibrary, manifestFallbackStatus, markUpdateNotified, motdActionStatuses, motdWorkaround, steamUpdateStatus, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeSteamtoolsRepairResult, takeUpdateResult } from "./api";
+import type { DetectionReport, GameStatus, LibraryEntry, ManifestFallbackRun, ManifestFallbackView, MotdActionStatus, MotdMessage, Reachability, SteamUpdatePhase, Workaround, UpdateAvailable, UpdateResult } from "./api";
 import { themeStore } from "./theme.svelte";
 import { i18n, t } from "./i18n.svelte";
 import { LONG_TOAST_MS, resolveToastDuration } from "./toast-duration";
@@ -106,6 +106,10 @@ class AppStore {
             LONG_TOAST_MS,
           );
         }
+      }
+      if (report.keys_stripped.length > 0) {
+        this.addLog("info", t("state.log.keys-stripped", { ids: report.keys_stripped.join(", ") }));
+        this.toast("info", t("state.keys-stripped", { n: report.keys_stripped.length }), LONG_TOAST_MS);
       }
       for (const error of report.errors) this.addLog("warn", t("state.log.import-error", { error }));
       return report;
@@ -227,6 +231,17 @@ class AppStore {
       this.motdStatuses = await motdActionStatuses();
     } catch {
       // A failed read must not turn a "done" button back into a pending one.
+    }
+  }
+
+  /** The app's update of Steam (`steam_update`), pushed by `STEAM_UPDATE_EVENT`. */
+  steamUpdate = $state<SteamUpdatePhase | null>(null);
+
+  async refreshSteamUpdate() {
+    try {
+      this.steamUpdate = await steamUpdateStatus();
+    } catch {
+      // Unknown: the event will tell.
     }
   }
 

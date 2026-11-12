@@ -9,11 +9,41 @@ pub struct SteamStatus {
     pub source: String,
 }
 
+/// Which SteamTools sits in the Steam folder. Since 2026-11 the repair script
+/// (`fix-st.ps1`) removes OpenSteamTool and installs the classic SteamTools, which reads its
+/// `.lua` files from `config\stplug-in` instead of `config\lua`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Flavor {
+    #[default]
+    None,
+    /// `OpenSteamTool.dll` + `xinput1_4.dll`, `.lua` in `config\lua`.
+    OpenSteamTool,
+    /// `xinput1_4.dll` + `dwmapi.dll` without `OpenSteamTool.dll`, `.lua` in `config\stplug-in`.
+    Classic,
+}
+
+/// Pure: the markers decide. OpenSteamTool also ships an `xinput1_4.dll` and a `dwmapi.dll`
+/// (read on a real install, 2026-11-11), so its own DLL is what tells the two apart.
+pub fn flavor_of(has_open_steam_tool: bool, has_xinput: bool, has_dwmapi: bool) -> Flavor {
+    match (has_open_steam_tool, has_xinput, has_dwmapi) {
+        (true, true, _) => Flavor::OpenSteamTool,
+        (false, true, true) => Flavor::Classic,
+        _ => Flavor::None,
+    }
+}
+
+pub fn flavor(steam: &Path) -> Flavor {
+    let has = |rel: &str| steam.join(rel).is_file();
+    flavor_of(has("OpenSteamTool.dll"), has("xinput1_4.dll"), has("dwmapi.dll"))
+}
+
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct SteamToolsStatus {
     pub steam_path: PathBuf,
-    /// OpenSteamTool.dll + xinput1_4.dll both present.
+    /// One of the two SteamTools is in place (`flavor != None`).
     pub installed: bool,
+    pub flavor: Flavor,
     pub has_open_steam_tool: bool,
     pub has_xinput: bool,
     pub has_dwmapi: bool,
@@ -88,8 +118,17 @@ pub fn looks_like_steam_dir(path: &Path) -> bool {
     path.join("steam.exe").exists()
 }
 
+/// Where the SteamTools in place reads its `.lua` files. With none installed, the
+/// OpenSteamTool folder: nothing reads it, and the repair script moves its files over.
 pub fn lua_dir(steam: &Path) -> PathBuf {
-    steam.join("config").join("lua")
+    lua_dir_for(steam, flavor(steam))
+}
+
+pub fn lua_dir_for(steam: &Path, flavor: Flavor) -> PathBuf {
+    match flavor {
+        Flavor::Classic => steam.join("config").join("stplug-in"),
+        Flavor::OpenSteamTool | Flavor::None => steam.join("config").join("lua"),
+    }
 }
 
 pub fn inspect_steamtools(steam: &Path) -> SteamToolsStatus {
@@ -112,14 +151,17 @@ pub fn inspect_steamtools(steam: &Path) -> SteamToolsStatus {
         .map(|f| f.to_string())
         .collect();
 
+    let flavor = flavor_of(has_open_steam_tool, has_xinput, has_dwmapi);
     SteamToolsStatus {
         steam_path: steam.to_path_buf(),
-        installed: has_open_steam_tool && has_xinput,
+        installed: flavor != Flavor::None,
+        flavor,
         has_open_steam_tool,
         has_xinput,
         has_dwmapi,
-        lua_dir_exists: lua_dir(steam).is_dir(),
-        legacy_plugin_dir: steam.join("config").join("stplug-in").is_dir(),
+        lua_dir_exists: lua_dir_for(steam, flavor).is_dir(),
+        // The classic SteamTools' live folder is no leftover.
+        legacy_plugin_dir: flavor != Flavor::Classic && steam.join("config").join("stplug-in").is_dir(),
         conflicts,
     }
 }
@@ -141,6 +183,7 @@ mod tests {
 
         let status = inspect_steamtools(&steam);
         assert!(status.installed);
+        assert_eq!(status.flavor, Flavor::OpenSteamTool);
         assert!(status.has_open_steam_tool);
         assert!(status.has_xinput);
         assert!(!status.has_dwmapi);
@@ -152,6 +195,36 @@ mod tests {
         );
         assert!(!looks_like_steam_dir(&steam));
 
+        let _ = std::fs::remove_dir_all(&steam);
+    }
+
+    #[test]
+    fn flavor_follows_the_markers() {
+        assert_eq!(flavor_of(true, true, true), Flavor::OpenSteamTool, "OpenSteamTool ships a dwmapi.dll too");
+        assert_eq!(flavor_of(true, true, false), Flavor::OpenSteamTool);
+        assert_eq!(flavor_of(false, true, true), Flavor::Classic);
+        assert_eq!(flavor_of(false, true, false), Flavor::None);
+        assert_eq!(flavor_of(true, false, true), Flavor::None, "OpenSteamTool without its loader does not run");
+        assert_eq!(flavor_of(false, false, true), Flavor::None);
+    }
+
+    #[test]
+    fn classic_steamtools_reads_stplug_in() {
+        let steam = std::env::temp_dir().join(format!("lv_detect_classic_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&steam);
+        std::fs::create_dir_all(steam.join("config").join("stplug-in")).unwrap();
+        std::fs::write(steam.join("xinput1_4.dll"), b"x").unwrap();
+        std::fs::write(steam.join("dwmapi.dll"), b"x").unwrap();
+
+        let status = inspect_steamtools(&steam);
+        assert!(status.installed, "the classic SteamTools is a SteamTools: no repair loop");
+        assert_eq!(status.flavor, Flavor::Classic);
+        assert!(status.lua_dir_exists);
+        assert!(!status.legacy_plugin_dir, "its live folder is not a leftover");
+        assert_eq!(lua_dir(&steam), steam.join("config").join("stplug-in"));
+
+        std::fs::write(steam.join("OpenSteamTool.dll"), b"x").unwrap();
+        assert_eq!(lua_dir(&steam), steam.join("config").join("lua"));
         let _ = std::fs::remove_dir_all(&steam);
     }
 

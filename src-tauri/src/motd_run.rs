@@ -62,6 +62,9 @@ pub async fn execute(
     let steam = || steam_dir.clone().ok_or("Steam introuvable : indiquez son dossier dans Réglages".to_string());
     match action {
         ResolvedAction::SteamDowngrade(pin) => {
+            if crate::detect::flavor(&steam()?) == crate::detect::Flavor::Classic {
+                return Err("Le SteamTools installé fonctionne avec la dernière version de Steam : rien n'a été modifié.".to_string());
+            }
             let version = steam_downgrade::apply(http, &steam()?, &pin).await.map_err(|e| e.to_string())?;
             Ok(format!(
                 "Steam est revenu à la version {version} et ne se mettra plus à jour tout seul. Il redémarre : patientez quelques secondes."
@@ -89,8 +92,14 @@ pub async fn execute(
         }
         ResolvedAction::SteamToolsSource(source) => {
             let dir = steam()?;
-            if !crate::detect::inspect_steamtools(&dir).installed {
-                return Err("SteamTools est introuvable dans le dossier de Steam : rien n'a été modifié.".to_string());
+            match crate::detect::flavor(&dir) {
+                crate::detect::Flavor::OpenSteamTool => {}
+                crate::detect::Flavor::Classic => {
+                    return Err("Le SteamTools installé n'a pas de source de manifestes à changer : rien n'a été modifié.".to_string());
+                }
+                crate::detect::Flavor::None => {
+                    return Err("SteamTools est introuvable dans le dossier de Steam : rien n'a été modifié.".to_string());
+                }
             }
             let name = source.clone();
             tauri::async_runtime::spawn_blocking(move || crate::steamtools_source::apply(&dir, &name))

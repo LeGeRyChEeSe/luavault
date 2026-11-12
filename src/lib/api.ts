@@ -157,6 +157,7 @@ export type WipeStepDetail =
   | { code: "deleted_with_failures"; done: number; failed: number }
   | { code: "deleted_folder" }
   | { code: "deleted_folder_failed"; e: string }
+  | { code: "kept_live_lua"; count: number }
   | { code: "remove_steamtools_locked"; done: number; failed: number }
   | { code: "deleted_files"; done: number }
   | { code: "steam_missing" }
@@ -201,6 +202,8 @@ export interface SteamStatus {
 export interface SteamToolsStatus {
   steam_path: string;
   installed: boolean;
+  /** Which SteamTools is in place (`detect::Flavor`): the classic one reads `config\stplug-in`. */
+  flavor: "none" | "open_steam_tool" | "classic";
   has_open_steam_tool: boolean;
   has_xinput: boolean;
   has_dwmapi: boolean;
@@ -253,6 +256,8 @@ export interface ImportReport {
   fix_checked: number;
   new_fixes: string[];
   errors: string[];
+  /** Steam copies that lost their main game's key (classic SteamTools): Steam may need a restart. */
+  keys_stripped: string[];
 }
 
 export interface StageCount {
@@ -606,6 +611,8 @@ export interface MotdAction {
  *  on disk: the fix is `needed` only with SteamTools installed, Steam not already
  *  pinned and a client at or past the version that breaks it. */
 export interface Workaround {
+  /** `steam_downgrade` (the old Steam, for OpenSteamTool), `repair_tools` (the move to the classic SteamTools), `steam_update` (its last step: restart Steam onto its latest build). */
+  kind: "steam_downgrade" | "repair_tools" | "steam_update";
   /** The button that applies it; `runMotdAction` takes it back. */
   action_id: string;
   needed: boolean;
@@ -669,6 +676,19 @@ export const manifestFallbackRun = () => invoke<ManifestFallbackRun>("manifest_f
 export const openManifestPage = (provider: ManifestProvider) => invoke<void>("open_manifest_page", { provider });
 /** Store the key pasted by the user (empty string clears it), then try what is waiting. */
 export const setManifesthubKey = (key: string) => invoke<ManifestFallbackRun>("set_manifesthub_key", { key });
+
+/** The app bringing Steam up to date after the move to the classic SteamTools (`steam_update::Phase`). */
+export type SteamUpdatePhase =
+  | { phase: "starting" }
+  | { phase: "downloading"; percent: number }
+  | { phase: "installing" }
+  | { phase: "done"; version: string }
+  | { phase: "failed"; reason: string };
+export const steamUpdateStatus = () => invoke<SteamUpdatePhase | null>("steam_update_status");
+export const STEAM_UPDATE_EVENT = "steam-update://progress";
+/** The update still runs: the banner shows it, with no button. */
+export const steamUpdateRunning = (p: SteamUpdatePhase | null): boolean =>
+  p !== null && (p.phase === "starting" || p.phase === "downloading" || p.phase === "installing");
 export const setHubcapKey = (key: string) => invoke<ManifestFallbackRun>("set_hubcap_key", { key });
 /** Re-read the verdict after applying the fix: no network, the message already
  *  verified plus the files on disk. */

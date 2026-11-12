@@ -1,0 +1,4 @@
+# The C runtime is linked into the binary: a fresh Windows has no Visual C++ runtime, and the
+# C++ of `unrar` asked for MSVCP140.dll (the app did not start at all; Windows Sandbox, 2026-11-11).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

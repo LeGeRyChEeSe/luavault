@@ -7,8 +7,14 @@ use std::path::Path;
 
 use crate::{backup, detect, fixes, i18n_log, library};
 
-/// SteamTools' own payload inside the Steam folder.
-const STEAMTOOLS_FILES: [&str; 2] = ["OpenSteamTool.dll", "xinput1_4.dll"];
+/// SteamTools' own payload inside the Steam folder, for the one in place. With none, the
+/// OpenSteamTool pair (what was removed before the classic SteamTools came back).
+fn steamtools_files(steam: &std::path::Path) -> [&'static str; 2] {
+    match detect::flavor(steam) {
+        detect::Flavor::Classic => ["xinput1_4.dll", "dwmapi.dll"],
+        detect::Flavor::OpenSteamTool | detect::Flavor::None => ["OpenSteamTool.dll", "xinput1_4.dll"],
+    }
+}
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
@@ -64,6 +70,9 @@ pub enum WipeStepDetail {
     DeletedWithFailures { done: usize, failed: usize },
     DeletedFolder,
     DeletedFolderFailed { e: String },
+    /// `config\stplug-in` was kept: it holds `.lua` files. Since 2026-11 the repair script
+    /// script installs classic SteamTools, which reads its games from that very folder.
+    KeptLiveLua { count: usize },
     RemoveSteamtoolsLocked { done: usize, failed: usize },
     DeletedFiles { done: usize },
     SteamMissing,
@@ -182,7 +191,7 @@ pub fn preview(plan: &WipePlan, ctx: &WipeContext) -> Vec<WipeAction> {
     if plan.remove_steamtools {
         let count = ctx
             .steam_dir
-            .map(|s| STEAMTOOLS_FILES.iter().filter(|f| s.join(f).is_file()).count())
+            .map(|s| steamtools_files(s).iter().filter(|f| s.join(f).is_file()).count())
             .unwrap_or(0);
         push("remove_steamtools", WipeLevel::Moderate, count);
     }
@@ -194,13 +203,32 @@ pub fn preview(plan: &WipePlan, ctx: &WipeContext) -> Vec<WipeAction> {
         push("remove_steamtools_conflicts", WipeLevel::Safe, count);
     }
     if plan.remove_legacy_plugin_dir {
+        // Never counted while it holds a `.lua`: the preview must not promise a deletion the run
+        // refuses (`plugin_dir_removable`).
         let count = ctx
             .steam_dir
-            .map(|s| usize::from(s.join("config").join("stplug-in").is_dir()))
+            .map(|s| s.join("config").join("stplug-in"))
+            .map(|dir| usize::from(dir.is_dir() && plugin_dir_removable(lua_files_in(&dir))))
             .unwrap_or(0);
         push("remove_legacy_plugin_dir", WipeLevel::Safe, count);
     }
     actions
+}
+
+/// `.lua` files directly in `dir` (an unreadable folder counts as holding one: fail closed).
+pub fn lua_files_in(dir: &Path) -> usize {
+    match std::fs::read_dir(dir) {
+        Ok(read) => read.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_file() && is_lua(p)).count(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(_) => 1,
+    }
+}
+
+/// The old plugin folder may go only when it holds no `.lua`. Until 2026-11 it was a leftover of
+/// older SteamTools; the repair script now installs classic SteamTools again, which
+/// keeps every game there, and deleting it would empty the person's library.
+pub fn plugin_dir_removable(lua_files: usize) -> bool {
+    lua_files == 0
 }
 
 fn delete_dir_contents(dir: &Path, keep: impl Fn(&Path) -> bool) -> (usize, usize) {
@@ -319,24 +347,30 @@ pub fn execute(plan: &WipePlan, ctx: &WipeContext) -> WipeReport {
         }
         if plan.remove_legacy_plugin_dir {
             let path = steam.join("config").join("stplug-in");
-            let result = if path.is_dir() {
-                std::fs::remove_dir_all(&path)
+            let live = lua_files_in(&path);
+            if !plugin_dir_removable(live) {
+                // Not a leftover: classic SteamTools reads its games from here.
+                step("remove_legacy_plugin_dir", true, WipeStepDetail::KeptLiveLua { count: live });
             } else {
-                Ok(())
-            };
-            needs_elevation |= result.is_err();
-            step(
-                "remove_legacy_plugin_dir",
-                result.is_ok(),
-                match &result {
-                    Ok(()) => WipeStepDetail::DeletedFolder,
-                    Err(e) => WipeStepDetail::DeletedFolderFailed { e: e.to_string() },
-                },
-            );
+                let result = if path.is_dir() {
+                    std::fs::remove_dir_all(&path)
+                } else {
+                    Ok(())
+                };
+                needs_elevation |= result.is_err();
+                step(
+                    "remove_legacy_plugin_dir",
+                    result.is_ok(),
+                    match &result {
+                        Ok(()) => WipeStepDetail::DeletedFolder,
+                        Err(e) => WipeStepDetail::DeletedFolderFailed { e: e.to_string() },
+                    },
+                );
+            }
         }
         if plan.remove_steamtools {
             let (mut done, mut failed) = (0, 0);
-            for name in STEAMTOOLS_FILES {
+            for name in steamtools_files(steam) {
                 let path = steam.join(name);
                 if !path.is_file() {
                     continue;
@@ -515,6 +549,36 @@ mod tests {
         assert!(steam.join("steamapps").join("common").join("Game").is_dir());
         assert!(steam.join("userdata").is_dir());
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn plugin_folder_holding_lua_files_is_never_deleted() {
+        // Since 2026-11 the repair script installs classic SteamTools, whose games live in
+        // `config\stplug-in`: the « old leftover » the wipe offered to delete is the live library.
+        let _lock = library::cache_test_lock();
+        let root = scratch("stplugin-live");
+        let (lib, data, steam) = seed(&root);
+        let plugin = steam.join("config").join("stplug-in");
+        std::fs::create_dir_all(&plugin).unwrap();
+        std::fs::write(plugin.join("2881650.lua"), "addappid(2881650)").unwrap();
+        let ctx = WipeContext { library_dir: &lib, data_dir: &data, steam_dir: Some(&steam) };
+        let plan = WipePlan { remove_legacy_plugin_dir: true, ..Default::default() };
+        let preview = preview(&plan, &ctx);
+        let count = preview.iter().find(|a| a.id == "remove_legacy_plugin_dir").map_or(0, |a| a.count);
+        assert_eq!(count, 0, "l'aperçu ne promet pas de supprimer un dossier vivant");
+        let report = execute(&plan, &ctx);
+        let step = report.steps.iter().find(|s| s.id == "remove_legacy_plugin_dir").unwrap();
+        assert!(matches!(step.detail, WipeStepDetail::KeptLiveLua { count: 1 }), "{:?}", step.detail);
+        assert!(plugin.join("2881650.lua").is_file(), "le .lua est toujours là");
+
+        // Empty, it is a real leftover and goes.
+        std::fs::remove_file(plugin.join("2881650.lua")).unwrap();
+        let report = execute(&plan, &ctx);
+        let step = report.steps.iter().find(|s| s.id == "remove_legacy_plugin_dir").unwrap();
+        assert!(matches!(step.detail, WipeStepDetail::DeletedFolder), "{:?}", step.detail);
+        assert!(!plugin.exists());
+        assert!(plugin_dir_removable(0) && !plugin_dir_removable(1));
         let _ = std::fs::remove_dir_all(&root);
     }
 

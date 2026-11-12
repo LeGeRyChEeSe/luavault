@@ -156,7 +156,7 @@ fn write_pin(steam_dir: &Path) -> Result<()> {
     std::fs::write(&path, with_pin(&existing)).context("écriture de steam.cfg")
 }
 
-fn remove_pin(steam_dir: &Path) -> Result<()> {
+pub(crate) fn remove_pin(steam_dir: &Path) -> Result<()> {
     let path = cfg_path(steam_dir);
     let Ok(existing) = std::fs::read_to_string(&path) else {
         return Ok(());
@@ -165,6 +165,29 @@ fn remove_pin(steam_dir: &Path) -> Result<()> {
         Some(rest) => std::fs::write(&path, rest).context("écriture de steam.cfg"),
         None => std::fs::remove_file(&path).context("suppression de steam.cfg"),
     }
+}
+
+/// The Steam build the `steam_downgrade` message of 2026-10 brought machines back to (capture
+/// 20261006145653). Only a recogniser: it fetches nothing and pins nothing.
+pub const OUR_PINNED_BUILD: &str = "1788652215";
+
+/// Pure. Whether the pin is ours to lift: the classic SteamTools is in place (it works on the
+/// latest Steam), Steam is told not to update, and it sits on the build our fix installed. A pin
+/// on any other build was not set by us and is left alone.
+pub fn should_release(classic: bool, pinned: bool, installed: Option<&str>) -> bool {
+    classic && pinned && installed.map(str::trim) == Some(OUR_PINNED_BUILD)
+}
+
+/// Lift our pin when `should_release` says so, without restarting Steam: it updates itself at its
+/// next start. Returns whether the pin was lifted.
+pub fn release_after_port(steam_dir: &Path) -> Result<bool> {
+    let classic = crate::detect::flavor(steam_dir) == crate::detect::Flavor::Classic;
+    if !should_release(classic, is_pinned(steam_dir), installed_version(steam_dir).as_deref()) {
+        return Ok(false);
+    }
+    remove_pin(steam_dir)?;
+    info!("steam_downgrade: SteamTools classique en place, mises à jour de Steam rétablies (au prochain démarrage)");
+    Ok(true)
 }
 
 /// The installed client's package version, from Steam's own manifest.
@@ -272,18 +295,18 @@ pub async fn serve_manifest(manifest: Vec<u8>) -> Result<(u16, tokio::task::Join
 // -------------------------------------------------------------------- steam processes
 
 #[cfg(windows)]
-fn hidden(cmd: &mut std::process::Command) -> &mut std::process::Command {
+pub(crate) fn hidden(cmd: &mut std::process::Command) -> &mut std::process::Command {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     cmd.creation_flags(CREATE_NO_WINDOW)
 }
 
 #[cfg(not(windows))]
-fn hidden(cmd: &mut std::process::Command) -> &mut std::process::Command {
+pub(crate) fn hidden(cmd: &mut std::process::Command) -> &mut std::process::Command {
     cmd
 }
 
-fn steam_running() -> bool {
+pub(crate) fn steam_running() -> bool {
     let out = hidden(
         std::process::Command::new("tasklist").args(["/FI", "IMAGENAME eq steam.exe", "/NH"]),
     )
@@ -293,7 +316,7 @@ fn steam_running() -> bool {
 }
 
 /// Ask Steam to quit and wait until it has. `Ok(())` when it was not running.
-fn shutdown_steam(exe: &Path) -> Result<()> {
+pub(crate) fn shutdown_steam(exe: &Path) -> Result<()> {
     if !steam_running() {
         return Ok(());
     }
@@ -335,7 +358,7 @@ fn run_override(exe: &Path, port: u16) -> Result<()> {
     }
 }
 
-fn steam_exe(steam_dir: &Path) -> Result<PathBuf> {
+pub(crate) fn steam_exe(steam_dir: &Path) -> Result<PathBuf> {
     let exe = steam_dir.join("steam.exe");
     if exe.is_file() {
         Ok(exe)
@@ -538,6 +561,27 @@ mod tests {
         assert!(!is_pinned(&d));
         assert!(!cfg_path(&d).exists(), "an empty steam.cfg must not be left behind");
         remove_pin(&d).unwrap(); // absent file: not an error
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn our_pin_is_lifted_only_under_the_classic_steamtools_and_on_our_build() {
+        assert!(should_release(true, true, Some("1788652215")));
+        assert!(should_release(true, true, Some(" 1788652215\n")));
+        assert!(!should_release(false, true, Some("1788652215")), "OpenSteamTool still needs the old Steam");
+        assert!(!should_release(true, false, Some("1788652215")), "nothing to lift");
+        assert!(!should_release(true, true, Some("1792618285")), "a pin on another build is not ours");
+        assert!(!should_release(true, true, None), "unknown build: left alone");
+        let d = tmp("release");
+        std::fs::write(d.join("xinput1_4.dll"), b"x").unwrap();
+        std::fs::write(d.join("dwmapi.dll"), b"x").unwrap();
+        std::fs::write(d.join("steam.exe"), b"x").unwrap();
+        std::fs::create_dir_all(d.join("package")).unwrap();
+        std::fs::write(d.join("package").join("steam_client_win64.manifest"), REAL_MANIFEST_HEAD).unwrap();
+        write_pin(&d).unwrap();
+        assert!(release_after_port(&d).unwrap());
+        assert!(!is_pinned(&d) && !cfg_path(&d).exists());
+        assert!(!release_after_port(&d).unwrap(), "second pass: nothing left");
         let _ = std::fs::remove_dir_all(&d);
     }
 

@@ -216,6 +216,8 @@ pub struct SteamFacts {
     pub steamtools_installed: bool,
     /// `[manifest] url` of `opensteamtool.toml` (`None` = not read, taken as the default).
     pub manifest_source: Option<String>,
+    /// The classic SteamTools: no `opensteamtool.toml`, no manifest source to change.
+    pub classic_steamtools: bool,
 }
 
 impl SteamFacts {
@@ -227,6 +229,7 @@ impl SteamFacts {
                 pinned: steam_downgrade::is_pinned(dir),
                 steamtools_installed: crate::detect::inspect_steamtools(dir).installed,
                 manifest_source: Some(crate::steamtools_source::current(dir)),
+                classic_steamtools: crate::detect::flavor(dir) == crate::detect::Flavor::Classic,
             },
             None => Self::default(),
         }
@@ -236,12 +239,23 @@ impl SteamFacts {
 /// The verdict the window and the banner act on.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Workaround {
+    /// `steam_downgrade` (the old Steam, for OpenSteamTool), `repair_tools` (the move to the
+    /// classic SteamTools) or `steam_update` (its last step: Steam restarted onto its latest
+    /// build): which texts the banner speaks.
+    pub kind: &'static str,
     /// The button that applies it (`run_motd_action` takes it back).
     pub action_id: String,
     /// This user needs the fix now.
     pub needed: bool,
     pub pinned: bool,
     pub installed_version: Option<String>,
+}
+
+/// Steam still on the old build our `steam_downgrade` installed (or older), or told not to update.
+/// An unreadable version is taken as updated: a banner nobody can clear is worse than none.
+fn on_old_steam(facts: &SteamFacts) -> bool {
+    let old = crate::steam_downgrade::OUR_PINNED_BUILD.parse::<u64>().unwrap_or(0);
+    facts.pinned || facts.installed_version.as_deref().and_then(|v| v.trim().parse::<u64>().ok()).is_some_and(|v| v <= old)
 }
 
 /// Is Steam's client at or past the version that breaks SteamTools? Without a
@@ -260,15 +274,44 @@ pub fn is_affected(installed_version: Option<&str>, affects_from: Option<u64>) -
 /// there, SteamTools is installed, Steam is not already pinned, and the client is
 /// affected. Pure, so every row of that table is a test.
 pub fn workaround(message: &MotdMessage, facts: &SteamFacts) -> Option<Workaround> {
+    // A persistent message with the repair button: the move off OpenSteamTool (abandoned upstream,
+    // broken by Steam's latest build) to the classic SteamTools, then Steam back on its latest
+    // build. The banner stays until both are done: OpenSteamTool still there = repair; the classic
+    // SteamTools on the old Steam = restart Steam (the app lifts the pin, `steam_keys` watcher).
+    if message.persistent {
+        let find = |kind: &str| message.actions.iter().find(|a| a.kind == kind && a.resolve().is_some());
+        if let Some(repair) = find("repair_tools") {
+            let on_ost = facts.steam_present && facts.steamtools_installed && !facts.classic_steamtools;
+            let restart = find("restart_steam");
+            let (kind, action, needed) = match (on_ost, restart) {
+                (true, _) => ("repair_tools", repair, true),
+                (false, Some(restart)) if facts.steam_present && facts.classic_steamtools && on_old_steam(facts) => {
+                    ("steam_update", restart, true)
+                }
+                _ => ("repair_tools", repair, false),
+            };
+            return Some(Workaround {
+                kind,
+                action_id: action.id.clone(),
+                needed,
+                pinned: facts.pinned,
+                installed_version: facts.installed_version.clone(),
+            });
+        }
+    }
     let action = message
         .actions
         .iter()
         .find(|a| a.kind == "steam_downgrade" && a.resolve().is_some())?;
+    // The classic SteamTools works on the latest Steam (Windows Sandbox, 1792618285, 2026-11-11):
+    // going back to the old Steam is OpenSteamTool's workaround only.
     let needed = facts.steam_present
         && facts.steamtools_installed
+        && !facts.classic_steamtools
         && !facts.pinned
         && is_affected(facts.installed_version.as_deref(), action.affects_from_number());
     Some(Workaround {
+        kind: "steam_downgrade",
         action_id: action.id.clone(),
         needed,
         pinned: facts.pinned,
@@ -375,6 +418,7 @@ pub enum Probe {
 /// Look at the machine for the effect of `action`. Exhaustive on purpose.
 pub fn probe(action: &MotdAction, resolved: &ResolvedAction, facts: &SteamFacts) -> Probe {
     match resolved {
+        ResolvedAction::SteamDowngrade(_) if facts.classic_steamtools => Probe::NotNeeded,
         ResolvedAction::SteamDowngrade(_) => {
             let from = action.affects_from_number();
             let installed = facts.installed_version.as_deref().and_then(|v| v.trim().parse::<u64>().ok());
@@ -405,7 +449,9 @@ pub fn probe(action: &MotdAction, resolved: &ResolvedAction, facts: &SteamFacts)
         ResolvedAction::RepairTools => Probe::Unknown,
         // The file says which upstream is configured: that is the effect, verifiable.
         ResolvedAction::SteamToolsSource(_) if !facts.steam_present => Probe::Unknown,
-        ResolvedAction::SteamToolsSource(_) if !facts.steamtools_installed => Probe::NotNeeded,
+        ResolvedAction::SteamToolsSource(_) if !facts.steamtools_installed || facts.classic_steamtools => {
+            Probe::NotNeeded
+        }
         ResolvedAction::SteamToolsSource(want) => {
             let now = facts.manifest_source.as_deref().unwrap_or(crate::steamtools_source::DEFAULT_SOURCE);
             if now == want {
@@ -1034,6 +1080,7 @@ mod tests {
             pinned,
             steamtools_installed: st,
             manifest_source: None,
+            classic_steamtools: false,
         }
     }
 
@@ -1089,6 +1136,41 @@ mod tests {
         assert!(!needed(SteamFacts::default()), "no Steam at all");
         // Undoing the fix puts the user back in the affected set: the nag returns.
         assert!(needed(facts(Some("1800000000"), false, true)));
+        // The classic SteamTools works on the latest Steam: no nag, and the button is not needed.
+        let classic = SteamFacts { classic_steamtools: true, ..facts(broken, false, true) };
+        assert!(!needed(classic.clone()), "the classic SteamTools needs no old Steam");
+        let action = &m.actions[0];
+        assert_eq!(probe_of(action, &classic), Probe::NotNeeded);
+    }
+
+    #[test]
+    fn a_persistent_repair_message_asks_openst_users_to_move_to_the_classic_steamtools() {
+        let m = msg_with(r#"[{"id":"rep","kind":"repair_tools"}]"#, true);
+        let ost = facts(Some("1792618285"), false, true);
+        let w = workaround(&m, &ost).expect("a repair workaround");
+        assert_eq!((w.kind, w.action_id.as_str(), w.needed), ("repair_tools", "rep", true));
+        let classic = SteamFacts { classic_steamtools: true, ..ost.clone() };
+        assert!(!workaround(&m, &classic).unwrap().needed, "already on the classic SteamTools");
+        assert!(!workaround(&m, &facts(None, false, false)).unwrap().needed, "no SteamTools: the install button is elsewhere");
+        assert!(!workaround(&m, &SteamFacts::default()).unwrap().needed, "no Steam");
+        assert!(workaround(&msg_with(r#"[{"id":"rep","kind":"repair_tools"}]"#, false), &ost).is_none(), "an ordinary message with a repair button is no banner");
+        assert!(relevant_for_toast(&m, &ost) && !relevant_for_toast(&m, &classic), "the toast goes to those who need it");
+        // Both buttons: the move to the classic SteamTools speaks first.
+        let both = msg_with(&downgrade(r#"},{"id":"rep","kind":"repair_tools""#), true);
+        assert_eq!(workaround(&both, &ost).unwrap().kind, "repair_tools");
+        // The last step: the classic SteamTools on the old Steam asks for Steam's restart, until updated.
+        let two = msg_with(r#"[{"id":"rep","kind":"repair_tools"},{"id":"rst","kind":"restart_steam"}]"#, true);
+        let classic_old = SteamFacts { classic_steamtools: true, ..facts(Some("1788652215"), true, true) };
+        let w = workaround(&two, &classic_old).unwrap();
+        assert_eq!((w.kind, w.action_id.as_str(), w.needed), ("steam_update", "rst", true));
+        let unpinned_old = SteamFacts { pinned: false, ..classic_old.clone() };
+        assert!(workaround(&two, &unpinned_old).unwrap().needed, "pin lifted, Steam not restarted yet");
+        let updated = SteamFacts { classic_steamtools: true, ..facts(Some("1792618285"), false, true) };
+        assert!(!workaround(&two, &updated).unwrap().needed, "both done: the banner goes");
+        let unreadable = SteamFacts { classic_steamtools: true, ..facts(None, false, true) };
+        assert!(!workaround(&two, &unreadable).unwrap().needed, "a version nobody can read never keeps it forever");
+        assert_eq!(workaround(&two, &ost).unwrap().kind, "repair_tools", "OpenSteamTool first, whatever Steam's build");
+        assert!(!workaround(&m, &classic_old).unwrap().needed, "no restart button in the message: no banner it cannot clear");
     }
 
     #[test]
@@ -1157,6 +1239,7 @@ mod tests {
             pinned,
             steamtools_installed: steamtools,
             manifest_source: None,
+            classic_steamtools: false,
         }
     }
 
@@ -1287,12 +1370,15 @@ mod tests {
             pinned: false,
             steamtools_installed: installed,
             manifest_source: source.map(String::from),
+            classic_steamtools: false,
         };
         assert_eq!(probe_of(&a, &with(true, Some("wudrm"))), Probe::Holds, "already configured");
         assert_eq!(probe_of(&a, &with(true, Some("steamrun"))), Probe::Absent, "the common case");
         assert_eq!(probe_of(&a, &with(true, None)), Probe::Absent, "nothing written = the default upstream");
         assert_eq!(probe_of(&source_action(Some("opensteamtool")), &with(true, None)), Probe::Holds, "the default is a source too");
         assert_eq!(probe_of(&a, &with(false, Some("steamrun"))), Probe::NotNeeded, "no SteamTools to configure");
+        let classic = SteamFacts { classic_steamtools: true, ..with(true, Some("steamrun")) };
+        assert_eq!(probe_of(&a, &classic), Probe::NotNeeded, "the classic SteamTools has no source to change");
         assert_eq!(probe_of(&a, &SteamFacts::default()), Probe::Unknown, "no Steam folder");
     }
 

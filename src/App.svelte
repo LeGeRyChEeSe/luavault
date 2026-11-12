@@ -25,7 +25,10 @@
     defenderStatus,
     setDefenderChoice,
     setupDefenderExclusions,
+    STEAM_UPDATE_EVENT,
+    steamUpdateRunning,
     type Reachability,
+    type SteamUpdatePhase,
   } from "./lib/api";
   import { mountTooltips } from "./lib/tooltip";
   import { originOf, themeStore } from "./lib/theme.svelte";
@@ -123,6 +126,20 @@
       view = "tools";
       void appState.refreshManifest();
     });
+    // The app bringing Steam up to date: shown in the banner while it runs, said when it ends.
+    void appState.refreshSteamUpdate();
+    const unlistenSteamUpdate = listen<SteamUpdatePhase>(STEAM_UPDATE_EVENT, (event) => {
+      const p = event.payload;
+      appState.steamUpdate = p;
+      if (p.phase === "done") {
+        appState.toast("success", t("steam_update.done", { version: p.version }));
+        void appState.refreshWorkaround();
+        void appState.refresh();
+      } else if (p.phase === "failed") {
+        appState.toast("error", t("steam_update.failed", { reason: p.reason }));
+        void appState.refreshWorkaround();
+      }
+    });
     return () => {
       clearInterval(timer);
       clearInterval(manifestTimer);
@@ -130,6 +147,7 @@
       document.removeEventListener("visibilitychange", onWake);
       void unlistenManifest.then((fn) => fn());
       void unlistenManifestOpen.then((fn) => fn());
+      void unlistenSteamUpdate.then((fn) => fn());
       unmountTooltips();
       void unlistenReachability.then((fn) => fn());
       downloadsState.dispose();
@@ -331,7 +349,7 @@
   </aside>
 
   <div class="flex min-w-0 flex-1 flex-col gap-3">
-    {#if appState.workaround?.needed && appState.motd && !showOnboarding}
+    {#if ((appState.workaround?.needed && appState.motd) || steamUpdateRunning(appState.steamUpdate)) && !showOnboarding}
       <WorkaroundBanner />
     {/if}
     {#if appState.manifest && appState.manifest.pending > 0 && !appState.manifest.key_ready && !showOnboarding}

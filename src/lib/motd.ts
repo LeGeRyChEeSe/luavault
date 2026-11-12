@@ -102,7 +102,9 @@ export function steamDowngradeOffer(message: MotdMessage | null): MotdAction | n
  * needs: for everyone else it is an ordinary, dismissible notice.
  */
 export function isForced(message: MotdMessage | null, workaround: Workaround | null): boolean {
-  return !!message?.persistent && !!workaround?.needed;
+  // The last step of leaving OpenSteamTool (Steam onto its latest build) is the app's own job
+  // (`steam_update`): the banner shows it, a window forced over it would hide the progress.
+  return !!message?.persistent && !!workaround?.needed && workaround.kind !== "steam_update";
 }
 
 /**

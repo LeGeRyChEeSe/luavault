@@ -24,6 +24,8 @@ mod relaunch;
 mod stats;
 mod steam_downgrade;
 mod source_guard;
+mod steam_keys;
+mod steam_update;
 mod steamtools_source;
 mod steamstore;
 pub use update::RELEASE_PUBLIC_KEYS;
@@ -221,6 +223,15 @@ pub fn run() {
             );
             // Clean up orphaned temporary files left by previous runs.
             backup::cleanup_orphan_temps(&config::data_dir());
+            // The classic SteamTools gives Steam the keys of a file present at its start only through
+            // Steam's own cache: filled while Steam is closed, files rewritten when it starts.
+            let keys_app = app.handle().clone();
+            steam_keys::spawn_watcher(move || {
+                let cfg = keys_app.state::<AppState>().config.lock().unwrap().clone();
+                cfg.steam_dir.clone().or_else(detect::detect_steam_path)
+            });
+            // The classic SteamTools on the old Steam: the app brings Steam up to date by itself.
+            steam_update::spawn(app.handle().clone());
             if guard_on {
                 guard_service::set_running(app.handle(), true);
                 std::thread::spawn(|| guard_service::sync_autostart(true));
@@ -313,6 +324,7 @@ pub fn run() {
             commands::check_motd,
             commands::set_motd_dismissed,
             commands::run_motd_action,
+            commands::steam_update_status,
             commands::steam_pin_status,
             commands::motd_workaround,
             commands::motd_action_statuses,

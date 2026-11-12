@@ -254,11 +254,14 @@ async fn run(app: AppHandle) {
         }
         if n.is_multiple_of(2) {
             let lines = tail.as_mut().map(Tail::poll).unwrap_or_default();
+            // Only OpenSteamTool has a manifest source to change (`opensteamtool.toml`);
+            // the classic SteamTools gets the missing-file fallback alone.
+            let switches_source = detect::flavor(steam) == detect::Flavor::OpenSteamTool;
             for line in lines {
                 if let Some(missing) = manifest_fallback::parse_missing(&line) {
                     on_missing(&app, l, steam, missing).await;
                 }
-                let Some(event) = parse_event(&line) else { continue };
+                let Some(event) = parse_event(&line).filter(|_| switches_source) else { continue };
                 let was_online = guard.view(now).status == crate::source_guard::Status::Online;
                 if was_online {
                     first_source = Some(steamtools_source::current(steam));

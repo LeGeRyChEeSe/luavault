@@ -728,7 +728,7 @@ pub fn remove_with_data_dir(lib: &Path, data_dir: &Path, app_id: &str) -> Result
     Ok(())
 }
 
-/// Is the `.lua` currently present in `{Steam}\config\lua`?
+/// Is the `.lua` currently where the SteamTools in place reads it?
 pub fn is_in_steam(app_id: &str, steam: &Path) -> bool {
     crate::detect::lua_dir(steam)
         .join(lua_file_name(app_id))
@@ -747,17 +747,106 @@ pub fn remove_from_steam(app_id: &str, steam: &Path) -> Result<bool> {
     Ok(true)
 }
 
-/// Copy a library .lua into {Steam}\config\lua, creating the folder if needed.
+/// Copy a library .lua where the SteamTools in place reads it, creating the folder if needed.
+/// For the classic SteamTools the copy goes without the main game's key
+/// ([`without_main_key`]); the library keeps the file as downloaded.
 pub fn copy_to_steam(lib: &Path, app_id: &str, steam: &Path) -> Result<PathBuf> {
     let src = lib.join(lua_file_name(app_id));
     if !src.exists() {
         return Err(anyhow!("fichier .lua introuvable dans la bibliothèque"));
     }
-    let dst_dir = crate::detect::lua_dir(steam);
-    std::fs::create_dir_all(&dst_dir).context("create Steam config\\lua")?;
+    let flavor = crate::detect::flavor(steam);
+    let dst_dir = crate::detect::lua_dir_for(steam, flavor);
+    std::fs::create_dir_all(&dst_dir).context("create Steam .lua folder")?;
     let dst = dst_dir.join(lua_file_name(app_id));
-    std::fs::copy(&src, &dst).context("copy .lua to Steam")?;
+    let bytes = std::fs::read(&src).context("read library .lua")?;
+    let out = match flavor {
+        crate::detect::Flavor::Classic => std::str::from_utf8(&bytes)
+            .ok()
+            .and_then(|text| without_main_key(text, app_id))
+            .map(String::into_bytes)
+            .unwrap_or(bytes),
+        _ => bytes,
+    };
+    write_replacing(&dst, &out).context("copy .lua to Steam")?;
     Ok(dst)
+}
+
+fn write_replacing(dst: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = dst.with_extension("lua.tmp");
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, dst).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
+}
+
+/// Pure. The `.lua` with the main game's `addappid(<app_id>, 1, "<key>")` reduced to
+/// `addappid(<app_id>)`, or `None` when there is nothing to reduce.
+///
+/// Measured in Windows Sandbox on 2026-11-10/11 (Steam 1792618285 + classic SteamTools): with
+/// the main game's key, Steam hangs at its next start on « Chargement des données du compte »;
+/// without it Steam starts, and the game (Content Warning, 2881650) downloads, installs and
+/// launches with the depot keys alone. Depot and DLC lines are kept as they are.
+pub fn without_main_key(text: &str, app_id: &str) -> Option<String> {
+    let mut changed = false;
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        match reduce_main_line(line, app_id) {
+            Some(reduced) => {
+                out.push_str(&reduced);
+                changed = true;
+            }
+            None => out.push_str(line),
+        }
+    }
+    changed.then_some(out)
+}
+
+fn reduce_main_line(line: &str, app_id: &str) -> Option<String> {
+    let indent = line.len() - line.trim_start().len();
+    let rest = line[indent..].strip_prefix("addappid(")?;
+    let close = rest.find(')')?;
+    let args: Vec<&str> = rest[..close].split(',').map(str::trim).collect();
+    if args.len() < 2 || args[0] != app_id {
+        return None;
+    }
+    Some(format!("{}addappid({app_id}){}", &line[..indent], &rest[close + 1..]))
+}
+
+/// The classic SteamTools only: every AppID-named `.lua` in `config\stplug-in` that still
+/// carries its main game's key is rewritten without it. The repair script moves the files
+/// the app had placed for OpenSteamTool there as they were, keys included, and Steam would hang
+/// at its next start. Returns the AppIDs rewritten.
+pub fn strip_main_keys_in_steam(steam: &Path) -> Vec<String> {
+    if crate::detect::flavor(steam) != crate::detect::Flavor::Classic {
+        return Vec::new();
+    }
+    let dir = crate::detect::lua_dir_for(steam, crate::detect::Flavor::Classic);
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let mut done = Vec::new();
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        let Some(app_id) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_suffix(".lua"))
+            .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Some(reduced) = without_main_key(&text, &app_id) else { continue };
+        match write_replacing(&path, reduced.as_bytes()) {
+            Ok(()) => {
+                log::info!("SteamTools classique : clé du jeu principal retirée de {app_id}.lua");
+                done.push(app_id);
+            }
+            Err(e) => log::warn!("SteamTools classique : {app_id}.lua non réécrit: {e}"),
+        }
+    }
+    done.sort();
+    done
 }
 
 /// Copy every library .lua into {Steam}\config\lua. Returns the copied count.
@@ -1043,6 +1132,82 @@ mod tests {
         assert!(load_index_with_data_dir(&lib, &data).unwrap().is_empty());
         assert!(!lib.join("264710.lua").exists());
         assert!(!fix_path.exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The shape of a real `.lua` for Content Warning on 2026-11-10 (line for
+    /// line, the watermark of invisible characters in the title included); only the two keys
+    /// are replaced by hex of the same length.
+    const CONTENT_WARNING: &str = "-- Content\u{200B}\u{200C}\u{200B} Warning\n\
+-- AppID 2881650 | Generated on 2026-11-10 19:55 UTC | example\n\
+-- Note: This game has multiplayer features\n\
+-- Note: This game supports Steam Workshop content\n\
+\n\
+-- Main Application\n\
+addappid(2881650, 1, \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\")\n\
+\n\
+-- Content Depots (1)\n\
+addappid(2881651, 1, \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\") -- Content Warning - Windows\n";
+
+    #[test]
+    fn main_key_goes_and_everything_else_stays() {
+        let out = without_main_key(CONTENT_WARNING, "2881650").expect("the main line carries a key");
+        let expected = CONTENT_WARNING.replace(
+            "addappid(2881650, 1, \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\")",
+            "addappid(2881650)",
+        );
+        assert_eq!(out, expected, "only the main line changes, the depot key stays");
+        assert_eq!(without_main_key(&out, "2881650"), None, "a reduced file is left alone");
+        assert_eq!(without_main_key(CONTENT_WARNING, "2881651"), Some(CONTENT_WARNING.replace(
+            "addappid(2881651, 1, \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\")",
+            "addappid(2881651)",
+        )), "the AppID decides which line is the main one");
+        assert_eq!(without_main_key(CONTENT_WARNING, "288165"), None, "a prefix is not the AppID");
+        assert_eq!(
+            without_main_key("\taddappid( 10 ,1,\"k\") -- x\r\nsetManifestid(11, \"1\")\r\n", "10").as_deref(),
+            Some("\taddappid(10) -- x\r\nsetManifestid(11, \"1\")\r\n"),
+            "indent, trailing comment and CRLF survive"
+        );
+        assert_eq!(without_main_key("-- addappid(10, 1, \"k\")\n", "10"), None, "a comment is not a call");
+    }
+
+    #[test]
+    fn classic_steamtools_gets_the_file_without_the_main_key() {
+        let _lock = cache_lock();
+        clear_index_cache();
+        let root = scratch("classic_copy");
+        let data = root.join("data");
+        let lib = root.join("lib");
+        let steam = root.join("steam");
+        std::fs::create_dir_all(&steam).unwrap();
+        std::fs::write(steam.join("xinput1_4.dll"), b"x").unwrap();
+        std::fs::write(steam.join("dwmapi.dll"), b"x").unwrap();
+        upsert_with_data_dir(&lib, &data, "2881650", "Content Warning", None, CONTENT_WARNING.as_bytes()).unwrap();
+
+        let dst = copy_to_steam(&lib, "2881650", &steam).expect("copy");
+        assert_eq!(dst, steam.join("config").join("stplug-in").join("2881650.lua"));
+        let placed = std::fs::read_to_string(&dst).unwrap();
+        assert!(placed.contains("addappid(2881650)\n"), "{placed}");
+        assert!(placed.contains("addappid(2881651, 1, \"bbbb"), "the depot keeps its key");
+        assert_eq!(std::fs::read_to_string(lib.join("2881650.lua")).unwrap(), CONTENT_WARNING, "the library keeps the download");
+        assert!(is_in_steam("2881650", &steam));
+
+        // What the repair script moved over as it was is reduced in place; others are not touched.
+        std::fs::write(&dst, CONTENT_WARNING).unwrap();
+        std::fs::write(dst.with_file_name("notes.lua"), "addappid(1, 1, \"k\")").unwrap();
+        assert_eq!(strip_main_keys_in_steam(&steam), vec!["2881650".to_string()]);
+        assert_eq!(std::fs::read_to_string(&dst).unwrap(), placed);
+        assert_eq!(std::fs::read_to_string(dst.with_file_name("notes.lua")).unwrap(), "addappid(1, 1, \"k\")");
+        assert!(strip_main_keys_in_steam(&steam).is_empty(), "nothing left to reduce");
+
+        // OpenSteamTool takes the file whole, in config\lua, and its folder is never rewritten.
+        std::fs::write(steam.join("OpenSteamTool.dll"), b"x").unwrap();
+        let dst = copy_to_steam(&lib, "2881650", &steam).expect("copy");
+        assert_eq!(dst, steam.join("config").join("lua").join("2881650.lua"));
+        assert_eq!(std::fs::read_to_string(&dst).unwrap(), CONTENT_WARNING);
+        assert!(strip_main_keys_in_steam(&steam).is_empty());
+        assert_eq!(std::fs::read_to_string(&dst).unwrap(), CONTENT_WARNING);
 
         let _ = std::fs::remove_dir_all(&root);
     }

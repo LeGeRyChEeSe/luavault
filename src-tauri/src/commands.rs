@@ -423,6 +423,9 @@ pub struct ImportReport {
     /// Games adopted from `{Steam}\config\lua` during this run.
     pub imported: Vec<String>,
     pub errors: Vec<String>,
+    /// AppIDs whose Steam copy lost its main game's key (classic SteamTools only,
+    /// `library::strip_main_keys_in_steam`): a Steam started with them hangs until restarted.
+    pub keys_stripped: Vec<String>,
 }
 
 /// One line of a bulk run, so the UI can show what actually happened per game.
@@ -581,6 +584,12 @@ pub async fn sync_from_steam(state: State<'_, AppState>) -> Result<ImportReport,
     let Some(steam) = steam else {
         return Ok(report);
     };
+
+    // Before adoption, so an adopted file is read as Steam will now read it.
+    let dir = steam.clone();
+    report.keys_stripped = tauri::async_runtime::spawn_blocking(move || library::strip_main_keys_in_steam(&dir))
+        .await
+        .unwrap_or_default();
 
     for app_id in discover::orphans(&library_dir, &steam) {
         let (name, icon, _) = describe(&state, Some(&steam), &app_id).await;
@@ -2205,7 +2214,7 @@ pub async fn install_steamtools(app: AppHandle) -> Result<String, String> {
     info!("install_steamtools: handing fix-st.ps1 to the relaunch helper");
     relaunch::repair_steamtools_then_relaunch().map_err(|e| e.to_string())?;
     exit_soon(app);
-    Ok("L'application se ferme pour la réparation, puis se rouvre toute seule avec le résultat.".to_string())
+    Ok("L'application se ferme pour la réparation, puis se rouvre toute seule avec le résultat et met Steam à jour si besoin.".to_string())
 }
 
 /// Outcome of the repair run before this launch, consumed on first read.
@@ -2554,6 +2563,7 @@ pub fn motd_action_statuses(state: State<'_, AppState>) -> std::collections::Has
 /// before calling this.
 #[tauri::command]
 pub async fn run_motd_action(
+    app: AppHandle,
     state: State<'_, AppState>,
     message_id: String,
     action_id: String,
@@ -2565,7 +2575,19 @@ pub async fn run_motd_action(
         .ok_or("Ce message n'est plus actif : fermez cette fenêtre et rouvrez-la.")?;
     info!("run_motd_action: message {message_id}, action {action_id}");
     let cfg = state.config.lock().unwrap().clone();
-    let result = motd_run::execute(&state.update_http, resolve_steam(&cfg), resolved).await;
+    // The repair goes the way of the Tools button: the app closes, the helper runs the script and
+    // reopens the app, which then reports the result and brings Steam up to date (`steam_update`).
+    let relaunch_repair = matches!(resolved, motd::ResolvedAction::RepairTools);
+    let result = if relaunch_repair {
+        match motd_run::refusal(&resolved, motd_run::running_app_id()) {
+            Some(reason) => Err(reason.to_string()),
+            None => relaunch::repair_steamtools_then_relaunch()
+                .map(|_| "L'application se ferme pour la réparation, puis se rouvre toute seule et met Steam à jour.".to_string())
+                .map_err(|e| e.to_string()),
+        }
+    } else {
+        motd_run::execute(&state.update_http, resolve_steam(&cfg), resolved).await
+    };
     // Steam rewrote its own files: the VDF caches are stale whatever the outcome.
     vdf::clear_caches();
     if result.is_ok() {
@@ -2577,8 +2599,17 @@ pub async fn run_motd_action(
             Ok(()) => *state.config.lock().unwrap() = cfg,
             Err(e) => warn!("run_motd_action: registre des boutons non écrit ({e})"),
         }
+        if relaunch_repair {
+            exit_soon(app);
+        }
     }
     result
+}
+
+/// Where the app's update of Steam stands this session (`steam_update`), `None` when it never ran.
+#[tauri::command]
+pub fn steam_update_status() -> Option<crate::steam_update::Phase> {
+    crate::steam_update::current()
 }
 
 /// Is Steam told not to update itself, and which client version is installed?

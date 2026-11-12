@@ -278,13 +278,15 @@ export const motdSuite: Promise<void> = (async () => {
 
     // ── message persistant et diagnostiqué ──
 
-    const need = (needed: boolean): Workaround => ({ action_id: "fix", needed, pinned: !needed, installed_version: "1791918634" });
+    const need = (needed: boolean): Workaround => ({ kind: "steam_downgrade", action_id: "fix", needed, pinned: !needed, installed_version: "1791918634" });
     const persistent: MotdMessage = { ...message("m1"), persistent: true };
     assert.equal(isForced(persistent, need(true)), true);
     assert.equal(isForced(persistent, need(false)), false, "correctif déjà appliqué ou inutile : message ordinaire");
     assert.equal(isForced(persistent, null), false, "aucun correctif proposé");
     assert.equal(isForced({ ...message("m1"), persistent: false }, need(true)), false, "non persistant : jamais forcé");
     assert.equal(isForced(null, need(true)), false);
+    assert.equal(isForced(persistent, { ...need(true), kind: "repair_tools" }), true, "OpenSteamTool encore là : la réparation insiste");
+    assert.equal(isForced(persistent, { ...need(true), kind: "steam_update" }), false, "mise à jour de Steam : l'application la fait, le bandeau la montre");
     label("isForced : seulement un message persistant dont le correctif reste nécessaire ici");
 
     // « Ne plus afficher » est retiré tant que le message est forcé, et seulement alors.

@@ -29,14 +29,21 @@
   const st = $derived(report?.steamtools ?? null);
   let busy = $state<string | null>(null);
 
+  // The files of the SteamTools in place; with none, those the repair installs (the classic one).
   const checks = $derived(
-    st
-      ? [
-          { ok: st.has_open_steam_tool, label: "OpenSteamTool.dll" },
-          { ok: st.has_xinput, label: "xinput1_4.dll" },
-          { ok: st.lua_dir_exists, label: t("tools.marker.lua_dir") },
-        ]
-      : [],
+    !st
+      ? []
+      : st.flavor === "open_steam_tool"
+        ? [
+            { ok: st.has_open_steam_tool, label: "OpenSteamTool.dll" },
+            { ok: st.has_xinput, label: "xinput1_4.dll" },
+            { ok: st.lua_dir_exists, label: t("tools.marker.lua_dir") },
+          ]
+        : [
+            { ok: st.has_xinput, label: "xinput1_4.dll" },
+            { ok: st.has_dwmapi, label: "dwmapi.dll" },
+            { ok: st.lua_dir_exists, label: t("tools.marker.plugin_dir") },
+          ],
   );
 
   async function run(id: string, action: () => Promise<string>) {
