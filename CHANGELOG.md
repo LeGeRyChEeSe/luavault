@@ -17,6 +17,14 @@ Two rules to follow when editing this file, because the script depends on them:
 
 ## Unreleased
 
+## 1.2.2 - 2026-11-12
+
+### fr
+- Une mise à jour automatique faite pendant que l'application est seulement dans la zone de notification se fait en silence : l'application revient dans la zone de notification, sans ouvrir sa fenêtre. La fenêtre ne revient que si elle était affichée.
+
+### en
+- An automatic update made while the app sits only in the notification area is silent: the app comes back to the notification area without opening its window. The window comes back only if it was shown.
+
 ## 1.2.1 - 2026-11-12
 
 ### fr
