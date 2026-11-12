@@ -179,7 +179,8 @@ npm run icon             # regenerate icons from icon-source.png
 .\scripts\publish-motd.ps1 -Fr "…" -En "…" -Hours 12  # message of the day (signed)
 ```
 
-Publishing also requires the `lvrelease` binary (built by Cargo) and the
+Publishing also requires the `lvrelease` binary (built by Cargo with the `release-tools`
+feature, so it never ships in the installer) and the
 `release-primary.key` private key at the repo root. That key is gitignored:
 never distribute it. `-DryRun` produces the manifest and its signature without
 uploading a release.

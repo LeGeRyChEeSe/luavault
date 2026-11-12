@@ -249,7 +249,7 @@ if (-not $SkipSigning) {
     }
 
     $signature = & cargo run --quiet --manifest-path (Join-Path $root 'src-tauri\Cargo.toml') `
-        --bin lvrelease -- sign $SigningKey $manifestPath
+        --features release-tools --bin lvrelease -- sign $SigningKey $manifestPath
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($signature)) {
         throw 'La signature Ed25519 du manifeste a échoué.'
     }

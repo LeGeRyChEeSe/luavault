@@ -224,13 +224,13 @@ const CREDIT_GROUPS_DATA = [
       },
       {
         id: "tauridocs",
-        name: "Documentation Tauri v2 — capabilities",
+        name: "Documentation Tauri v2 : capabilities",
         url: "https://tauri.app/security/capabilities/",
         licence: undefined,
       },
       {
         id: "viewtransitions",
-        name: "MDN — View Transitions API",
+        name: "MDN : View Transitions API",
         url: "https://developer.mozilla.org/docs/Web/API/View_Transitions_API",
         licence: undefined,
       },

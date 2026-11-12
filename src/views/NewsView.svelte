@@ -157,7 +157,7 @@
     {#if failed.length > 0}
       <!-- A truncated feed says so: which games are missing, and why. -->
       <p
-        data-tip={failed.map((f) => `${f.game_name} : ${f.error}`).join(" — ")}
+        data-tip={failed.map((f) => `${f.game_name} : ${f.error}`).join(" · ")}
         class="mb-3 flex items-center gap-2 rounded-lg border border-peach/30 bg-peach-soft/55 px-3 py-2 text-xs text-peach-deep"
       >
         <Icon name="alert" size={13} class="shrink-0" />

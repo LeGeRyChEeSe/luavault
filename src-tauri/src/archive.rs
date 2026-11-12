@@ -199,10 +199,10 @@ pub fn extract(archive: &Path, dest: &Path, password: Option<&str>) -> Result<Ve
         ArchiveKind::Rar => extract_rar(archive, dest, pwd),
         ArchiveKind::Zip => extract_zip(archive, dest, pwd),
         ArchiveKind::SevenZ => bail!(
-            "archive 7-Zip non prise en charge — extrayez-la manuellement puis réessayez"
+            "archive 7-Zip non prise en charge : extrayez-la manuellement puis réessayez"
         ),
         ArchiveKind::Unknown => bail!(
-            "format d'archive non reconnu — le fichier est peut-être corrompu, retéléchargez-le"
+            "format d'archive non reconnu : le fichier est peut-être corrompu, retéléchargez-le"
         ),
     };
     if let Err(e) = res {

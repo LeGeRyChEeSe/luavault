@@ -182,7 +182,7 @@ pub fn open_steam_uri(uri: &str) -> Result<()> {
             // ShellExecuteW returns a value <= 32 on failure.
             if result.0 as usize <= 32 {
                 return Err(anyhow::anyhow!(
-                    "Steam n'a pas pu être contacté — est-il installé et lancé ?"
+                    "Steam n'a pas pu être contacté : est-il installé et lancé ?"
                 ));
             }
         }

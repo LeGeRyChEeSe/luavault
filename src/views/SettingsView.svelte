@@ -339,7 +339,14 @@
       updateChecked = true;
       updateInfo = offer;
       appState.updateAvailable = offer;
-      if (offer) {
+      if (offer && !offer.upgrade_blocked && offer.artifacts[0]) {
+        // The choice is the request: the channel's version installs at once (download, SHA-256,
+        // installer, reopen), like the message's « change edition » button.
+        appState.toast("info", t("settings.channel.installing", { version: offer.version }));
+        const a = offer.artifacts[0];
+        downloadedPath = await downloadUpdate(offer.version, a.file, a.sha256, a.size, offer.channel);
+        await installUpdate(downloadedPath);
+      } else if (offer) {
         appState.toast(
           "info",
           offer.downgrade
@@ -1604,7 +1611,7 @@
               : 'bg-rose-soft/55 text-rose-deep'}"
           >
             <Icon name={step.ok ? "check" : "error"} size={15} class="mt-0.5 shrink-0" />
-            <span><span class="font-semibold">{t(`settings.wipe.item.${step.id}.label` as import("../lib/i18n.svelte").Key)}</span> — {t(`settings.wipe.detail.${step.detail.code}` as import("../lib/i18n.svelte").Key, step.detail as Record<string, unknown>)}</span>
+            <span><span class="font-semibold">{t(`settings.wipe.item.${step.id}.label` as import("../lib/i18n.svelte").Key)}</span> : {t(`settings.wipe.detail.${step.detail.code}` as import("../lib/i18n.svelte").Key, step.detail as Record<string, unknown>)}</span>
           </div>
         {/each}
       </div>

@@ -264,7 +264,7 @@ impl CappedBody {
         if let Some(announced) = announced {
             if announced > limit {
                 bail!(
-                    "réponse annoncée à {} octets — plafond {} dépassé",
+                    "réponse annoncée à {} octets : plafond {} dépassé",
                     announced,
                     limit
                 );

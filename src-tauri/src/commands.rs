@@ -677,7 +677,7 @@ fn bulk_preflight_plan(
 
     if steam.is_none() {
         plan.warnings
-            .push("Steam n'est pas détecté — indiquez son dossier dans Réglages.".to_string());
+            .push("Steam n'est pas détecté : indiquez son dossier dans Réglages.".to_string());
         return plan;
     }
     // A repair copies files straight into the game folder — it never fires a
@@ -685,7 +685,7 @@ fn bulk_preflight_plan(
     // selection pass applies patches the same way, so it shares the exemption.
     if !steam_running && !repair_only && selection.is_none() {
         plan.warnings
-            .push("Steam ne semble pas lancé — les demandes d'installation échoueront.".to_string());
+            .push("Steam ne semble pas lancé : les demandes d'installation échoueront.".to_string());
     }
 
     let fix_stages = if repair_only {
@@ -724,7 +724,7 @@ fn bulk_preflight_plan(
             let mut warning = None;
             if !status.game.known_to_steam {
                 warning = Some(
-                    "Ce jeu n'apparaît pas dans votre compte Steam — il n'est peut-être pas activé."
+                    "Ce jeu n'apparaît pas dans votre compte Steam : il n'est peut-être pas activé."
                         .to_string(),
                 );
             }
@@ -777,9 +777,9 @@ fn bulk_preflight_plan(
 
     if plan.games.is_empty() && plan.fixes.is_empty() {
         plan.warnings.push(if repair_only {
-            "Rien à réparer — aucun patch installé n'est endommagé.".to_string()
+            "Rien à réparer : aucun patch installé n'est endommagé.".to_string()
         } else {
-            "Rien à faire — tous les jeux sont à jour.".to_string()
+            "Rien à faire : tous les jeux sont à jour.".to_string()
         });
     }
     plan
@@ -1467,7 +1467,7 @@ pub async fn changelog_feed(
     };
 
     sort_feed(&mut items);
-    info!("{}", i18n_log::i18n_log(format!("changelog_feed: {} article(s) — {} jeu(x) du cache, {} récupéré(s), {} échec(s)", items.len(), from_cache, fetched, failed.len()), "logs.changelog.summary", &[("items", serde_json::json!(items.len())), ("fromCache", serde_json::json!(from_cache)), ("fetched", serde_json::json!(fetched)), ("failed", serde_json::json!(failed.len()))]));
+    info!("{}", i18n_log::i18n_log(format!("changelog_feed: {} article(s) : {} jeu(x) du cache, {} récupéré(s), {} échec(s)", items.len(), from_cache, fetched, failed.len()), "logs.changelog.summary", &[("items", serde_json::json!(items.len())), ("fromCache", serde_json::json!(from_cache)), ("fetched", serde_json::json!(fetched)), ("failed", serde_json::json!(failed.len()))]));
     Ok(FeedReport {
         items,
         from_cache,
@@ -1563,7 +1563,7 @@ pub async fn game_status(
 pub async fn install_game_via_steam(app_id: String) -> Result<String, String> {
     info!("install_game_via_steam: app_id={app_id}");
     install::open_steam_uri(&format!("steam://install/{app_id}")).map_err(|e| e.to_string())?;
-    Ok("Steam a reçu la demande d'installation — validez-la dans la fenêtre Steam.".to_string())
+    Ok("Steam a reçu la demande d'installation : validez-la dans la fenêtre Steam.".to_string())
 }
 
 #[tauri::command]
@@ -1577,7 +1577,7 @@ pub async fn launch_game(app_id: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn restart_steam(state: State<'_, AppState>) -> Result<String, String> {
     let cfg = state.config.lock().unwrap().clone();
-    let steam = resolve_steam(&cfg).ok_or("Steam introuvable — indiquez son dossier dans Réglages")?;
+    let steam = resolve_steam(&cfg).ok_or("Steam introuvable : indiquez son dossier dans Réglages")?;
     let exe = steam.join("steam.exe");
     if !exe.is_file() {
         return Err("steam.exe introuvable dans le dossier Steam".to_string());
@@ -1590,7 +1590,7 @@ pub async fn restart_steam(state: State<'_, AppState>) -> Result<String, String>
     // Steam rewrites libraryfolders.vdf on restart — invalidate the VDF cache
     // so the next locate_game / steamapps_dirs call reads the fresh file.
     vdf::clear_caches();
-    Ok("Steam redémarre — patientez quelques secondes.".to_string())
+    Ok("Steam redémarre : patientez quelques secondes.".to_string())
 }
 
 #[tauri::command]
@@ -1612,18 +1612,18 @@ pub(crate) async fn install_fix_inner(
 ) -> Result<fixes::FixReport, String> {
     let app_id = app_id.to_string();
     let library_dir = cfg.resolved_library_dir();
-    let steam = resolve_steam(cfg).ok_or("Steam introuvable — indiquez son dossier dans Réglages")?;
+    let steam = resolve_steam(cfg).ok_or("Steam introuvable : indiquez son dossier dans Réglages")?;
 
     let game = vdf::locate_game(&steam, &app_id);
     let Some(game_dir) = game.install_dir.as_deref().map(PathBuf::from) else {
         return Err(
-            "le jeu n'est pas installé — installez-le d'abord via Steam, puis relancez l'installation du patch"
+            "le jeu n'est pas installé : installez-le d'abord via Steam, puis relancez l'installation du patch"
                 .to_string(),
         );
     };
     if !game.fully_installed {
         return Err(
-            "le jeu est encore en cours de téléchargement — attendez la fin avant d'appliquer le patch"
+            "le jeu est encore en cours de téléchargement : attendez la fin avant d'appliquer le patch"
                 .to_string(),
         );
     }
@@ -1683,7 +1683,7 @@ pub async fn setup_defender_exclusions(
 ) -> Result<Vec<String>, String> {
     let cfg = state.config.lock().unwrap().clone();
     let steam = resolve_steam(&cfg)
-        .ok_or("Steam introuvable — indiquez son dossier dans Réglages")?;
+        .ok_or("Steam introuvable : indiquez son dossier dans Réglages")?;
     let common: Vec<String> = vdf::common_dirs(&steam)
         .iter()
         .map(|p| p.display().to_string())
@@ -1741,7 +1741,7 @@ pub async fn verify_defender_exclusions(
 ) -> Result<defender::VerifyReport, String> {
     let cfg = state.config.lock().unwrap().clone();
     let steam = resolve_steam(&cfg)
-        .ok_or("Steam introuvable — indiquez son dossier dans Réglages")?;
+        .ok_or("Steam introuvable : indiquez son dossier dans Réglages")?;
     let common: Vec<String> = vdf::common_dirs(&steam)
         .iter()
         .map(|p| p.display().to_string())
@@ -1771,7 +1771,7 @@ pub async fn remove_lua_from_steam(
     app_id: String,
 ) -> Result<bool, String> {
     let cfg = state.config.lock().unwrap().clone();
-    let steam = resolve_steam(&cfg).ok_or("Steam introuvable — indiquez son dossier dans Réglages")?;
+    let steam = resolve_steam(&cfg).ok_or("Steam introuvable : indiquez son dossier dans Réglages")?;
     library::remove_from_steam(&app_id, &steam).map_err(|e| e.to_string())
 }
 
@@ -1779,7 +1779,7 @@ pub async fn remove_lua_from_steam(
 fn integrity_error_message(err: &anyhow::Error) -> String {
     let msg = err.to_string().to_lowercase();
     if msg.contains("sidecar") || msg.contains("hmac") || msg.contains("match") {
-        return "L'index de la bibliothèque n'est plus reconnu — sa signature ne correspond plus au contenu, ou il a été signé par une autre installation. L'application refuse toute écriture pour protéger vos données. Deux options s'offrent à vous : restaurez une sauvegarde récente (Fichiers → Sauvegardes), ou utilisez la commande de ré-adoption pour accepter l'index tel quel (il ne sera pas vérifié).".to_string();
+        return "L'index de la bibliothèque n'est plus reconnu : sa signature ne correspond plus au contenu, ou il a été signé par une autre installation. L'application refuse toute écriture pour protéger vos données. Deux options s'offrent à vous : restaurez une sauvegarde récente (Fichiers → Sauvegardes), ou utilisez la commande de ré-adoption pour accepter l'index tel quel (il ne sera pas vérifié).".to_string();
     }
     if msg.contains("json") || msg.contains("valide") || msg.contains("parse") {
         return "L'index de la bibliothèque contient des données corrompues et ne peut pas être chargé. Restaurez une sauvegarde récente (Fichiers → Sauvegardes) ou utilisez la commande de ré-adoption pour réinitialiser la signature.".to_string();
@@ -1817,7 +1817,7 @@ pub async fn remove_library_entry(
 
     if !forced && fixes::load_state(&library_dir, &app_id).is_some() {
         return Err(
-            "un patch en ligne est encore installé pour ce jeu — désinstallez-le d'abord pour restaurer les fichiers d'origine"
+            "un patch en ligne est encore installé pour ce jeu : désinstallez-le d'abord pour restaurer les fichiers d'origine"
                 .to_string(),
         );
     }
@@ -1870,7 +1870,7 @@ pub async fn set_library_tags(
 pub async fn copy_to_steam(state: State<'_, AppState>, app_id: String) -> Result<String, String> {
     let cfg = state.config.lock().unwrap().clone();
     let steam =
-        resolve_steam(&cfg).ok_or("Steam introuvable — indiquez son dossier dans Réglages")?;
+        resolve_steam(&cfg).ok_or("Steam introuvable : indiquez son dossier dans Réglages")?;
     let library_dir = cfg.resolved_library_dir();
     let dst = library::copy_to_steam(&library_dir, &app_id, &steam).map_err(|e| e.to_string())?;
     Ok(dst.display().to_string())
@@ -2074,7 +2074,7 @@ pub async fn import_patch_archive(
 pub async fn sync_library_to_steam(state: State<'_, AppState>) -> Result<u32, String> {
     let cfg = state.config.lock().unwrap().clone();
     let steam =
-        resolve_steam(&cfg).ok_or("Steam introuvable — indiquez son dossier dans Réglages")?;
+        resolve_steam(&cfg).ok_or("Steam introuvable : indiquez son dossier dans Réglages")?;
     let library_dir = cfg.resolved_library_dir();
     library::sync_all(&library_dir, &steam).map_err(|e| e.to_string())
 }
@@ -2096,7 +2096,7 @@ pub async fn set_steam_dir(
     }
     if !detect::looks_like_steam_dir(&path) {
         return Err(
-            "steam.exe introuvable dans ce dossier — choisissez le dossier d'installation de Steam"
+            "steam.exe introuvable dans ce dossier : choisissez le dossier d'installation de Steam"
                 .to_string(),
         );
     }
@@ -2406,7 +2406,7 @@ pub async fn wipe_execute(
         },
     );
     for step in &report.steps {
-        info!("wipe: [{}] {} — {:?}", step.ok, step.id, step.detail);
+        info!("wipe: [{}] {}: {:?}", step.ok, step.id, step.detail);
     }
     if plan.reset_app_config {
         *state.config.lock().unwrap() = config::AppConfig::default();
@@ -2476,7 +2476,7 @@ pub async fn preview_import(
     tauri::async_runtime::spawn_blocking(move || {
         let metadata = std::fs::metadata(&path).map_err(|e| format!("impossible de lire le fichier : {e}"))?;
         if metadata.len() > MAX_SIZE {
-            return Err("le fichier dépasse 5 Mo — il s'agit d'une liste d'identifiants, pas d'une archive".to_string());
+            return Err("le fichier dépasse 5 Mo : il s'agit d'une liste d'identifiants, pas d'une archive".to_string());
         }
         let text = std::fs::read_to_string(&path).map_err(|e| format!("lecture du fichier : {e}"))?;
         Ok(exchange::parse_import(&text, &known_ids))

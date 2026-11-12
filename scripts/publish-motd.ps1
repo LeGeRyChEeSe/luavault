@@ -346,7 +346,7 @@ if ($interactive -and -not $DryRun) {
 # --------------------------------------------------------------- signature
 
 $signature = & cargo run --quiet --manifest-path (Join-Path $root 'src-tauri\Cargo.toml') `
-    --bin lvrelease -- sign $SigningKey $docPath
+    --features release-tools --bin lvrelease -- sign $SigningKey $docPath
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($signature)) {
     throw 'La signature Ed25519 du message a échoué.'
 }

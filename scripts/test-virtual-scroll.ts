@@ -184,9 +184,9 @@ await import("../src/lib/i18n.svelte").then(({ i18n }) => i18n.hydrate("fr"));
   const rendered = formatUnixDate(1738000000);
   assert.ok(!rendered.includes("1970"), `LOT-12: 1738000000 ne doit plus rendre une date de 1970 (rendu : ${rendered})`);
   assert.equal(rendered, "27 janv. 2025", "LOT-12: 1738000000 s = 27 janvier 2025");
-  assert.equal(formatUnixDate(null), "—", "null → —");
-  assert.equal(formatUnixDate(undefined), "—", "undefined → —");
-  assert.equal(formatUnixDate(0), "—", "0 (date absente) → —");
+  assert.equal(formatUnixDate(null), "-", "null → -");
+  assert.equal(formatUnixDate(undefined), "-", "undefined → -");
+  assert.equal(formatUnixDate(0), "-", "0 (date absente) → -");
   label("formatUnixDate (secondes Unix, pas millisecondes — TZ UTC)");
 }
 // Restore the previous TZ, same pattern as D7 above.
@@ -707,12 +707,12 @@ function makeLog(id: number, level: string, message: string, timestamp?: string)
   );
   assert.equal(
     fr["logs.count.all-truncated"],
-    "{n} entrée(s) — les {shown} dernières affichées",
+    "{n} entrée(s) : les {shown} dernières affichées",
     "la troncature se déclare",
   );
   assert.equal(
     fr["logs.count.filtered-truncated"],
-    "{n} entrée(s) sur {total} — les {shown} dernières affichées",
+    "{n} entrée(s) sur {total} : les {shown} dernières affichées",
   );
   for (const key of ["logs.count.filtered", "logs.count.filtered-truncated"] as const) {
     assert.ok(en[key].includes("{total}"), `${key} : l'anglais garde son {total}`);

@@ -470,7 +470,7 @@ pub fn decrypt_import(src: &Path, dest: &Path, password: &str) -> Result<u64> {
 
     // Require encrypted format.
     if !is_encrypted(src) {
-        bail!("not an LuaVault encrypted archive — plaintext passthrough is not supported");
+        bail!("not an LuaVault encrypted archive: plaintext passthrough is not supported");
     }
 
     let password_bytes = Zeroizing::new(password.as_bytes().to_vec());

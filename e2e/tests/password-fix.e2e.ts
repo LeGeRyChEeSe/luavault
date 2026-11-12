@@ -71,7 +71,7 @@ export default defineSuite({
       await (await s.find('[data-e2e-password-retry]')).click();
 
       await s.waitUntil('le patch est installé après la soumission du mot de passe', async () =>
-        (await bodyText(app)).includes(`${GAME_NAME} — patch en ligne installé (1 fichier(s)).`),
+        (await bodyText(app)).includes(`${GAME_NAME} : patch en ligne installé (1 fichier(s)).`),
         20_000,
       );
     },

@@ -264,7 +264,7 @@ pub fn render_export(statuses: &[GameStatus], format: &str) -> Result<String, St
     match format {
         "csv" => Ok(to_csv(statuses)),
         "json" => to_json(statuses).map_err(|e| e.to_string()),
-        _ => Err("format non supporté — choisissez csv ou json".to_string()),
+        _ => Err("format non supporté : choisissez csv ou json".to_string()),
     }
 }
 

@@ -289,10 +289,10 @@ fn missing_dirs(game_dir: &Path, files: &[PathBuf]) -> Vec<String> {
 pub fn install(lib: &Path, app_id: &str, game_dir: &Path, password: Option<&str>) -> Result<FixReport> {
     let archive_file = archive_path(lib, app_id);
     if !archive_file.is_file() {
-        bail!("archive du patch introuvable — téléchargez-le d'abord");
+        bail!("archive du patch introuvable : téléchargez-le d'abord");
     }
     if !game_dir.is_dir() {
-        bail!("dossier du jeu introuvable — installez le jeu via Steam avant d'appliquer le patch");
+        bail!("dossier du jeu introuvable : installez le jeu via Steam avant d'appliquer le patch");
     }
 
     // Unique per call: two installs must never share a staging folder. The
@@ -552,7 +552,7 @@ pub fn uninstall(lib: &Path, app_id: &str) -> Result<UninstallReport> {
     let game_dir = PathBuf::from(&state.game_dir);
     if !game_dir.is_dir() {
         bail!(
-            "dossier du jeu introuvable ({}) — impossible de désinstaller proprement",
+            "dossier du jeu introuvable ({}) : impossible de désinstaller proprement",
             state.game_dir
         );
     }

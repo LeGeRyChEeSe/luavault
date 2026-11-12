@@ -130,10 +130,19 @@ impl MotdAction {
                 crate::steamtools_source::is_known(name).then(|| ResolvedAction::SteamToolsSource(name.to_string()))
             }
             "open_url" => safe_https_url(self.url.as_deref()?).map(ResolvedAction::OpenUrl),
+            // The edition installed beside the stable is a program of its own: it never takes the
+            // stable's place nor goes back to it, so the button would only promise a switch.
+            "switch_channel" if !switch_offered(crate::config::BESIDE) => None,
             "switch_channel" => crate::update::Channel::parse(self.channel.as_deref()?).map(ResolvedAction::SwitchChannel),
             _ => None,
         }
     }
+}
+
+/// Pure. Whether this edition offers the « change edition » button: every edition but the one
+/// installed beside the stable.
+pub fn switch_offered(beside: bool) -> bool {
+    !beside
 }
 
 impl MotdAction {
@@ -580,7 +589,7 @@ pub async fn fetch_verified_motd_with_keys(
     let sig_text = match String::from_utf8(sig_bytes) {
         Ok(s) => s,
         Err(_) => {
-            debug!("check_motd: signature non-UTF8 — rejetée");
+            debug!("check_motd: signature non-UTF8 : rejetée");
             return None;
         }
     };
@@ -592,7 +601,7 @@ pub async fn fetch_verified_motd_with_keys(
 /// Split out so the rejection order is tested without a socket.
 pub fn parse_verified(doc_bytes: &[u8], sig_text: &str, keys: &[&str]) -> Option<MotdDocument> {
     if update::verify_manifest_with_keys(doc_bytes, sig_text, keys).is_none() {
-        debug!("check_motd: signature invalide — message rejeté");
+        debug!("check_motd: signature invalide : message rejeté");
         return None;
     }
 
@@ -606,7 +615,7 @@ pub fn parse_verified(doc_bytes: &[u8], sig_text: &str, keys: &[&str]) -> Option
 
     if doc.schema > SCHEMA {
         debug!(
-            "check_motd: schema {} > {} — abandon silencieux",
+            "check_motd: schema {} > {}: abandon silencieux",
             doc.schema, SCHEMA
         );
         return None;
@@ -628,14 +637,14 @@ pub fn parse_verified(doc_bytes: &[u8], sig_text: &str, keys: &[&str]) -> Option
 pub fn evaluate(doc: MotdDocument, now: DateTime<Utc>) -> Option<MotdMessage> {
     let message = doc.message?;
     if message.id.trim().is_empty() {
-        debug!("check_motd: message sans identifiant — ignoré");
+        debug!("check_motd: message sans identifiant : ignoré");
         return None;
     }
     if let Some(raw) = message.expires_at.as_deref() {
         let expires = match DateTime::parse_from_rfc3339(raw) {
             Ok(t) => t.with_timezone(&Utc),
             Err(e) => {
-                debug!("check_motd: expires_at illisible ({e}) — ignoré");
+                debug!("check_motd: expires_at illisible ({e}) : ignoré");
                 return None;
             }
         };
@@ -645,7 +654,7 @@ pub fn evaluate(doc: MotdDocument, now: DateTime<Utc>) -> Option<MotdMessage> {
         }
     }
     if message.body.values().all(|s| s.trim().is_empty()) {
-        debug!("check_motd: message {} sans corps — ignoré", message.id);
+        debug!("check_motd: message {} sans corps : ignoré", message.id);
         return None;
     }
     let mut message = message;
@@ -1248,6 +1257,17 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_edition_beside_offers_no_switch_button() {
+        assert!(switch_offered(false));
+        assert!(!switch_offered(true));
+        let a: MotdAction =
+            serde_json::from_value(serde_json::json!({"id": "sw", "kind": "switch_channel", "channel": "stable"})).unwrap();
+        assert_eq!(a.resolve().is_some(), !crate::config::BESIDE);
+    }
+
+    // The edition beside offers no switch button: `the_edition_beside_offers_no_switch_button`.
+    #[cfg(not(feature = "beside"))]
     #[test]
     fn switch_channel_takes_a_known_edition_and_is_done_once_running_it() {
         let mut a: MotdAction = serde_json::from_value(serde_json::json!({"id": "sw", "kind": "switch_channel"})).unwrap();

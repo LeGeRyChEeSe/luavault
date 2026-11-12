@@ -313,7 +313,7 @@ pub async fn read_capped(resp: reqwest::Response, limit: u64) -> Result<Vec<u8>>
     if let Some(announced) = resp.content_length() {
         if announced > limit {
             bail!(
-                "réponse annoncée à {} octets — plafond {} dépassé",
+                "réponse annoncée à {} octets : plafond {} dépassé",
                 announced,
                 limit
             );
@@ -430,14 +430,14 @@ pub async fn fetch_named_manifest_with_keys(
     let sig_text = match String::from_utf8(sig_bytes) {
         Ok(s) => s,
         Err(_) => {
-            debug!("check_update: signature non-UTF8 — rejetée");
+            debug!("check_update: signature non-UTF8 : rejetée");
             return None;
         }
     };
 
     // Verify signature BEFORE deserializing anything.
     if verify_manifest_with_keys(&manifest_bytes, &sig_text, keys).is_none() {
-        debug!("check_update: signature invalide — manifeste rejeté");
+        debug!("check_update: signature invalide : manifeste rejeté");
         return None;
     }
 
@@ -452,7 +452,7 @@ pub async fn fetch_named_manifest_with_keys(
     // Schema newer than ours: silent abort (the update would fix this anyway).
     if manifest.schema > SCHEMA {
         debug!(
-            "check_update: schema {} > {} — abandon silencieux",
+            "check_update: schema {} > {}: abandon silencieux",
             manifest.schema, SCHEMA
         );
         return None;
@@ -770,7 +770,7 @@ pub async fn download_and_verify_from(
     // Refuse oversized artefacts before a single byte is read.
     if expected_size > MAX_ARTIFACT_SIZE {
         bail!(
-            "artefact annoncé à {} octets — plafond {} dépassé",
+            "artefact annoncé à {} octets : plafond {} dépassé",
             expected_size,
             MAX_ARTIFACT_SIZE
         );
@@ -835,7 +835,7 @@ pub async fn download_and_verify_from(
     let digest = Sha256::digest(&bytes);
     let hex_digest = hmac::bytes_to_hex(&digest);
     if !hex_digest.eq_ignore_ascii_case(expected_sha256) {
-        bail!("empreinte SHA-256 incorrecte — le fichier a été rejeté");
+        bail!("empreinte SHA-256 incorrecte : le fichier a été rejeté");
     }
 
     // Write to temp directory only after both checks pass.
@@ -885,7 +885,7 @@ pub fn validate_install_path(
     verified: &Option<(String, String)>,
 ) -> Result<std::path::PathBuf, String> {
     let (verified_path, expected_sha) = verified.as_ref().ok_or_else(|| {
-        "aucun téléchargement vérifié en attente — retéléchargez la mise à jour".to_string()
+        "aucun téléchargement vérifié en attente : retéléchargez la mise à jour".to_string()
     })?;
 
     let expected_dir = std::env::temp_dir().join("luavault-updates");
@@ -908,7 +908,7 @@ pub fn validate_install_path(
     let digest = sha256_of_file(&canon).map_err(|e| format!("lecture du fichier : {e}"))?;
     if !digest.eq_ignore_ascii_case(expected_sha) {
         return Err(
-            "empreinte SHA-256 incorrecte — le fichier a été modifié depuis le téléchargement"
+            "empreinte SHA-256 incorrecte : le fichier a été modifié depuis le téléchargement"
                 .to_string(),
         );
     }

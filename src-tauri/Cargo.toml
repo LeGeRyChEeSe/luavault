@@ -20,6 +20,14 @@ experimental = []
 # The experimental edition installed beside the stable: its own data folder and registrations
 # (with `src-tauri/tauri.exp.conf.json` for its own name and identifier).
 beside = ["experimental"]
+# The release signer (`lvrelease`), for the publication scripts only: off by default so that
+# `tauri build` neither builds nor ships it in the installer.
+release-tools = []
+
+[[bin]]
+name = "lvrelease"
+path = "src/bin/lvrelease.rs"
+required-features = ["release-tools"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

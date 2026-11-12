@@ -74,7 +74,7 @@ Run-Step "Rust: cargo test" "cargo test" "$root\src-tauri" "cargo-test"
 # accumules sur src-tauri sans que rien ne les arrete, parce que seul le serveur
 # de mise a jour passait par clippy. Un avertissement toujours tolere est un
 # avertissement que plus personne ne lit.
-Run-Step "Rust: cargo clippy" "cargo clippy --all-targets -- -D warnings" "$root\src-tauri" "cargo-clippy"
+Run-Step "Rust: cargo clippy" "cargo clippy --all-targets --features release-tools -- -D warnings" "$root\src-tauri" "cargo-clippy"
 # L'edition experimentale est le meme code sous une feature : un test peut ne compiler qu'avec
 # elle (config::EXPERIMENTAL), une branche ne servir qu'a elle. Les deux configurations passent.
 Run-Step "Rust: cargo test (experimental)" "cargo test --features experimental" "$root\src-tauri" "cargo-test-exp"

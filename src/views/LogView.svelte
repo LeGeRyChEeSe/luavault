@@ -124,7 +124,7 @@
         </h2>
         <p class="mt-0.5 truncate text-sm text-azure-900/60">
           {countLabel}
-          {#if logDir}— {logDir}{/if}
+          {#if logDir}· {logDir}{/if}
         </p>
       </div>
       <label

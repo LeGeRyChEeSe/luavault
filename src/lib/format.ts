@@ -11,7 +11,7 @@ import { i18n, t } from "./i18n.svelte";
 const BYTE_UNITS = ["b", "kb", "mb", "gb", "tb"] as const;
 
 export function formatBytes(n?: number | null): string {
-  if (!n) return "—";
+  if (!n) return "-";
   let value = n;
   let unit = 0;
   while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
@@ -24,7 +24,7 @@ export function formatBytes(n?: number | null): string {
 }
 
 export function formatDate(iso?: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   try {
     return new Date(iso).toLocaleDateString(i18n.locale, {
       day: "2-digit",
@@ -42,7 +42,7 @@ export function formatDate(iso?: string | null): string {
  * This is the only formatter allowed to touch a numeric Steam date.
  */
 export function formatUnixDate(seconds?: number | null): string {
-  if (!seconds) return "—";
+  if (!seconds) return "-";
   return new Date(seconds * 1000).toLocaleDateString(i18n.locale, {
     day: "2-digit",
     month: "short",
@@ -89,7 +89,7 @@ export function formatTotalPlaytime(
 }
 
 export function formatDateTime(iso?: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   try {
     return new Date(iso).toLocaleString(i18n.locale, {
       day: "2-digit",

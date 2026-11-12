@@ -160,7 +160,7 @@
         </h3>
         {#if phase === "running" && currentEvent}
           <p class="truncate text-xs text-azure-900/55">
-            {t(`bulk.phase.${currentEvent.phase}`)} · {currentEvent.name} — {currentEvent.detail}
+            {t(`bulk.phase.${currentEvent.phase}`)} · {currentEvent.name} : {currentEvent.detail}
           </p>
         {/if}
       </div>
