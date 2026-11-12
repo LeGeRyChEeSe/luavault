@@ -17,6 +17,8 @@ Two rules to follow when editing this file, because the script depends on them:
 
 ## Unreleased
 
+## 1.3.0 - 2026-11-12
+
 ### fr
 - Une version expérimentale de l'application peut être essayée : Réglages, Canal de mise à jour, Expérimental. Ce choix n'apparaît que lorsqu'une version expérimentale est publiée. Elle remplace la version installée (même dossier, mêmes jeux, mêmes réglages) et revient d'elle-même à la stable quand la version expérimentale est retirée ou qu'une version stable plus récente sort. Réglages propose aussi de l'installer à côté, comme un second programme avec ses propres données.
 - Une version stable ne passe jamais toute seule à l'expérimentale : il faut la choisir. Restaurer une sauvegarde ne change pas non plus le canal de mise à jour.
