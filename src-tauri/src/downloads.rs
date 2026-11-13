@@ -720,6 +720,20 @@ pub fn start(app: &AppHandle, state: &AppState, dirs: Vec<PathBuf>, window: Wind
             })
             .await
             .unwrap_or_default();
+            // LuaVault in Steam: the files of a game asked for from Steam are taken without asking
+            // again; what cannot be taken that way is offered as usual.
+            let found = if found.is_empty() {
+                found
+            } else {
+                let cfg = app.state::<AppState>().config.lock().map(|cfg| cfg.clone()).unwrap_or_default();
+                let wanted = crate::steam_client::wanted(&cfg, crate::config::is_portable(), crate::config::EXPERIMENTAL);
+                let (data_dir, now) = (crate::config::data_dir(), chrono::Utc::now().timestamp());
+                let (taken, mut rest) = crate::steam_followup::split_requested(found, wanted, |id| crate::steam_store::requested(&data_dir, id, now));
+                if !taken.is_empty() {
+                    rest.extend(crate::steam_followup::take(&app, taken).await);
+                }
+                rest
+            };
             if !found.is_empty() {
                 if let Err(error) = app.emit(DOWNLOADS_FOUND_EVENT, found.clone()) {
                     debug!("downloads found event failed: {error}");

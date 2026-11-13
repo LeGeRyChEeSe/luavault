@@ -8,6 +8,7 @@
   import SettingsView from "./views/SettingsView.svelte";
   import LogView from "./views/LogView.svelte";
   import CreditsView from "./views/CreditsView.svelte";
+  import TrialsView from "./views/TrialsView.svelte";
   import Onboarding from "./components/Onboarding.svelte";
   import Toasts from "./components/Toasts.svelte";
   import GameSpotlight from "./components/GameSpotlight.svelte";
@@ -44,6 +45,7 @@
     | "tools"
     | "logs"
     | "credits"
+    | "trials"
     | "settings";
   let view = $state<View>("library");
   let showHelp = $state(false);
@@ -125,6 +127,8 @@
     const unlistenManifest = listen("manifest-fallback://changed", () => void appState.refreshManifest());
     // The click on the notification opened the key page in the browser: bring the user to
     // the tab where the key is pasted.
+    // LuaVault in Steam: a game asked for from Steam was added behind the window's back.
+    const unlistenLibrary = listen("library://changed", () => void appState.refreshLibrary());
     const unlistenManifestOpen = listen("manifest-fallback://open", () => {
       view = "tools";
       void appState.refreshManifest();
@@ -150,6 +154,7 @@
       document.removeEventListener("visibilitychange", onWake);
       void unlistenManifest.then((fn) => fn());
       void unlistenManifestOpen.then((fn) => fn());
+      void unlistenLibrary.then((fn) => fn());
       void unlistenSteamUpdate.then((fn) => fn());
       unmountTooltips();
       void unlistenReachability.then((fn) => fn());
@@ -224,6 +229,7 @@
       { id: "tools", label: t("nav.tools"), icon: "tools" },
       { id: "logs", label: t("nav.logs"), icon: "logs" },
       { id: "credits", label: t("nav.credits"), icon: "sparkle" },
+      ...(isExperimental ? [{ id: "trials", label: t("nav.trials"), icon: "megaphone" }] : []),
       { id: "settings", label: t("nav.settings"), icon: "settings" },
     ] as { id: View; label: string; icon: string }[],
   );
@@ -383,6 +389,8 @@
           <LogView />
         {:else if view === "credits"}
           <CreditsView />
+        {:else if view === "trials"}
+          <TrialsView />
         {:else}
           <SettingsView />
         {/if}

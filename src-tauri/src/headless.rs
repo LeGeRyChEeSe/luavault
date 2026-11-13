@@ -62,6 +62,18 @@ fn uninstall_cleanup() -> i32 {
         log_line(&format!("désinstallation : entrée de démarrage du service non retirée ({e})"));
     }
     log_line("désinstallation : entrées Windows retirées");
+    // « LuaVault dans Steam »: the file that opens the Steam client's debugging port goes with the
+    // app, but only when this app wrote it (another tool may use the same file).
+    if let Ok(mut cfg) = AppConfig::load() {
+        if crate::steam_client::marker_is_ours(&cfg) {
+            match crate::commands::resolve_steam(&cfg).map(|steam| crate::steam_client::set_marker(&steam, false)) {
+                Some(Err(e)) => log_line(&format!("désinstallation : accès de contrôle de Steam non refermé ({e})")),
+                _ => log_line("désinstallation : accès de contrôle de Steam refermé"),
+            }
+            cfg.in_steam = None;
+            let _ = cfg.save();
+        }
+    }
     0
 }
 

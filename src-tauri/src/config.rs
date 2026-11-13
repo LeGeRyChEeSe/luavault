@@ -78,6 +78,11 @@ pub struct AppConfig {
     /// machine's disk: never imported from a backup.
     #[serde(default)]
     pub watch_dirs: Option<Vec<String>>,
+    /// « LuaVault dans Steam » (experimental edition only): the file that makes the Steam client open
+    /// its debugging port sits in Steam's folder, and LuaVault equips the client's pages. Off unless the
+    /// person ticks it; a fact about THIS machine's Steam folder, never imported from a backup.
+    #[serde(default)]
+    pub in_steam: Option<bool>,
     /// The resident download guard (`guard_service.rs`): `None` = never touched, which
     /// means ON; `Some(false)` = switched off in Settings. A fact about THIS machine's
     /// startup entries: never imported from a backup.
@@ -191,6 +196,7 @@ pub fn merge_imported(
             background_notify: local.background_notify,
             watch_downloads: local.watch_downloads,
             watch_dirs: local.watch_dirs.clone(),
+            in_steam: local.in_steam,
             background_guard: local.background_guard,
             auto_update: local.auto_update,
             motd_actions_done: local.motd_actions_done.clone(),
@@ -342,7 +348,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            background_guard: None,
+            in_steam: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,
@@ -707,7 +713,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            background_guard: None,
+            in_steam: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,
@@ -727,7 +733,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            background_guard: None,
+            in_steam: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,

@@ -29,6 +29,9 @@ mod steam_keys;
 mod steam_update;
 mod steamtools_source;
 mod steamstore;
+mod steam_client;
+mod steam_store;
+mod steam_followup;
 pub use update::RELEASE_PUBLIC_KEYS;
 mod update;
 mod vdf;
@@ -235,6 +238,9 @@ pub fn run() {
             steam_update::spawn(app.handle().clone());
             // A fix Steam's update of a game took away is put back (`patch_guard`).
             patch_guard::spawn(app.handle().clone());
+            // LuaVault in Steam (experimental): idle unless the person ticked it.
+            steam_client::spawn(app.handle().clone());
+            steam_followup::spawn(app.handle().clone());
             if guard_on {
                 guard_service::set_running(app.handle(), true);
                 std::thread::spawn(|| guard_service::sync_autostart(true));
@@ -341,6 +347,8 @@ pub fn run() {
             commands::get_auto_update,
             commands::set_auto_update,
             commands::open_source_site,
+            commands::get_in_steam,
+            commands::set_in_steam,
             commands::manifest_fallback_status,
             commands::manifest_fallback_run,
             commands::open_manifest_page,

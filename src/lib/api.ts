@@ -859,6 +859,14 @@ export const takeSteamtoolsRepairResult = () =>
 // `reachability://changed` events so the UI never polls.
 export const getReachability = () => invoke<Reachability>("get_reachability");
 
+/** « LuaVault dans Steam » (experimental edition). */
+export interface InSteam {
+  supported: boolean;
+  enabled: boolean;
+}
+export const getInSteam = () => invoke<InSteam>("get_in_steam");
+export const setInSteam = (enabled: boolean) => invoke<InSteam>("set_in_steam", { enabled });
+
 // ── Artwork cache (LOT-14) ──
 // Images live on disk and reach the webview through the asset protocol:
 // these commands return PATHS (feed them to convertFileSrc), never bytes.

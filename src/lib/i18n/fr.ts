@@ -1209,6 +1209,21 @@ export const fr = {
   "credits.item.tauridocs.role": "Comment Tauri délimite les commandes qu'une fenêtre a le droit d'appeler.",
   "credits.item.viewtransitions.role": "L'animation de bascule entre thèmes.",
   "credits.item.oklch.role": "Ce qui permet à un thème de tenir en deux nombres.",
+  "nav.trials": "À l'essai",
+  "trials.title": "À l'essai",
+  "trials.intro": "Ce que l'édition expérimentale ajoute à LuaVault. Chaque fonction se coupe ou se rallume ici d'un clic.",
+  "trials.unsupported": "Ces fonctions s'appuient sur Windows et sur le dossier de Steam : elles ne sont pas disponibles dans l'édition portable.",
+  "trials.badge.your_choice": "À activer",
+  "trials.steam.title": "LuaVault dans Steam",
+  "trials.steam.desc": "LuaVault s'affiche directement dans le client Steam :",
+  "trials.steam.item.store": "un bouton « Trouver sur le site » sur les pages de jeu de la boutique : il ouvre le site dans votre navigateur et copie l'AppID, vous y téléchargez le .lua et le correctif ;",
+  "trials.steam.item.follow": "LuaVault reprend ces fichiers dans vos Téléchargements sans rien demander, place le jeu dans Steam et pose le correctif dès que le jeu est installé, en suivant chaque étape dans un panneau de la boutique ;",
+  "trials.steam.item.pill": "une pastille LV dans la barre du haut, qui ouvre LuaVault.",
+  "trials.steam.risk": "Pour cela, Steam ouvre un accès de contrôle local à chacun de ses démarrages, jusqu'à ce que vous décochiez (une mise à jour de Steam ne le referme pas). Tant qu'il est ouvert, tout programme de cet ordinateur peut piloter le client Steam. Les sites web ne le peuvent pas, et un programme lancé sous votre compte Windows pourrait déjà modifier Steam sans cet accès : il compte surtout si d'autres comptes Windows utilisent cet ordinateur.",
+  "trials.steam.switch": "Afficher LuaVault dans Steam",
+  "trials.steam.restart": "Steam doit être redémarré une fois pour que l'accès s'ouvre (ou se referme).",
+  "trials.steam.on": "Activé : redémarrez Steam une fois pour que LuaVault y apparaisse.",
+  "trials.steam.off": "Désactivé : l'accès se referme au prochain démarrage de Steam.",
 } as const;
 
 export type Key = keyof typeof fr;

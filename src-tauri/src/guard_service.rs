@@ -59,7 +59,7 @@ fn lang(cfg: &AppConfig) -> &'static str {
     notify::pick_language(cfg.locale.as_deref(), notify::system_locale().as_deref())
 }
 
-fn show_main(app: &AppHandle) {
+pub(crate) fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();

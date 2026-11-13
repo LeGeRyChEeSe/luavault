@@ -1722,7 +1722,7 @@ mod tests {
             first_run_done: true,
             defender_exclusions: None,
             update_notified_version: None,
-            update_from_version: None, default_archive_password: None, motd_dismissed_id: None, background_notify: None, watch_downloads: None, watch_dirs: None, background_guard: None, auto_update: None, update_channel: None, motd_actions_done: Vec::new(),
+            update_from_version: None, default_archive_password: None, motd_dismissed_id: None, background_notify: None, watch_downloads: None, watch_dirs: None, in_steam: None, background_guard: None, auto_update: None, update_channel: None, motd_actions_done: Vec::new(),
         };
         let local_json = serde_json::to_vec_pretty(&local_cfg).unwrap();
         std::fs::write(data.join("config.json"), &local_json).unwrap();
@@ -1760,7 +1760,7 @@ mod tests {
                 first_run_done: true,
                 defender_exclusions: None,
                 update_notified_version: None,
-                update_from_version: None, default_archive_password: None, motd_dismissed_id: None, background_notify: None, watch_downloads: None, watch_dirs: None, background_guard: None, auto_update: None, update_channel: None, motd_actions_done: Vec::new(),
+                update_from_version: None, default_archive_password: None, motd_dismissed_id: None, background_notify: None, watch_downloads: None, watch_dirs: None, in_steam: None, background_guard: None, auto_update: None, update_channel: None, motd_actions_done: Vec::new(),
             };
             let tampered_json = serde_json::to_vec_pretty(&tampered_cfg).unwrap();
             writer.start_file("config.json", options).unwrap();
@@ -1843,7 +1843,7 @@ mod tests {
             first_run_done: true,
             defender_exclusions: None,
             update_notified_version: None,
-            update_from_version: None, default_archive_password: None, motd_dismissed_id: None, background_notify: None, watch_downloads: None, watch_dirs: None, background_guard: None, auto_update: None, update_channel: None, motd_actions_done: Vec::new(),
+            update_from_version: None, default_archive_password: None, motd_dismissed_id: None, background_notify: None, watch_downloads: None, watch_dirs: None, in_steam: None, background_guard: None, auto_update: None, update_channel: None, motd_actions_done: Vec::new(),
         };
         let local_json = serde_json::to_vec_pretty(&local_cfg).unwrap();
         std::fs::write(data.join("config.json"), &local_json).unwrap();
@@ -1960,7 +1960,7 @@ mod tests {
                 first_run_done: true,
                 defender_exclusions: None,
                 update_notified_version: None,
-                update_from_version: None, default_archive_password: None, motd_dismissed_id: None, background_notify: None, watch_downloads: None, watch_dirs: None, background_guard: None, auto_update: None, update_channel: None, motd_actions_done: Vec::new(),
+                update_from_version: None, default_archive_password: None, motd_dismissed_id: None, background_notify: None, watch_downloads: None, watch_dirs: None, in_steam: None, background_guard: None, auto_update: None, update_channel: None, motd_actions_done: Vec::new(),
             })
             .unwrap(),
         )
@@ -2033,7 +2033,7 @@ mod tests {
                 first_run_done: true,
                 defender_exclusions: None,
                 update_notified_version: None,
-                update_from_version: None, default_archive_password: None, motd_dismissed_id: None, background_notify: None, watch_downloads: None, watch_dirs: None, background_guard: None, auto_update: None, update_channel: None, motd_actions_done: Vec::new(),
+                update_from_version: None, default_archive_password: None, motd_dismissed_id: None, background_notify: None, watch_downloads: None, watch_dirs: None, in_steam: None, background_guard: None, auto_update: None, update_channel: None, motd_actions_done: Vec::new(),
             };
             let tampered_json = serde_json::to_vec_pretty(&tampered_cfg).unwrap();
             writer.start_file("config.json", options).unwrap();

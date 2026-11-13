@@ -149,7 +149,7 @@ pub(crate) fn app_id_from_patch_filename(path: &Path) -> Option<String> {
 /// An explicit AppID is the UI's confirmation of the target game. Without it,
 /// only `Name (AppID)` may be inferred and that AppID must already be present
 /// in the managed library; no unrelated number in a filename is ever guessed.
-fn import_patch_archive_inner(
+pub(crate) fn import_patch_archive_inner(
     path: &Path,
     requested_app_id: Option<&str>,
     library_dir: &Path,
@@ -254,7 +254,7 @@ fn build_report(cfg: &config::AppConfig) -> DetectionReport {
     }
 }
 
-fn resolve_steam(cfg: &config::AppConfig) -> Option<PathBuf> {
+pub(crate) fn resolve_steam(cfg: &config::AppConfig) -> Option<PathBuf> {
     cfg.steam_dir.clone().or_else(detect::detect_steam_path)
 }
 
@@ -2017,6 +2017,12 @@ pub async fn import_lua_file(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<LuaImportResult, String> {
+    import_lua_path(&state, path).await
+}
+
+/// The import of one `.lua` file, shared by the window's command and the follow-up of a game asked
+/// for from Steam (`steam_followup`).
+pub(crate) async fn import_lua_path(state: &AppState, path: String) -> Result<LuaImportResult, String> {
     let cfg = state.config.lock().unwrap().clone();
     let library_dir = cfg.resolved_library_dir();
     let lang = import_steam_language(cfg.locale.as_deref());
@@ -2032,7 +2038,7 @@ pub async fn import_lua_file(
     .map_err(import_lua_join_error)??;
 
     let metadata = if import_needs_steam_metadata(&prepared) {
-        match cached_steam_details(&state, &prepared.app_id, lang).await {
+        match cached_steam_details(state, &prepared.app_id, lang).await {
             Ok(details) => Some(details),
             Err(error) => {
                 // Store details improve the import but a network failure must
@@ -2850,7 +2856,7 @@ pub async fn set_auto_update(state: State<'_, AppState>, enabled: bool) -> Resul
 /// config and no frontend argument can aim the button anywhere else.
 const SOURCE_SITE_URL: &str = "https://openlua.cloud/";
 
-fn source_site_url() -> Option<String> {
+pub(crate) fn source_site_url() -> Option<String> {
     motd::safe_https_url(SOURCE_SITE_URL)
 }
 
@@ -2859,6 +2865,52 @@ fn source_site_url() -> Option<String> {
 pub fn open_source_site() -> Result<(), String> {
     let url = source_site_url().ok_or("adresse du site invalide")?;
     tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// « LuaVault dans Steam », as the « À l'essai » tab shows it.
+#[derive(Debug, Clone, Serialize)]
+pub struct InSteam {
+    /// This edition can do it: the experimental, installed (not portable).
+    pub supported: bool,
+    pub enabled: bool,
+}
+
+fn in_steam_view(cfg: &config::AppConfig) -> InSteam {
+    InSteam {
+        supported: config::EXPERIMENTAL && !config::is_portable(),
+        enabled: crate::steam_client::wanted(cfg, config::is_portable(), config::EXPERIMENTAL),
+    }
+}
+
+#[tauri::command]
+pub fn get_in_steam(state: State<'_, AppState>) -> InSteam {
+    in_steam_view(&state.config.lock().unwrap())
+}
+
+/// Tick or untick « LuaVault dans Steam »: the file in Steam's folder is written or removed first,
+/// the setting saved only once that worked. Steam reads the file at its next start.
+#[tauri::command]
+pub fn set_in_steam(state: State<'_, AppState>, enabled: bool) -> Result<InSteam, String> {
+    let mut cfg = state.config.lock().unwrap().clone();
+    if enabled && !config::EXPERIMENTAL {
+        return Err("Réservé à l'édition expérimentale".to_string());
+    }
+    if enabled && config::is_portable() {
+        return Err("Indisponible en édition portable".to_string());
+    }
+    match (resolve_steam(&cfg), enabled) {
+        (Some(dir), _) => crate::steam_client::set_marker(&dir, enabled)
+            .map_err(|e| format!("Dossier Steam non inscriptible : {e}"))?,
+        (None, true) => return Err("Steam introuvable : indiquez son dossier dans Réglages".to_string()),
+        (None, false) => {}
+    }
+    cfg.in_steam = Some(enabled);
+    cfg.save().map_err(|e| e.to_string())?;
+    let view = in_steam_view(&cfg);
+    *state.config.lock().unwrap() = cfg;
+    crate::steam_client::refresh();
+    info!("set_in_steam: {enabled}");
+    Ok(view)
 }
 
 /// What the tools tab shows about game files Steam could not get a code for.
