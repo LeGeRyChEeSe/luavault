@@ -64,6 +64,8 @@ pub enum Change {
     WatchDownloads(bool),
     LibraryBlock(bool),
     Collection(bool),
+    /// Only `1` from the panel: once discreet, the panel is gone. The window switches it back.
+    Discreet(bool),
     Locale(&'static str),
 }
 
@@ -83,6 +85,7 @@ impl Change {
             "watch_downloads" => Change::WatchDownloads(flag()?),
             "library_block" => Change::LibraryBlock(flag()?),
             "collection" => Change::Collection(flag()?),
+            "discreet" => Change::Discreet(flag()?),
             "locale" => Change::Locale(match value {
                 "fr" => "fr",
                 "en" => "en",
@@ -163,6 +166,12 @@ async fn run(app: &AppHandle, change: Change) -> Result<(), String> {
             crate::steam_client::refresh_collection();
             Ok(())
         }
+        Change::Discreet(on) => {
+            save_with(app, |cfg| cfg.steam_discreet = Some(on))?;
+            // Every page lets go within a second and takes back what it shows.
+            crate::steam_client::refresh();
+            Ok(())
+        }
     }
 }
 
@@ -177,6 +186,8 @@ mod tests {
         assert_eq!(Change::parse("watch_downloads:0"), Some(Change::WatchDownloads(false)));
         assert_eq!(Change::parse("library_block:0"), Some(Change::LibraryBlock(false)));
         assert_eq!(Change::parse("collection:1"), Some(Change::Collection(true)));
+        assert_eq!(Change::parse("discreet:1"), Some(Change::Discreet(true)));
+        assert_eq!(Change::parse("discreet:yes"), None);
         assert_eq!(Change::parse("locale:en"), Some(Change::Locale("en")));
         for forged in [
             "", "auto_update", "auto_update:", "auto_update:true", "auto_update:1:2", "collection:oui", "locale:de",

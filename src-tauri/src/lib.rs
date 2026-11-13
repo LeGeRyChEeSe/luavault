@@ -352,6 +352,7 @@ pub fn run() {
             commands::open_source_site,
             commands::get_in_steam,
             commands::set_in_steam,
+            commands::set_steam_discreet,
             commands::get_kill_switch,
             commands::engage_kill_switch,
             commands::release_kill_switch,

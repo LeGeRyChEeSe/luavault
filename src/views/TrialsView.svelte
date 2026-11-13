@@ -5,7 +5,7 @@
   import Icon from "../components/Icons.svelte";
   import ConfirmButton from "../components/ConfirmButton.svelte";
   import { appState } from "../lib/app-state.svelte";
-  import { engageKillSwitch, getInSteam, getKillSwitch, releaseKillSwitch, setInSteam } from "../lib/api";
+  import { engageKillSwitch, getInSteam, getKillSwitch, releaseKillSwitch, setInSteam, setSteamDiscreet } from "../lib/api";
   import type { InSteam, KillSwitch } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
 
@@ -40,6 +40,22 @@
       appState.toast(hidden.engaged ? "error" : "info", t("trials.hide.released"));
     } catch (e) {
       appState.toast("error", String(e));
+    }
+  }
+
+  /** Same rules as `toggle`: a refusal puts the box back and reads the state again. */
+  async function toggleDiscreet(box: HTMLInputElement) {
+    const on = box.checked;
+    busy = true;
+    try {
+      inSteam = await setSteamDiscreet(on);
+      appState.toast("info", on ? t("trials.steam.discreet.on") : t("trials.steam.discreet.off"));
+    } catch (e) {
+      box.checked = !on;
+      appState.toast("error", String(e));
+      inSteam = await getInSteam().catch(() => inSteam);
+    } finally {
+      busy = false;
     }
   }
 
@@ -109,6 +125,22 @@
         <span class="min-w-0 flex-1">{t("trials.steam.switch")}</span>
       </label>
       <p class="text-xs text-azure-900/45">{t("trials.steam.restart")}</p>
+      {#if inSteam.enabled}
+        <label class="flex cursor-pointer items-start gap-3 rounded-xl bg-surface/55 px-4 py-2.5 text-sm">
+          <input
+            type="checkbox"
+            class="mt-1 accent-azure-500"
+            data-trials-steam-discreet
+            checked={inSteam.discreet}
+            disabled={busy}
+            onchange={(e) => void toggleDiscreet(e.currentTarget)}
+          />
+          <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span>{t("trials.steam.discreet")}</span>
+            <span class="text-xs text-azure-900/55">{t("trials.steam.discreet.desc")}</span>
+          </span>
+        </label>
+      {/if}
     </section>
   {/if}
 

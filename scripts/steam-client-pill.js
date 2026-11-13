@@ -211,6 +211,37 @@
     return box;
   }
 
+  // The discreet mode: everything LuaVault draws in Steam goes, LuaVault keeps working. Two clicks,
+  // since the way back is in LuaVault's window.
+  function discreetSection() {
+    var box = section(words("Interface", "Interface"));
+    box.appendChild(
+      el(
+        "div",
+        "color:#8b929a;font-size:12px;line-height:16px;margin-top:8px",
+        words(
+          "Retire de Steam tout ce que LuaVault y affiche (cette pastille, les boutons de la boutique, les blocs et pastilles de la bibliothèque, les cartes). LuaVault continue tout en arrière-plan. Pour les retrouver : onglet « À l'essai » de LuaVault.",
+          "Takes out of Steam everything LuaVault shows there (this pill, the store buttons, the library's blocks and dots, the cards). LuaVault keeps doing everything in the background. To get them back: LuaVault's « Trials » tab."
+        )
+      )
+    );
+    var armed = false;
+    var go = button(words("Rendre discret", "Go discreet"), false, function () {
+      if (!armed) {
+        armed = true;
+        go.querySelector("[data-lv-caption]").textContent = words("Confirmer : tout retirer de Steam", "Confirm: take it all out of Steam");
+        return;
+      }
+      closeCard();
+      lvStore("set:discreet:1");
+    });
+    go.setAttribute("data-lv-discreet", "1");
+    go.style.display = "inline-block";
+    go.style.marginTop = "10px";
+    box.appendChild(go);
+    return box;
+  }
+
   function renderSettings(body) {
     while (body.firstChild) body.removeChild(body.firstChild);
     if (!view) {
@@ -242,6 +273,7 @@
     lib.appendChild(settingRow(words("Bloc LuaVault à côté du bouton Jouer", "LuaVault block beside the Play button"), toggle("library_block", view.libraryBlock, false)));
     lib.appendChild(settingRow(words("Collection LuaVault dans la bibliothèque", "LuaVault collection in the library"), toggle("collection", view.collection, false)));
     body.appendChild(lib);
+    body.appendChild(discreetSection());
     body.appendChild(hideSection());
   }
 

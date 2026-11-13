@@ -596,6 +596,17 @@ fn hidden() -> bool {
     crate::kill_switch::engaged(&config::data_dir())
 }
 
+/// The discreet mode: nothing of LuaVault drawn in Steam, everything else kept.
+pub fn discreet(cfg: &AppConfig) -> bool {
+    cfg.steam_discreet == Some(true)
+}
+
+/// Pure. Whether a page of this kind is equipped. Hidden or discreet, only the shared context is: it
+/// draws nothing, it keeps the collection right (emptied while hidden, its own switch otherwise).
+pub fn page_wanted(kind: Kind, hidden: bool, discreet: bool) -> bool {
+    kind == Kind::Shared || !(hidden || discreet)
+}
+
 /// The games the collection holds: the library's games whose `.lua` Steam can see.
 fn collection_games(cfg: &AppConfig) -> Vec<u32> {
     if cfg.steam_collection == Some(false) || hidden() {
@@ -698,13 +709,13 @@ async fn attach(app: AppHandle, target: Target) {
                 continue;
             }
             _ = tick.tick() => {
-                if hidden() {
-                    // Hidden: take back what this page shows before letting it go.
+                let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
+                if !page_wanted(target.kind, hidden(), discreet(&cfg)) {
+                    // Hidden or discreet: take back what this page shows before letting it go.
                     let command = json!({ "id": 99, "method": "Runtime.evaluate", "params": { "expression": WITHDRAW } });
                     let _ = send(&mut socket, &command).await;
                     return;
                 }
-                let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
                 if GENERATION.load(Ordering::SeqCst) != generation || !wanted(&cfg, config::is_portable(), config::EXPERIMENTAL) {
                     return;
                 }
@@ -804,10 +815,10 @@ pub fn spawn(app: AppHandle) {
             let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
             if wanted(&cfg, config::is_portable(), config::EXPERIMENTAL) {
                 if let Some(list) = list_pages(&http).await {
-                    // Hidden: only the shared context, which empties the collection.
-                    let hide = hidden();
+                    // Hidden or discreet: only the shared context, which draws nothing.
+                    let (hide, quiet) = (hidden(), discreet(&cfg));
                     for target in client_targets(&list) {
-                        if hide && target.kind != Kind::Shared {
+                        if !page_wanted(target.kind, hide, quiet) {
                             continue;
                         }
                         if !attached.lock().unwrap().insert(target.id.clone()) {
@@ -934,6 +945,14 @@ mod tests {
             assert_eq!(binding_call(&called(bad)), None, "{bad}");
         }
         assert!(WITHDRAW.contains("[data-lv-node], [data-lv-notices]"));
+        for kind in [Kind::Store, Kind::Window] {
+            assert!(page_wanted(kind, false, false));
+            assert!(!page_wanted(kind, true, false), "hidden: {kind:?} is not equipped");
+            assert!(!page_wanted(kind, false, true), "discreet: {kind:?} is not equipped");
+        }
+        for (hide, quiet) in [(false, false), (true, false), (false, true), (true, true)] {
+            assert!(page_wanted(Kind::Shared, hide, quiet), "the shared context draws nothing, it stays");
+        }
     }
 
     #[test]

@@ -90,6 +90,10 @@ pub struct AppConfig {
     /// The « LuaVault » collection in Steam's library: None = on. Never imported.
     #[serde(default)]
     pub steam_collection: Option<bool>,
+    /// Discreet: LuaVault draws nothing in Steam's pages (pill, store buttons, play bar, dots, menu,
+    /// cards) and keeps doing everything else. None = off. Never imported.
+    #[serde(default)]
+    pub steam_discreet: Option<bool>,
     /// The resident download guard (`guard_service.rs`): `None` = never touched, which
     /// means ON; `Some(false)` = switched off in Settings. A fact about THIS machine's
     /// startup entries: never imported from a backup.
@@ -206,6 +210,7 @@ pub fn merge_imported(
             in_steam: local.in_steam,
             steam_library: local.steam_library,
             steam_collection: local.steam_collection,
+            steam_discreet: local.steam_discreet,
             background_guard: local.background_guard,
             auto_update: local.auto_update,
             motd_actions_done: local.motd_actions_done.clone(),
@@ -357,7 +362,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            in_steam: None, steam_library: None, steam_collection: None,            background_guard: None,
+            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,
@@ -722,7 +727,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            in_steam: None, steam_library: None, steam_collection: None,            background_guard: None,
+            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,
@@ -742,7 +747,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            in_steam: None, steam_library: None, steam_collection: None,            background_guard: None,
+            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,

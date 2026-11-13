@@ -2873,13 +2873,29 @@ pub struct InSteam {
     /// This edition can do it: the experimental, installed (not portable).
     pub supported: bool,
     pub enabled: bool,
+    /// Discreet: nothing drawn in Steam, everything else kept.
+    pub discreet: bool,
 }
 
 fn in_steam_view(cfg: &config::AppConfig) -> InSteam {
     InSteam {
         supported: config::EXPERIMENTAL && !config::is_portable(),
         enabled: crate::steam_client::wanted(cfg, config::is_portable(), config::EXPERIMENTAL),
+        discreet: crate::steam_client::discreet(cfg),
     }
+}
+
+/// The discreet mode of « LuaVault dans Steam »: Steam's own interface, LuaVault working behind it.
+#[tauri::command]
+pub fn set_steam_discreet(state: State<'_, AppState>, on: bool) -> Result<InSteam, String> {
+    let mut cfg = state.config.lock().unwrap().clone();
+    cfg.steam_discreet = Some(on);
+    cfg.save().map_err(|e| e.to_string())?;
+    let view = in_steam_view(&cfg);
+    *state.config.lock().unwrap() = cfg;
+    crate::steam_client::refresh();
+    info!("set_steam_discreet: {on}");
+    Ok(view)
 }
 
 #[tauri::command]

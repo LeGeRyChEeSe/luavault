@@ -863,9 +863,12 @@ export const getReachability = () => invoke<Reachability>("get_reachability");
 export interface InSteam {
   supported: boolean;
   enabled: boolean;
+  /** Nothing drawn in Steam, everything else kept. */
+  discreet: boolean;
 }
 export const getInSteam = () => invoke<InSteam>("get_in_steam");
 export const setInSteam = (enabled: boolean) => invoke<InSteam>("set_in_steam", { enabled });
+export const setSteamDiscreet = (on: boolean) => invoke<InSteam>("set_steam_discreet", { on });
 
 /** « Masquer » (LuaVault dans Steam): what the vault holds while everything is hidden. */
 export interface KillSwitch {
