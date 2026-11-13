@@ -17,6 +17,20 @@ Two rules to follow when editing this file, because the script depends on them:
 
 ## Unreleased
 
+## 1.3.2 - 2026-11-13
+
+### fr
+- La désinstallation retire maintenant ce que LuaVault avait inscrit dans Windows (lancements au démarrage, lien des notifications, tâche planifiée). Une mise à jour ne touche à rien de cela.
+- Un fichier de réglages enregistré par un éditeur de texte avec une marque invisible en tête est maintenant lu normalement, au lieu de faire repartir l'application des réglages par défaut. Un fichier vraiment illisible est mis de côté (`config.json.illisible`) avant d'être remplacé.
+- Les messages d'erreur de Windows affichés par l'application gardent leurs accents (« Accès refusé » au lieu de caractères brouillés).
+- Une mise à jour retire l'outil de signature que d'anciens installateurs avaient laissé dans le dossier de l'application.
+
+### en
+- Uninstalling now removes what LuaVault registered in Windows (logon starts, notification link, scheduled task). An update touches none of this.
+- A settings file saved by a text editor with an invisible mark at its start is now read normally, instead of sending the application back to default settings. A truly unreadable file is set aside (`config.json.illisible`) before being replaced.
+- Windows error messages shown by the application keep their accents (« Accès refusé » instead of garbled characters).
+- An update removes the signing tool that older installers had left in the application's folder.
+
 ## 1.3.1 - 2026-11-12
 
 ### fr
