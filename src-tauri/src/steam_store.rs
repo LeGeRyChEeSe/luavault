@@ -124,13 +124,29 @@ pub fn requested(data_dir: &Path, app_id: &str, now: i64) -> bool {
 
 // ------------------------------------------------------------ the click
 
+/// What the person goes to the site for: the game (its `.lua`, and the patch if there is one), or
+/// only the patch of a game LuaVault already holds (the play bar's « Trouver »).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wanted {
+    Game,
+    PatchOnly,
+}
+
 /// Pure. The panel's line once the site is open (or not).
-pub fn find_line(lang: &str, name: &str, app_id: &str, watching: bool, opened: Result<(), String>) -> (&'static str, String) {
+pub fn find_line(lang: &str, name: &str, app_id: &str, wanted: Wanted, watching: bool, opened: Result<(), String>) -> (&'static str, String) {
     let fr = lang == "fr";
     match opened {
         Err(e) => (
             "error",
             if fr { format!("Le site n'a pas pu s'ouvrir : {e}") } else { format!("The site could not open: {e}") },
+        ),
+        Ok(()) if watching && wanted == Wanted::PatchOnly => (
+            "busy",
+            if fr {
+                format!("Site ouvert dans votre navigateur. Cherchez « {name} » (AppID {app_id}) et téléchargez son correctif s'il y en a un : LuaVault le reprendra dans vos Téléchargements.")
+            } else {
+                format!("Site opened in your browser. Look for « {name} » (AppID {app_id}) and download its patch if there is one: LuaVault will pick it up from your Downloads.")
+            },
         ),
         Ok(()) if watching => (
             "busy",
@@ -181,7 +197,7 @@ pub async fn game_name(app: &AppHandle, app_id: &str, lang: &str) -> String {
 }
 
 /// A click on « Trouver sur le site ».
-pub async fn find(app: &AppHandle, app_id: &str) {
+pub async fn find(app: &AppHandle, app_id: &str, wanted: Wanted) {
     let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
     let now = chrono::Utc::now().timestamp();
     if crate::kill_switch::engaged(&config::data_dir()) || !remember(&config::data_dir(), app_id, now) {
@@ -197,7 +213,7 @@ pub async fn find(app: &AppHandle, app_id: &str) {
         info!("LuaVault dans Steam : site ouvert pour {app_id}");
     }
     let name = game_name(app, app_id, lang).await;
-    let (tone, line) = find_line(lang, &name, app_id, crate::commands::downloads_watch_wanted(&cfg), opened);
+    let (tone, line) = find_line(lang, &name, app_id, wanted, crate::commands::downloads_watch_wanted(&cfg), opened);
     steam_client::publish(Job {
         app_id: app_id.to_string(),
         name,
@@ -266,18 +282,23 @@ mod tests {
 
     #[test]
     fn steam_store_line_says_what_to_do_and_never_claims_a_download() {
-        let (tone, line) = find_line("fr", "Subnautica", "264710", true, Ok(()));
+        let (tone, line) = find_line("fr", "Subnautica", "264710", Wanted::Game, true, Ok(()));
         assert_eq!(tone, "busy");
         assert!(line.contains("Subnautica") && line.contains("264710") && line.contains("Téléchargements"), "{line}");
-        let (tone, line) = find_line("en", "Subnautica", "264710", false, Ok(()));
+        let (tone, line) = find_line("en", "Subnautica", "264710", Wanted::Game, false, Ok(()));
         assert_eq!(tone, "warn");
         assert!(line.contains("download detection is off"), "{line}");
-        let (tone, _) = find_line("fr", "x", "1", true, Err("refus".into()));
+        let (tone, _) = find_line("fr", "x", "1", Wanted::PatchOnly, true, Err("refus".into()));
         assert_eq!(tone, "error");
+        let (tone, line) = find_line("fr", "Stardew Valley", "413150", Wanted::PatchOnly, true, Ok(()));
+        assert_eq!(tone, "busy");
+        assert!(line.contains("correctif") && !line.contains(".lua"), "a game LuaVault holds is not asked its .lua again: {line}");
         for lang in ["fr", "en"] {
-            for watching in [true, false] {
-                let (_, line) = find_line(lang, "n", "1", watching, Ok(()));
-                assert!(!line.contains('\u{2014}'), "no em dash: {line}");
+            for wanted in [Wanted::Game, Wanted::PatchOnly] {
+                for watching in [true, false] {
+                    let (_, line) = find_line(lang, "n", "1", wanted, watching, Ok(()));
+                    assert!(!line.contains('\u{2014}'), "no em dash: {line}");
+                }
             }
         }
     }

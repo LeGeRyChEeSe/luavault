@@ -253,7 +253,7 @@ pub async fn act(app: &AppHandle, action: LibAction, app_id: &str) {
             return;
         }
         LibAction::Find => {
-            steam_store::find(app, app_id).await;
+            steam_store::find(app, app_id, steam_store::Wanted::PatchOnly).await;
             let line = steam_client::job_of(app_id).map(|j| j.line).unwrap_or_default();
             let notice = steam_client::Notice {
                 title: t("Trouver un correctif sur le site", "Find a patch on the site"),

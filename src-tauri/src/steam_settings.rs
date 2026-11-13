@@ -159,8 +159,8 @@ async fn run(app: &AppHandle, change: Change) -> Result<(), String> {
         }
         Change::Collection(on) => {
             save_with(app, |cfg| cfg.steam_collection = Some(on))?;
-            // The shared context is equipped again: it fills the collection, or removes it.
-            crate::steam_client::refresh();
+            // Only the shared context is equipped again: it fills the collection, or removes it.
+            crate::steam_client::refresh_collection();
             Ok(())
         }
     }

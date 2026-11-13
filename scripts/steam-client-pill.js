@@ -284,9 +284,17 @@
     window.lvSettings = function (v) {
       if (root.lvWinRun !== myRun || !validView(v)) return;
       view = v;
+      var wasFr = FR;
       FR = v.locale === "fr";
       var body = card && card.querySelector("[data-lv-settings-body]");
       if (body) renderSettings(body);
+      // The language changed: this script's own words are written again. The play bar's blocks
+      // were rebuilt before this view arrived, still in the old language.
+      if (wasFr !== FR) {
+        var openCaption = card && card.querySelector("[data-lv-open-app] [data-lv-caption]");
+        if (openCaption) openCaption.textContent = words("Ouvrir LuaVault", "Open LuaVault");
+        if (typeof window.lvLibReset === "function") window.lvLibReset();
+      }
     };
     window.lvOpenSettings = function () {
       if (root.lvWinRun !== myRun || card) return;
@@ -597,8 +605,10 @@
     }
     return null;
   }
+  // Steam's menu listens for Escape on itself: it holds the focus while open (read in the client,
+  // 2026-11-13), and an Escape sent to the body leaves it open.
   function closeSteamMenu() {
-    var target = document.body || root;
+    var target = document.activeElement || document.body || root;
     if (typeof KeyboardEvent === "function" && typeof target.dispatchEvent === "function") {
       target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
     }

@@ -488,6 +488,16 @@ pub fn refresh() {
     GENERATION.fetch_add(1, Ordering::SeqCst);
 }
 
+/// Moved by the collection switch alone: only the shared context is equipped again. Equipping the
+/// window again would take away the settings panel the switch was clicked in (read in the client,
+/// 2026-11-13).
+static SHARED_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// The collection must follow the switch: the shared context makes it right again.
+pub fn refresh_collection() {
+    SHARED_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
 /// The store script preceded by what it needs from the application: the games already there and
 /// the panel's current lines, as JSON built by serde (no text can end the statement it sits in).
 pub fn store_script_with(known: &BTreeMap<String, &'static str>, jobs: &[Job]) -> String {
@@ -601,7 +611,7 @@ async fn attach_shared(app: AppHandle, target: Target) {
     let Ok((mut socket, _)) = tokio_tungstenite::connect_async(target.ws.as_str()).await else {
         return;
     };
-    let generation = GENERATION.load(Ordering::SeqCst);
+    let generation = (GENERATION.load(Ordering::SeqCst), SHARED_GENERATION.load(Ordering::SeqCst));
     let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
     let games = tauri::async_runtime::spawn_blocking(move || collection_games(&cfg)).await.unwrap_or_default();
     let command = json!({ "id": 1, "method": "Runtime.evaluate", "params": { "expression": collection_call(&games), "awaitPromise": true, "returnByValue": true } });
@@ -625,7 +635,8 @@ async fn attach_shared(app: AppHandle, target: Target) {
             }
             _ = tick.tick() => {
                 let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
-                if GENERATION.load(Ordering::SeqCst) != generation || !wanted(&cfg, config::is_portable(), config::EXPERIMENTAL) {
+                let now = (GENERATION.load(Ordering::SeqCst), SHARED_GENERATION.load(Ordering::SeqCst));
+                if now != generation || !wanted(&cfg, config::is_portable(), config::EXPERIMENTAL) {
                     return;
                 }
             }
@@ -728,7 +739,7 @@ async fn attach(app: AppHandle, target: Target) {
                         info!("LuaVault dans Steam : recherche de {app_id} sur le site");
                         let handle = app.clone();
                         tauri::async_runtime::spawn(async move {
-                            steam_store::find(&handle, &app_id).await;
+                            steam_store::find(&handle, &app_id, steam_store::Wanted::Game).await;
                         });
                     }
                     ClientCall::Dismiss(app_id) => dismiss(&app_id),
