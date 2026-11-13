@@ -484,7 +484,7 @@ mod win {
             .output()
             .ok()
             .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
+            .map(|o| console_text(&o.stdout));
         if stored.as_deref().is_some_and(|xml| task_runs(xml, exe)) {
             return Ok(());
         }
@@ -494,7 +494,7 @@ mod win {
             .output()
             .map_err(|e| fail("tâche planifiée", e))?;
         if !out.status.success() {
-            let why = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let why = console_text(&out.stderr).trim().to_string();
             if stored.is_some() {
                 // A task we may not rewrite (created as administrator): the Run key still brings the
                 // check at every logon, so what was asked for keeps working. Said in the log only.
@@ -541,6 +541,35 @@ mod win {
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
         if let Ok(history) = ToastNotificationManager::History() {
             let _ = history.RemoveGroupedTagWithId(&HSTRING::from(tag), &HSTRING::from(aumid()), &HSTRING::from(aumid()));
+        }
+    }
+
+    /// What a Windows console tool wrote. `schtasks` and its kin write in the OEM code page (850 on
+    /// a French Windows), not UTF-8: read as UTF-8, « Accès refusé » came out « Acc�s refus� ».
+    /// Valid UTF-8 (ASCII included) is taken as it is.
+    pub(crate) fn console_text(bytes: &[u8]) -> String {
+        use windows::Win32::Globalization::{MultiByteToWideChar, CP_OEMCP, MULTI_BYTE_TO_WIDE_CHAR_FLAGS};
+        if let Ok(text) = std::str::from_utf8(bytes) {
+            return text.to_string();
+        }
+        let flags = MULTI_BYTE_TO_WIDE_CHAR_FLAGS(0);
+        let len = unsafe { MultiByteToWideChar(CP_OEMCP, flags, bytes, None) };
+        if len <= 0 {
+            return String::from_utf8_lossy(bytes).into_owned();
+        }
+        let mut wide = vec![0u16; len as usize];
+        let len = unsafe { MultiByteToWideChar(CP_OEMCP, flags, bytes, Some(&mut wide)) };
+        String::from_utf16_lossy(&wide[..len.max(0) as usize])
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn console_text_reads_the_oem_code_page() {
+        use windows::Win32::Globalization::GetOEMCP;
+        assert_eq!(console_text(b"Erreur : la t\xc3\xa2che"), "Erreur : la t\u{e2}che", "UTF-8 is kept");
+        // Code page 850, the one of a French Windows: the bytes schtasks really wrote.
+        if unsafe { GetOEMCP() } == 850 {
+            assert_eq!(console_text(b"Erreur\xff: Acc\x8as refus\x82."), "Erreur\u{a0}: Acc\u{e8}s refus\u{e9}.");
         }
     }
 

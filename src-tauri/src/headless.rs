@@ -45,8 +45,24 @@ pub fn run_if_requested() -> Option<i32> {
             };
             Some(tauri::async_runtime::block_on(motd_action(url)))
         }
+        // The NSIS uninstaller (`windows/hooks.nsh`), never for an update.
+        "--uninstall-cleanup" => Some(uninstall_cleanup()),
         _ => None,
     }
+}
+
+/// The app is being uninstalled: what it wrote outside its folder would outlive it. The entries of
+/// `notify::register` (logon `Run` value, URL scheme, toast identity, scheduled task) and the
+/// resident service's logon value, all of THIS edition's identity, are removed whatever the
+/// settings (a later install writes them again at its first launch). Always exits 0: a failure
+/// here must not stop the uninstall.
+fn uninstall_cleanup() -> i32 {
+    notify::unregister();
+    if let Err(e) = notify::set_guard_autostart(std::path::Path::new(""), false) {
+        log_line(&format!("désinstallation : entrée de démarrage du service non retirée ({e})"));
+    }
+    log_line("désinstallation : entrées Windows retirées");
+    0
 }
 
 fn lang(cfg: &AppConfig) -> &'static str {

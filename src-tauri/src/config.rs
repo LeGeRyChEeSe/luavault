@@ -200,6 +200,18 @@ pub fn merge_imported(
     }
 }
 
+/// Pure. `config.json` read back. A UTF-8 byte order mark is not part of the JSON: Notepad and
+/// PowerShell 5's `Set-Content -Encoding UTF8` write one, and serde refuses it, which turned a
+/// config edited by hand into the defaults.
+pub fn parse_config(raw: &str) -> serde_json::Result<AppConfig> {
+    serde_json::from_str(raw.strip_prefix('\u{feff}').unwrap_or(raw))
+}
+
+/// Where an unreadable `config.json` is kept before anything can write over it.
+pub fn unreadable_copy(path: &Path) -> PathBuf {
+    path.with_file_name("config.json.illisible")
+}
+
 impl AppConfig {
     /// The user's choice of automatic updates: on unless switched off.
     pub fn auto_update_chosen(&self) -> bool {
@@ -218,8 +230,15 @@ impl AppConfig {
         let path = config_path();
         if path.exists() {
             let raw = std::fs::read_to_string(&path).context("read config.json")?;
-            let cfg: AppConfig = serde_json::from_str(&raw).context("parse config.json")?;
-            Ok(cfg)
+            match parse_config(&raw) {
+                Ok(cfg) => Ok(cfg),
+                Err(e) => {
+                    // Every caller falls back on the defaults, and some of them save: the file the
+                    // person had is copied aside first, never lost to that save.
+                    let _ = std::fs::copy(&path, unreadable_copy(&path));
+                    Err(e).context("parse config.json")
+                }
+            }
         } else {
             let cfg = AppConfig::default();
             cfg.save().ok();
@@ -293,6 +312,18 @@ fn config_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_config_saved_with_a_byte_order_mark_still_reads() {
+        let json = "\u{feff}{ \"update_channel\": \"experimental\" }";
+        let cfg = parse_config(json).expect("la marque d'ordre des octets est ignorée");
+        assert_eq!(cfg.update_channel.as_deref(), Some("experimental"));
+        assert!(parse_config("{ pas du json").is_err(), "un vrai fichier abîmé reste une erreur");
+        assert_eq!(
+            unreadable_copy(Path::new(r"C:\d\config.json")),
+            PathBuf::from(r"C:\d\config.json.illisible")
+        );
+    }
     use std::path::PathBuf;
 
     fn local_cfg() -> AppConfig {
