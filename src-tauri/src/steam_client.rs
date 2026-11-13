@@ -57,6 +57,8 @@ const LIST_CAP: u64 = 512 * 1024;
 pub const STORE_SCRIPT: &str = include_str!("../../scripts/steam-store-button.js");
 /// The main window's script: the « LV » pill of the title bar.
 pub const WINDOW_SCRIPT: &str = include_str!("../../scripts/steam-client-pill.js");
+/// The announcements' card, given to the window and to the web view alike.
+pub const NOTICE_SCRIPT: &str = include_str!("../../scripts/steam-notice.js");
 /// The host of the client's own interface (the main window).
 pub const WINDOW_HOST: &str = "steamloopback.host";
 /// The main window's title in the page list. Its listed URL is `about:blank?createflags=…`; the
@@ -232,6 +234,73 @@ static PROGRESS: LazyLock<broadcast::Sender<String>> = LazyLock::new(|| broadcas
 
 /// Store pages of the client this instance is attached to right now.
 static PAGES: AtomicUsize = AtomicUsize::new(0);
+/// Expressions for the main window only.
+static WINDOW_CALLS: LazyLock<broadcast::Sender<String>> = LazyLock::new(|| broadcast::channel(64).0);
+/// The client's main window this instance is attached to right now (0 or 1).
+static WINDOWS: AtomicUsize = AtomicUsize::new(0);
+
+/// An announcement shown inside Steam (`lvNotice`, `scripts/steam-notice.js`), in the style of
+/// Steam's own notifications, instead of a notification of Windows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Notice {
+    pub title: String,
+    pub line: String,
+    /// `ok`, `warn`, `error` or `info`: the colour of the card's edge.
+    pub tone: &'static str,
+    /// The game, for its picture; `None` for no picture.
+    #[serde(rename = "appId")]
+    pub app_id: Option<String>,
+    /// A click on the card shows LuaVault's window.
+    pub open: bool,
+}
+
+/// Pure. A panel tone as a notice tone.
+pub fn notice_tone(job_tone: &str) -> &'static str {
+    match job_tone {
+        "ok" => "ok",
+        "warn" => "warn",
+        "error" => "error",
+        _ => "info",
+    }
+}
+
+/// What a page runs to show it. JSON from serde: no text can leave its string.
+pub fn notice_call(notice: &Notice) -> String {
+    let json = serde_json::to_string(notice).unwrap_or_else(|_| "null".to_string());
+    format!("typeof lvNotice === \"function\" && lvNotice({json});")
+}
+
+/// Whether the client's main window is equipped.
+pub fn window_open() -> bool {
+    WINDOWS.load(Ordering::SeqCst) > 0
+}
+
+/// Show it in Steam: in the main window and in the web view (the view lies over the window, only
+/// the one in front is seen). `false`: nowhere to show it, the caller falls back on Windows.
+pub fn notify_in_steam(notice: &Notice) -> bool {
+    if !window_open() && !pages_open() {
+        return false;
+    }
+    let call = notice_call(notice);
+    let _ = PROGRESS.send(call.clone());
+    let _ = WINDOW_CALLS.send(call);
+    true
+}
+
+struct WindowGuard;
+
+impl WindowGuard {
+    fn enter() -> WindowGuard {
+        WINDOWS.fetch_add(1, Ordering::SeqCst);
+        WindowGuard
+    }
+}
+
+impl Drop for WindowGuard {
+    fn drop(&mut self) {
+        WINDOWS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// One line per game, the newest last, `MAX_JOBS` at most.
 pub fn merge_job(list: &mut Vec<Job>, job: Job) {
@@ -365,9 +434,9 @@ async fn script_for(app: &AppHandle, kind: Kind) -> String {
             let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
             let known = tauri::async_runtime::spawn_blocking(move || known_games(&cfg)).await.unwrap_or_default();
             let jobs = live_jobs(&JOBS.lock().unwrap(), chrono::Utc::now().timestamp());
-            store_script_with(&known, &jobs)
+            format!("{}\n{NOTICE_SCRIPT}", store_script_with(&known, &jobs))
         }
-        Kind::Window => WINDOW_SCRIPT.to_string(),
+        Kind::Window => format!("{WINDOW_SCRIPT}\n{NOTICE_SCRIPT}"),
     }
 }
 
@@ -433,7 +502,9 @@ async fn attach(app: AppHandle, target: Target) {
     };
     let generation = GENERATION.load(Ordering::SeqCst);
     let _page = (target.kind == Kind::Store).then(PageGuard::enter);
+    let _window = (target.kind == Kind::Window).then(WindowGuard::enter);
     let mut progress = PROGRESS.subscribe();
+    let mut window_calls = WINDOW_CALLS.subscribe();
     for command in opening_commands(&script_for(&app, target.kind).await) {
         if !send(&mut socket, &command).await {
             return;
@@ -449,6 +520,16 @@ async fn attach(app: AppHandle, target: Target) {
             frame = socket.next() => frame,
             step = progress.recv() => {
                 if let (Ok(call), Kind::Store) = (step, target.kind) {
+                    next_id += 1;
+                    let command = json!({ "id": next_id, "method": "Runtime.evaluate", "params": { "expression": call } });
+                    if !send(&mut socket, &command).await {
+                        return;
+                    }
+                }
+                continue;
+            }
+            call = window_calls.recv() => {
+                if let (Ok(call), Kind::Window) = (call, target.kind) {
                     next_id += 1;
                     let command = json!({ "id": next_id, "method": "Runtime.evaluate", "params": { "expression": call } });
                     if !send(&mut socket, &command).await {
@@ -497,7 +578,10 @@ async fn attach(app: AppHandle, target: Target) {
                         });
                     }
                     ClientCall::Dismiss(app_id) => dismiss(&app_id),
-                    ClientCall::OpenApp => crate::guard_service::show_main(&app),
+                    ClientCall::OpenApp => {
+                        info!("LuaVault dans Steam : fenêtre demandée depuis Steam");
+                        crate::guard_service::show_main(&app);
+                    }
                 }
             }
             Some(false) => {
@@ -573,6 +657,28 @@ mod tests {
    "url": "about:blank?createflags=274&minwidth=1010&minheight=600&pid=0&browser=-1&browserType=4",
    "webSocketDebuggerUrl": "ws://127.0.0.1:8080/devtools/page/11112222333344445555666677778888"
 } ]"#;
+
+    #[test]
+    fn steam_client_notices_travel_as_json_and_need_an_equipped_page() {
+        let notice = Notice {
+            title: "Détection automatique : \"x\";</script>".into(),
+            line: "l".into(),
+            tone: notice_tone("busy"),
+            app_id: Some("413150".into()),
+            open: true,
+        };
+        let call = notice_call(&notice);
+        assert!(call.starts_with("typeof lvNotice === \"function\" && lvNotice({"));
+        let json: Value = serde_json::from_str(call.trim_start_matches("typeof lvNotice === \"function\" && lvNotice(").trim_end_matches(");")).unwrap();
+        assert_eq!(json["title"], "Détection automatique : \"x\";</script>");
+        assert_eq!(json["tone"], "info");
+        assert_eq!(json["appId"], "413150");
+        assert_eq!(json["open"], true);
+        assert_eq!(notice_tone("ok"), "ok");
+        assert_eq!(notice_tone("error"), "error");
+        assert!(!notify_in_steam(&notice), "nothing equipped in a test: Windows says it");
+        assert!(NOTICE_SCRIPT.contains("window.lvNotice = show"));
+    }
 
     fn called(payload: &str) -> Value {
         json!({ "method": "Runtime.bindingCalled", "params": { "name": BINDING, "payload": payload } })

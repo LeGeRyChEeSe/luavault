@@ -79,13 +79,67 @@ pub fn lua_line(lang: &str, side: SteamSide) -> (&'static str, String, bool) {
     }
 }
 
-/// Pure. The panel's line once a patch archive is in the library.
-pub fn patch_line(lang: &str, applied: Option<Result<usize, String>>) -> (&'static str, String) {
-    match applied {
-        Some(Ok(n)) => ("ok", say(lang, format!("Correctif appliqué ({n} fichier(s)). Le jeu est prêt."), format!("Patch applied ({n} file(s)). The game is ready."))),
-        Some(Err(e)) => ("error", say(lang, format!("Correctif ajouté mais non appliqué : {e}"), format!("Patch added but not applied: {e}"))),
-        None => ("busy", say(lang, "Correctif ajouté : il s'appliquera dès que Steam aura installé le jeu.".into(), "Patch added: it will be applied as soon as Steam has installed the game.".into())),
+/// Pure. How a found file is named: `lua`, `patch` or `bypass` (`commands::patch_flavor`).
+pub fn noun(lang: &str, flavor: &str) -> &'static str {
+    match (lang == "fr", flavor) {
+        (true, "lua") => "Le .lua",
+        (true, "bypass") => "Contournement DRM",
+        (true, _) => "Correctif",
+        (false, "lua") => "The .lua",
+        (false, "bypass") => "DRM bypass",
+        (false, _) => "Patch",
     }
+}
+
+/// Pure. The panel's line once a patch archive is in the library.
+pub fn patch_line(lang: &str, flavor: &str, applied: Option<Result<usize, String>>) -> (&'static str, String) {
+    let what = noun(lang, flavor);
+    match applied {
+        Some(Ok(n)) => ("ok", say(lang, format!("{what} appliqué ({n} fichier(s)). Le jeu est prêt."), format!("{what} applied ({n} file(s)). The game is ready."))),
+        Some(Err(e)) => ("error", say(lang, format!("{what} ajouté mais non appliqué : {e}"), format!("{what} added but not applied: {e}"))),
+        None => ("busy", say(lang, format!("{what} ajouté : il s'appliquera dès que Steam aura installé le jeu."), format!("{what} added: it will be applied as soon as Steam has installed the game."))),
+    }
+}
+
+/// Pure. The title of the card shown in Steam when LuaVault detected a game's file by itself.
+pub fn detected_title(lang: &str, name: &str) -> String {
+    say(lang, format!("Détection automatique : {name}"), format!("Detected automatically: {name}"))
+}
+
+/// Pure. The card's line for files found in Downloads that LuaVault does not take by itself: what
+/// was found, and that a click opens LuaVault to add it.
+pub fn found_line(lang: &str, flavors: &[&str]) -> String {
+    let kind = |f: &str| match f {
+        "lua" | "bypass" => f.to_string(),
+        _ => "patch".to_string(),
+    };
+    let mut names: Vec<&str> = Vec::new();
+    for flavor in ["lua", "patch", "bypass"] {
+        if flavors.iter().any(|f| kind(f) == flavor) {
+            names.push(match (lang == "fr", flavor) {
+                (true, "lua") => "le .lua",
+                (true, "bypass") => "le contournement DRM",
+                (true, _) => "le correctif",
+                (false, "lua") => "the .lua",
+                (false, "bypass") => "the DRM bypass",
+                (false, _) => "the patch",
+            });
+        }
+    }
+    let several = names.len() > 1;
+    let joined = match names.as_slice() {
+        [] => say(lang, "un fichier".into(), "a file".into()),
+        [one] => one.to_string(),
+        [rest @ .., last] => say(lang, format!("{} et {last}", rest.join(", ")), format!("{} and {last}", rest.join(", "))),
+    };
+    let mut first = joined.chars();
+    let joined = first.next().map(|c| c.to_uppercase().collect::<String>() + first.as_str()).unwrap_or_default();
+    let (fr, en) = if several { ("les", "them") } else { ("l'", "it") };
+    say(
+        lang,
+        format!("{joined} dans vos Téléchargements. Cliquez pour {fr}{}ajouter avec LuaVault.", if several { " " } else { "" }),
+        format!("{joined} in your Downloads. Click to add {en} with LuaVault."),
+    )
 }
 
 // ------------------------------------------------------------ patches waiting for Steam
@@ -160,18 +214,67 @@ async fn name_for(app: &AppHandle, app_id: &str, lang: &str) -> String {
     }
 }
 
-fn show(app: &AppHandle, app_id: &str, name: String, tone: &'static str, line: String, install: bool, library: bool) {
-    let toast = (!steam_client::pages_open()).then(|| (name.clone(), line.clone()));
-    steam_client::publish(Job { app_id: app_id.to_string(), name, tone, line, install, library, site: false, at: 0 });
+/// The step goes to the store's panel and to a card in Steam (`title`), or to a notification of
+/// Windows when no page of the client is equipped. The card is shown before the pages are equipped
+/// again (`refresh`), so it reaches the pages attached now.
+#[allow(clippy::too_many_arguments)] // one call per step, each argument a distinct fact of it
+fn show(app: &AppHandle, app_id: &str, name: String, title: String, tone: &'static str, line: String, install: bool, library: bool) {
+    let notice = steam_client::Notice {
+        title: title.clone(),
+        line: line.clone(),
+        tone: steam_client::notice_tone(tone),
+        app_id: Some(app_id.to_string()),
+        open: false,
+    };
+    let in_steam = steam_client::notify_in_steam(&notice);
+    steam_client::publish(Job { app_id: app_id.to_string(), name, tone, line: line.clone(), install, library, site: false, at: 0 });
     steam_client::refresh();
     let _ = app.emit(LIBRARY_CHANGED, ());
-    // No store page to show it: a notification of Windows says it instead.
-    if let Some((title, line)) = toast {
-        let xml = crate::notify::toast_xml(&title, &crate::notify::plain_text(&line, 220), "", &[]);
-        if let Err(e) = crate::notify::show_toast(&xml) {
-            warn!("LuaVault dans Steam : notification impossible ({e})");
+    if !in_steam {
+        windows_toast(&title, &line);
+    }
+}
+
+fn windows_toast(title: &str, line: &str) {
+    let xml = crate::notify::toast_xml(title, &crate::notify::plain_text(line, 220), "", &[]);
+    if let Err(e) = crate::notify::show_toast(&xml) {
+        warn!("LuaVault dans Steam : notification impossible ({e})");
+    }
+}
+
+/// Files found in Downloads that are not taken by themselves: one card per game in Steam, a click
+/// opens LuaVault where the popup offers them. `false` when Steam could show nothing (the ordinary
+/// notification of Windows then says it).
+pub async fn announce_found(app: &AppHandle, items: &[DownloadFound]) -> bool {
+    let cfg = app.state::<crate::AppState>().config.lock().map(|c| c.clone()).unwrap_or_default();
+    if items.is_empty() || !steam_client::wanted(&cfg, config::is_portable(), config::EXPERIMENTAL) {
+        return false;
+    }
+    if !steam_client::window_open() && !steam_client::pages_open() {
+        return false;
+    }
+    let lang = steam_store::lang_of(&cfg);
+    let mut games: Vec<(String, Vec<&str>)> = Vec::new();
+    for item in items {
+        let Some(id) = item.app_id.as_deref().and_then(steam_store::parse_app_id) else { continue };
+        match games.iter_mut().find(|(g, _)| *g == id) {
+            Some((_, flavors)) => flavors.push(item.flavor.as_str()),
+            None => games.push((id, vec![item.flavor.as_str()])),
         }
     }
+    let mut shown = false;
+    for (app_id, flavors) in games {
+        let name = name_for(app, &app_id, lang).await;
+        let notice = steam_client::Notice {
+            title: detected_title(lang, &name),
+            line: found_line(lang, &flavors),
+            tone: "info",
+            app_id: Some(app_id),
+            open: true,
+        };
+        shown |= steam_client::notify_in_steam(&notice);
+    }
+    shown
 }
 
 async fn apply_fix(cfg: &config::AppConfig, app_id: &str) -> Result<usize, String> {
@@ -203,11 +306,13 @@ pub async fn take(app: &AppHandle, items: Vec<DownloadFound>) -> Vec<DownloadFou
                     let c = cfg.clone();
                     let side = tauri::async_runtime::spawn_blocking(move || side_of(&c, &id)).await.unwrap_or(SteamSide::Unknown);
                     let (tone, line, install) = lua_line(lang, side);
-                    show(app, &app_id, name, tone, line, install, true);
+                    let title = detected_title(lang, &name);
+                    show(app, &app_id, name, title, tone, line, install, true);
                 }
                 Err(e) => {
                     warn!("LuaVault dans Steam : {app_id} non ajouté ({e})");
-                    show(app, &app_id, name, "error", say(lang, format!("Le .lua n'a pas pu être ajouté : {e}"), format!("The .lua could not be added: {e}")), false, false);
+                    let title = detected_title(lang, &name);
+                    show(app, &app_id, name, title, "error", say(lang, format!("Le .lua n'a pas pu être ajouté : {e}"), format!("The .lua could not be added: {e}")), false, false);
                     left.push(item);
                 }
             }
@@ -234,8 +339,9 @@ pub async fn take(app: &AppHandle, items: Vec<DownloadFound>) -> Vec<DownloadFou
             remember_pending(&config::data_dir(), &app_id);
             None
         };
-        let (tone, line) = patch_line(lang, applied);
-        show(app, &app_id, name, tone, line, false, side != SteamSide::Absent);
+        let (tone, line) = patch_line(lang, &item.flavor, applied);
+        let title = detected_title(lang, &name);
+        show(app, &app_id, name, title, tone, line, false, side != SteamSide::Absent);
     }
     left
 }
@@ -262,8 +368,9 @@ pub fn spawn(app: AppHandle) {
                 let applied = apply_fix(&cfg, &app_id).await;
                 info!("LuaVault dans Steam : correctif en attente de {app_id} appliqué : {}", applied.is_ok());
                 let name = name_for(&app, &app_id, lang).await;
-                let (tone, line) = patch_line(lang, Some(applied));
-                show(&app, &app_id, name, tone, line, false, true);
+                let (tone, line) = patch_line(lang, "patch", Some(applied));
+                let title = name.clone();
+                show(&app, &app_id, name, title, tone, line, false, true);
             }
         }
     });
@@ -338,13 +445,33 @@ mod tests {
     }
 
     #[test]
+    fn steam_followup_cards_say_the_detection_and_what_was_found() {
+        assert_eq!(detected_title("fr", "Stardew Valley"), "Détection automatique : Stardew Valley");
+        assert_eq!(detected_title("en", "Stardew Valley"), "Detected automatically: Stardew Valley");
+        assert_eq!(found_line("fr", &["lua"]), "Le .lua dans vos Téléchargements. Cliquez pour l'ajouter avec LuaVault.");
+        assert_eq!(
+            found_line("fr", &["patch", "lua", "bypass"]),
+            "Le .lua, le correctif et le contournement DRM dans vos Téléchargements. Cliquez pour les ajouter avec LuaVault."
+        );
+        assert_eq!(found_line("en", &["bypass"]), "The DRM bypass in your Downloads. Click to add it with LuaVault.");
+        assert_eq!(found_line("en", &["lua", "patch"]), "The .lua and the patch in your Downloads. Click to add them with LuaVault.");
+        for lang in ["fr", "en"] {
+            for flavors in [&["lua"][..], &["patch"], &["bypass"], &["lua", "patch", "bypass"]] {
+                assert!(!found_line(lang, flavors).contains('\u{2014}'));
+            }
+        }
+    }
+
+    #[test]
     fn steam_followup_lines_offer_install_only_when_steam_lacks_the_game() {
         assert!(lua_line("fr", SteamSide::Absent).2);
         assert!(!lua_line("fr", SteamSide::Ready).2);
         assert!(!lua_line("en", SteamSide::Downloading).2);
-        assert_eq!(patch_line("fr", None).0, "busy");
-        assert_eq!(patch_line("en", Some(Ok(3))).0, "ok");
-        assert_eq!(patch_line("fr", Some(Err("x".into()))).0, "error");
+        assert_eq!(patch_line("fr", "patch", None).0, "busy");
+        assert_eq!(patch_line("en", "patch", Some(Ok(3))).0, "ok");
+        assert_eq!(patch_line("fr", "patch", Some(Err("x".into()))).0, "error");
+        assert!(patch_line("fr", "bypass", Some(Ok(2))).1.starts_with("Contournement DRM appliqué"));
+        assert!(patch_line("en", "patch", None).1.starts_with("Patch added"));
         for lang in ["fr", "en"] {
             for side in [SteamSide::Ready, SteamSide::Downloading, SteamSide::Absent] {
                 assert!(!lua_line(lang, side).1.contains('\u{2014}'));

@@ -137,15 +137,15 @@ fn window_in_front(app: &AppHandle) -> bool {
 }
 
 /// Raise (or refresh) the toast that lists every file waiting for an answer.
-async fn announce(app: &AppHandle, found: &[DownloadFound]) {
+async fn announce(app: &AppHandle, found: &[DownloadFound], shown_in_steam: bool) {
     let waiting = {
         let mut pending = PENDING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         merge_pending(&mut pending, found);
         pending.retain(|item| Path::new(&item.path).is_file());
         pending.clone()
     };
-    if waiting.is_empty() || !toasts_enabled() || window_in_front(app) {
-        info!("downloads: {} file(s) waiting, no notification (window in front or toasts off)", waiting.len());
+    if waiting.is_empty() || !toasts_enabled() || window_in_front(app) || shown_in_steam {
+        info!("downloads: {} file(s) waiting, no notification (window in front, shown in Steam or toasts off)", waiting.len());
         return;
     }
     let names = game_names(app, &waiting).await;
@@ -738,7 +738,9 @@ pub fn start(app: &AppHandle, state: &AppState, dirs: Vec<PathBuf>, window: Wind
                 if let Err(error) = app.emit(DOWNLOADS_FOUND_EVENT, found.clone()) {
                     debug!("downloads found event failed: {error}");
                 }
-                announce(&app, &found).await;
+                // LuaVault in Steam: a card in Steam says it, and stands for the notification of Windows.
+                let in_steam = crate::steam_followup::announce_found(&app, &found).await;
+                announce(&app, &found, in_steam).await;
             }
             if take_wake(chrono::Utc::now().timestamp()) {
                 reveal_main(&app);
