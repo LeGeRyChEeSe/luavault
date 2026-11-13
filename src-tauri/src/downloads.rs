@@ -726,8 +726,10 @@ pub fn start(app: &AppHandle, state: &AppState, dirs: Vec<PathBuf>, window: Wind
                 found
             } else {
                 let cfg = app.state::<AppState>().config.lock().map(|cfg| cfg.clone()).unwrap_or_default();
-                let wanted = crate::steam_client::wanted(&cfg, crate::config::is_portable(), crate::config::EXPERIMENTAL);
                 let (data_dir, now) = (crate::config::data_dir(), chrono::Utc::now().timestamp());
+                // Hidden (« Masquer »): files are offered as usual, never taken by themselves.
+                let wanted = crate::steam_client::wanted(&cfg, crate::config::is_portable(), crate::config::EXPERIMENTAL)
+                    && !crate::kill_switch::engaged(&data_dir);
                 let (taken, mut rest) = crate::steam_followup::split_requested(found, wanted, |id| crate::steam_store::requested(&data_dir, id, now));
                 if !taken.is_empty() {
                     rest.extend(crate::steam_followup::take(&app, taken).await);

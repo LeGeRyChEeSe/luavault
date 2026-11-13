@@ -184,7 +184,7 @@ pub async fn game_name(app: &AppHandle, app_id: &str, lang: &str) -> String {
 pub async fn find(app: &AppHandle, app_id: &str) {
     let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
     let now = chrono::Utc::now().timestamp();
-    if !remember(&config::data_dir(), app_id, now) {
+    if crate::kill_switch::engaged(&config::data_dir()) || !remember(&config::data_dir(), app_id, now) {
         return;
     }
     let lang = lang_of(&cfg);

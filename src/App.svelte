@@ -18,6 +18,7 @@
   import NotifyOffer from "./components/NotifyOffer.svelte";
   import DownloadsModal from "./components/DownloadsModal.svelte";
   import { downloadsState } from "./lib/downloads-state.svelte";
+  import { libraryState } from "./lib/library-state.svelte";
   import WorkaroundBanner from "./components/WorkaroundBanner.svelte";
   import ManifestBanner from "./components/ManifestBanner.svelte";
   import { appState } from "./lib/app-state.svelte";
@@ -125,10 +126,15 @@
     window.addEventListener("focus", onWake);
     document.addEventListener("visibilitychange", onWake);
     const unlistenManifest = listen("manifest-fallback://changed", () => void appState.refreshManifest());
-    // The click on the notification opened the key page in the browser: bring the user to
-    // the tab where the key is pasted.
     // LuaVault in Steam: a game asked for from Steam was added behind the window's back.
     const unlistenLibrary = listen("library://changed", () => void appState.refreshLibrary());
+    // LuaVault in Steam: « Ouvrir dans LuaVault » from the play bar shows that game in the library.
+    const unlistenOpenGame = listen<{ app_id: string; name: string }>("steam://open-game", (event) => {
+      view = "library";
+      libraryState.search = event.payload.name || event.payload.app_id;
+    });
+    // The click on the notification opened the key page in the browser: bring the user to
+    // the tab where the key is pasted.
     const unlistenManifestOpen = listen("manifest-fallback://open", () => {
       view = "tools";
       void appState.refreshManifest();
@@ -155,6 +161,7 @@
       void unlistenManifest.then((fn) => fn());
       void unlistenManifestOpen.then((fn) => fn());
       void unlistenLibrary.then((fn) => fn());
+      void unlistenOpenGame.then((fn) => fn());
       void unlistenSteamUpdate.then((fn) => fn());
       unmountTooltips();
       void unlistenReachability.then((fn) => fn());

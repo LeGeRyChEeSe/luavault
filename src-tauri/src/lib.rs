@@ -32,6 +32,9 @@ mod steamstore;
 mod steam_client;
 mod steam_store;
 mod steam_followup;
+mod steam_library;
+mod steam_settings;
+mod kill_switch;
 pub use update::RELEASE_PUBLIC_KEYS;
 mod update;
 mod vdf;
@@ -349,6 +352,9 @@ pub fn run() {
             commands::open_source_site,
             commands::get_in_steam,
             commands::set_in_steam,
+            commands::get_kill_switch,
+            commands::engage_kill_switch,
+            commands::release_kill_switch,
             commands::manifest_fallback_status,
             commands::manifest_fallback_run,
             commands::open_manifest_page,

@@ -65,12 +65,49 @@ pub const WINDOW_HOST: &str = "steamloopback.host";
 /// page itself then reads `https://steamloopback.host/index.html`.
 pub const WINDOW_TITLE: &str = "Steam";
 
-/// Which page of the client: its web view (`Store`), or the main window (`Window`).
+/// Which page of the client: its web view (`Store`), the main window (`Window`), or the client's
+/// `SharedJSContext` (`Shared`), whose library API keeps the « LuaVault » collection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Store,
     Window,
+    Shared,
 }
+
+/// The title of the client's shared context in the page list, at `https://steamloopback.host/index.html?…`.
+pub const SHARED_TITLE: &str = "SharedJSContext";
+/// The collection LuaVault keeps in the Steam library.
+pub const COLLECTION_NAME: &str = "LuaVault";
+
+/// Pure. The expression that makes the « LuaVault » collection hold exactly these games (the ones
+/// Steam can see), created when missing and deleted when the list is empty. LuaVault owns this
+/// collection: a game put in it by hand and not LuaVault's goes back out. The AppIDs travel as JSON
+/// numbers from serde. `collectionStore` and `appStore` are the client's own objects (read on the
+/// real client, 2026-11-12).
+pub fn collection_call(app_ids: &[u32]) -> String {
+    let ids = serde_json::to_string(app_ids).unwrap_or_else(|_| "[]".to_string());
+    let name = serde_json::to_string(COLLECTION_NAME).unwrap_or_default();
+    format!(
+        "(async () => {{ const ids = {ids}; const name = {name}; \
+if (typeof collectionStore !== 'object' || typeof appStore !== 'object') return 'pas de bibliothèque'; \
+const found = (collectionStore.GetUserCollectionsByName(name) || [])[0]; \
+const ov = ids.map((i) => appStore.GetAppOverviewByAppID(i)).filter(Boolean); \
+if (ov.length === 0) {{ if (found) {{ await collectionStore.DeleteCollection(found.id); return 'supprimée'; }} return 'rien'; }} \
+if (!found) {{ const c = collectionStore.NewUnsavedCollection(name, undefined, ov); await c.Save(); return 'créée ' + ov.length; }} \
+const have = new Set(found.allApps.map((a) => a.appid)); const want = new Set(ov.map((o) => o.appid)); \
+const add = ov.filter((o) => !have.has(o.appid)); const out = found.allApps.filter((a) => !want.has(a.appid)); \
+const dd = typeof found.AsDragDropCollection === 'function' ? found.AsDragDropCollection() : found; \
+if (add.length) dd.AddApps(add); if (out.length) dd.RemoveApps(out); \
+if (add.length || out.length) await found.Save(); return '+' + add.length + ' -' + out.length; }})()"
+    )
+}
+
+/// What a page runs when LuaVault is hidden: every node of ours goes, and the scripts' run counters
+/// move so their timers stop.
+pub const WITHDRAW: &str = "(() => { const r = document.documentElement; r.lvRun = (r.lvRun || 0) + 1; r.lvWinRun = (r.lvWinRun || 0) + 1; r.lvNoticeRun = (r.lvNoticeRun || 0) + 1; document.querySelectorAll('[data-lv-node], [data-lv-notices]').forEach((n) => n.remove()); return true; })()";
+
+/// Open the settings panel in the web view the client is showing (only a visible one answers).
+pub const PANEL_IN_STORE: &str = "document.visibilityState === 'visible' && window.lvOpenSettings && window.lvOpenSettings()";
 
 /// One page of the Steam client this module equips.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,6 +161,8 @@ pub fn client_targets(list: &str) -> Vec<Target> {
                 Kind::Store
             } else if field("title") == Some(WINDOW_TITLE) && url.starts_with("about:blank?") {
                 Kind::Window
+            } else if field("title") == Some(SHARED_TITLE) && url.starts_with("https://steamloopback.host/index.html") {
+                Kind::Shared
             } else {
                 return None;
             };
@@ -145,8 +184,20 @@ pub enum ClientCall {
     Find(String),
     /// Take this game's line out of the panel.
     Dismiss(String),
-    /// Show LuaVault's window (the pill).
+    /// Show LuaVault's window.
     OpenApp,
+    /// The settings panel opened: what does it show?
+    Settings,
+    /// The window's pill was clicked while a page of Valve's is shown over it: open the panel there.
+    Panel,
+    /// One change of the settings panel, under its closed set.
+    Set(crate::steam_settings::Change),
+    /// The play bar shows this game: what does LuaVault know of it?
+    LibQuery(String),
+    /// One gesture of the play bar or of the right-click menu, under its closed set.
+    LibAct(crate::steam_library::LibAction, String),
+    /// « Masquer », confirmed twice in the panel.
+    Hide,
 }
 
 /// The call carried by a `Runtime.bindingCalled` event for our function, under the strict rule.
@@ -159,8 +210,23 @@ pub fn binding_call(message: &Value) -> Option<ClientCall> {
         return None;
     }
     let payload = params.get("payload")?.as_str()?;
-    if payload == "open" {
-        return Some(ClientCall::OpenApp);
+    match payload {
+        "open" => return Some(ClientCall::OpenApp),
+        "settings" => return Some(ClientCall::Settings),
+        "panel" => return Some(ClientCall::Panel),
+        "hide" => return Some(ClientCall::Hide),
+        _ => {}
+    }
+    if let Some(rest) = payload.strip_prefix("set:") {
+        return crate::steam_settings::Change::parse(rest).map(ClientCall::Set);
+    }
+    if let Some(id) = payload.strip_prefix("lib:") {
+        return steam_store::parse_app_id(id).map(ClientCall::LibQuery);
+    }
+    if let Some(rest) = payload.strip_prefix("act:") {
+        let (word, id) = rest.split_once(':')?;
+        let action = crate::steam_library::LibAction::parse(word)?;
+        return steam_store::parse_app_id(id).map(|id| ClientCall::LibAct(action, id));
     }
     if let Some(id) = payload.strip_prefix("dismiss:") {
         return steam_store::parse_app_id(id).map(ClientCall::Dismiss);
@@ -172,24 +238,32 @@ pub fn binding_call(message: &Value) -> Option<ClientCall> {
 }
 
 /// Where the page must be for this call to be believed: the main window on the client's own
-/// interface; a store call on the store itself; showing the window from any of Valve's sites.
+/// interface; a store call on the store itself; the settings panel (read, change, hide, open the
+/// window) on any of Valve's sites, since the web view moves from one to the other. Each check holds
+/// on its own, `allowed` too.
 pub fn host_fits(kind: Kind, call: &ClientCall, host: &str) -> bool {
+    if !allowed(kind, call) {
+        return false;
+    }
     match kind {
-        // The window only ever shows the application: each check holds on its own, `allowed` too.
-        Kind::Window => host == WINDOW_HOST && *call == ClientCall::OpenApp,
+        Kind::Window => host == WINDOW_HOST,
         Kind::Store => match call {
             ClientCall::Find(_) | ClientCall::Dismiss(_) => host == STORE_HOST,
-            ClientCall::OpenApp => is_valve_host(host),
+            _ => is_valve_host(host),
         },
+        // The shared context is given no function: nothing it says is ever believed.
+        Kind::Shared => false,
     }
 }
 
 /// What a page of this kind may ask. A store page finds games and dismisses its panel's lines; the
-/// main window shows the application. Neither asks what belongs to the other.
+/// main window drives the play bar and asks the web view to draw the panel; both read and change the
+/// settings, hide, and open the window (the panel is drawn by whichever is in front).
 pub fn allowed(kind: Kind, call: &ClientCall) -> bool {
     match call {
-        ClientCall::OpenApp => true,
+        ClientCall::OpenApp | ClientCall::Settings | ClientCall::Set(_) | ClientCall::Hide => kind != Kind::Shared,
         ClientCall::Find(_) | ClientCall::Dismiss(_) => kind == Kind::Store,
+        ClientCall::Panel | ClientCall::LibQuery(_) | ClientCall::LibAct(..) => kind == Kind::Window,
     }
 }
 
@@ -268,6 +342,16 @@ pub fn notice_tone(job_tone: &str) -> &'static str {
 pub fn notice_call(notice: &Notice) -> String {
     let json = serde_json::to_string(notice).unwrap_or_else(|_| "null".to_string());
     format!("typeof lvNotice === \"function\" && lvNotice({json});")
+}
+
+/// Send an expression to the main window, if it is equipped.
+pub fn to_window(expression: String) {
+    let _ = WINDOW_CALLS.send(expression);
+}
+
+/// Send an expression to every equipped page of the web view.
+pub fn to_store(expression: String) {
+    let _ = PROGRESS.send(expression);
 }
 
 /// Whether the client's main window is equipped.
@@ -434,9 +518,12 @@ async fn script_for(app: &AppHandle, kind: Kind) -> String {
             let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
             let known = tauri::async_runtime::spawn_blocking(move || known_games(&cfg)).await.unwrap_or_default();
             let jobs = live_jobs(&JOBS.lock().unwrap(), chrono::Utc::now().timestamp());
-            format!("{}\n{NOTICE_SCRIPT}", store_script_with(&known, &jobs))
+            // The window's script too: in the web view it only draws the settings panel, on the
+            // application's word (`PANEL_IN_STORE`), since that view lies over the main window.
+            format!("{}\n{WINDOW_SCRIPT}\n{NOTICE_SCRIPT}", store_script_with(&known, &jobs))
         }
         Kind::Window => format!("{WINDOW_SCRIPT}\n{NOTICE_SCRIPT}"),
+        Kind::Shared => String::new(),
     }
 }
 
@@ -495,8 +582,62 @@ async fn send(socket: &mut tokio_tungstenite::WebSocketStream<tokio_tungstenite:
     socket.send(Message::Text(command.to_string().into())).await.is_ok()
 }
 
+fn hidden() -> bool {
+    crate::kill_switch::engaged(&config::data_dir())
+}
+
+/// The games the collection holds: the library's games whose `.lua` Steam can see.
+fn collection_games(cfg: &AppConfig) -> Vec<u32> {
+    if cfg.steam_collection == Some(false) || hidden() {
+        return Vec::new();
+    }
+    known_games(cfg).keys().filter_map(|id| id.parse().ok()).collect()
+}
+
+/// The shared context: the collection made right at once, then again at each refresh (the loop lets
+/// go of the page when the generation moves, and equips it again within a second). Nothing it says
+/// is believed: it is given no function.
+async fn attach_shared(app: AppHandle, target: Target) {
+    let Ok((mut socket, _)) = tokio_tungstenite::connect_async(target.ws.as_str()).await else {
+        return;
+    };
+    let generation = GENERATION.load(Ordering::SeqCst);
+    let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
+    let games = tauri::async_runtime::spawn_blocking(move || collection_games(&cfg)).await.unwrap_or_default();
+    let command = json!({ "id": 1, "method": "Runtime.evaluate", "params": { "expression": collection_call(&games), "awaitPromise": true, "returnByValue": true } });
+    if !send(&mut socket, &command).await {
+        return;
+    }
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        tokio::select! {
+            frame = socket.next() => {
+                let Some(Ok(Message::Text(text))) = frame else {
+                    if frame.is_none() { return; }
+                    continue;
+                };
+                if let Ok(msg) = serde_json::from_str::<Value>(text.as_str()) {
+                    if msg.get("id").and_then(Value::as_u64) == Some(1) {
+                        let said = msg.pointer("/result/result/value").and_then(Value::as_str).unwrap_or("?");
+                        debug!("LuaVault dans Steam : collection {said}");
+                    }
+                }
+            }
+            _ = tick.tick() => {
+                let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
+                if GENERATION.load(Ordering::SeqCst) != generation || !wanted(&cfg, config::is_portable(), config::EXPERIMENTAL) {
+                    return;
+                }
+            }
+        }
+    }
+}
+
 /// Stay on one page until it closes: give it the script, then listen for the calls.
 async fn attach(app: AppHandle, target: Target) {
+    if target.kind == Kind::Shared {
+        return attach_shared(app, target).await;
+    }
     let Ok((mut socket, _)) = tokio_tungstenite::connect_async(target.ws.as_str()).await else {
         return;
     };
@@ -511,6 +652,13 @@ async fn attach(app: AppHandle, target: Target) {
         }
     }
     debug!("LuaVault dans Steam : page {:?} {} équipée", target.kind, target.id);
+    if target.kind == Kind::Window {
+        // The dots of the library's game list, as LuaVault's games stand now.
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            crate::steam_library::send_dots(&handle).await;
+        });
+    }
     let mut next_id: u64 = 100;
     // The call waiting for the page's host to be confirmed: (question id, call).
     let mut asked: Option<(u64, ClientCall)> = None;
@@ -539,6 +687,12 @@ async fn attach(app: AppHandle, target: Target) {
                 continue;
             }
             _ = tick.tick() => {
+                if hidden() {
+                    // Hidden: take back what this page shows before letting it go.
+                    let command = json!({ "id": 99, "method": "Runtime.evaluate", "params": { "expression": WITHDRAW } });
+                    let _ = send(&mut socket, &command).await;
+                    return;
+                }
                 let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
                 if GENERATION.load(Ordering::SeqCst) != generation || !wanted(&cfg, config::is_portable(), config::EXPERIMENTAL) {
                     return;
@@ -582,6 +736,34 @@ async fn attach(app: AppHandle, target: Target) {
                         info!("LuaVault dans Steam : fenêtre demandée depuis Steam");
                         crate::guard_service::show_main(&app);
                     }
+                    ClientCall::Settings => crate::steam_settings::send(&app, None),
+                    ClientCall::Panel => to_store(PANEL_IN_STORE.to_string()),
+                    ClientCall::Set(change) => {
+                        let handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            crate::steam_settings::apply(&handle, change).await;
+                        });
+                    }
+                    ClientCall::LibQuery(app_id) => {
+                        let handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            crate::steam_library::send_card(&handle, &app_id, None).await;
+                        });
+                    }
+                    ClientCall::LibAct(action, app_id) => {
+                        info!("LuaVault dans Steam : {} pour {app_id}", action.id());
+                        let handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            crate::steam_library::act(&handle, action, &app_id).await;
+                        });
+                    }
+                    ClientCall::Hide => {
+                        info!("LuaVault dans Steam : masquage demandé depuis Steam");
+                        let handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            crate::kill_switch::engage_from_client(&handle).await;
+                        });
+                    }
                 }
             }
             Some(false) => {
@@ -611,7 +793,12 @@ pub fn spawn(app: AppHandle) {
             let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();
             if wanted(&cfg, config::is_portable(), config::EXPERIMENTAL) {
                 if let Some(list) = list_pages(&http).await {
+                    // Hidden: only the shared context, which empties the collection.
+                    let hide = hidden();
                     for target in client_targets(&list) {
+                        if hide && target.kind != Kind::Shared {
+                            continue;
+                        }
                         if !attached.lock().unwrap().insert(target.id.clone()) {
                             continue;
                         }
@@ -685,16 +872,57 @@ mod tests {
     }
 
     #[test]
-    fn steam_client_keeps_the_web_view_and_the_window_only() {
+    fn steam_client_keeps_the_web_view_the_window_and_the_shared_context() {
         let found = client_targets(REAL_LIST);
         let kinds: Vec<_> = found.iter().map(|t| (t.id.as_str(), t.kind)).collect();
         assert_eq!(
             kinds,
-            vec![("6A2F9C0D11E34B7A9C55D2E81F0A7B3C", Kind::Store), ("11112222333344445555666677778888", Kind::Window)],
-            "the shared context is left alone"
+            vec![
+                ("6A2F9C0D11E34B7A9C55D2E81F0A7B3C", Kind::Store),
+                ("0B1C2D3E4F5061728394A5B6C7D8E9F0", Kind::Shared),
+                ("11112222333344445555666677778888", Kind::Window)
+            ]
         );
         assert!(client_targets("pas du json").is_empty());
         assert!(client_targets("{}").is_empty());
+        let fake = r#"[{"type":"page","title":"SharedJSContext","url":"https://evil.example/index.html","webSocketDebuggerUrl":"ws://127.0.0.1:8080/devtools/page/ABC"}]"#;
+        assert!(client_targets(fake).is_empty(), "the title alone is not enough");
+    }
+
+    #[test]
+    fn steam_client_believes_nothing_from_the_shared_context() {
+        for call in [ClientCall::Hide, ClientCall::Settings, ClientCall::OpenApp, ClientCall::Find("1".into()), ClientCall::LibQuery("1".into())] {
+            assert!(!host_fits(Kind::Shared, &call, WINDOW_HOST), "{call:?}");
+        }
+        let call = collection_call(&[264710, 413150]);
+        assert!(call.contains("const ids = [264710,413150]; const name = \"LuaVault\";"), "{call}");
+        assert!(collection_call(&[]).contains("const ids = []"), "an empty list removes the collection");
+    }
+
+    #[test]
+    fn steam_client_window_drives_the_play_bar_and_the_web_view_draws_the_panel() {
+        use crate::steam_library::LibAction;
+        let act = ClientCall::LibAct(LibAction::Unpatch, "413150".into());
+        assert!(host_fits(Kind::Window, &act, WINDOW_HOST));
+        assert!(!host_fits(Kind::Window, &act, STORE_HOST), "a page of Valve's is not the window");
+        assert!(!allowed(Kind::Store, &act), "a web page never drives the play bar");
+        assert!(!allowed(Kind::Store, &ClientCall::LibQuery("1".into())));
+        assert!(!allowed(Kind::Store, &ClientCall::Panel), "only the window asks the web view to open the panel");
+        for call in [ClientCall::Settings, ClientCall::Hide, ClientCall::OpenApp, ClientCall::Set(crate::steam_settings::Change::AutoUpdate(true))] {
+            assert!(host_fits(Kind::Store, &call, "steamcommunity.com"), "{call:?}: the panel is drawn wherever the web view is");
+            assert!(!host_fits(Kind::Store, &call, "evil.example"), "{call:?}");
+            assert!(host_fits(Kind::Window, &call, WINDOW_HOST), "{call:?}");
+        }
+        assert_eq!(binding_call(&called("act:unpatch:413150")), Some(act));
+        assert_eq!(binding_call(&called("lib:413150")), Some(ClientCall::LibQuery("413150".into())));
+        assert_eq!(binding_call(&called("settings")), Some(ClientCall::Settings));
+        assert_eq!(binding_call(&called("panel")), Some(ClientCall::Panel));
+        assert_eq!(binding_call(&called("hide")), Some(ClientCall::Hide));
+        assert_eq!(binding_call(&called("set:locale:en")), Some(ClientCall::Set(crate::steam_settings::Change::Locale("en"))));
+        for bad in ["act:patch:413150", "act:unpatch:0", "act:unpatch", "act::413150", "lib:", "lib:1,2", "set:in_steam:0", "hide:1", "Hide", "settings "] {
+            assert_eq!(binding_call(&called(bad)), None, "{bad}");
+        }
+        assert!(WITHDRAW.contains("[data-lv-node], [data-lv-notices]"));
     }
 
     #[test]
@@ -727,7 +955,7 @@ mod tests {
         assert_eq!(binding_call(&called("find:264710")), Some(ClientCall::Find("264710".into())));
         assert_eq!(binding_call(&called("dismiss:264710")), Some(ClientCall::Dismiss("264710".into())));
         assert_eq!(binding_call(&called("open")), Some(ClientCall::OpenApp));
-        for bad in ["find:0264710", "find:", "find:12345678901", "find:264710,848450", "find:1&x=2", "264710", "hide", "open ", "OPEN"] {
+        for bad in ["find:0264710", "find:", "find:12345678901", "find:264710,848450", "find:1&x=2", "264710", "hide ", "open ", "OPEN"] {
             assert_eq!(binding_call(&called(bad)), None, "{bad}");
         }
         let other = json!({ "method": "Runtime.bindingCalled", "params": { "name": "autre", "payload": "open" } });

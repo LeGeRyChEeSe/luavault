@@ -867,6 +867,17 @@ export interface InSteam {
 export const getInSteam = () => invoke<InSteam>("get_in_steam");
 export const setInSteam = (enabled: boolean) => invoke<InSteam>("set_in_steam", { enabled });
 
+/** « Masquer » (LuaVault dans Steam): what the vault holds while everything is hidden. */
+export interface KillSwitch {
+  engaged: boolean;
+  since: number | null;
+  luas: number;
+  patches: number;
+}
+export const getKillSwitch = () => invoke<KillSwitch>("get_kill_switch");
+export const engageKillSwitch = () => invoke<KillSwitch>("engage_kill_switch");
+export const releaseKillSwitch = () => invoke<KillSwitch>("release_kill_switch");
+
 // ── Artwork cache (LOT-14) ──
 // Images live on disk and reach the webview through the asset protocol:
 // these commands return PATHS (feed them to convertFileSrc), never bytes.

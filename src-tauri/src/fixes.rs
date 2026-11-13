@@ -61,7 +61,7 @@ pub struct FixReport {
 }
 
 impl FixReport {
-    fn empty(app_id: &str) -> Self {
+    pub(crate) fn empty(app_id: &str) -> Self {
         FixReport {
             app_id: app_id.to_string(),
             health: FixHealth::NotInstalled,

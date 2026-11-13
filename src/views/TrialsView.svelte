@@ -1,20 +1,47 @@
 <script lang="ts">
   // The « À l'essai » tab of the experimental edition: what it adds, each feature with its switch.
   import { onMount } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
   import Icon from "../components/Icons.svelte";
+  import ConfirmButton from "../components/ConfirmButton.svelte";
   import { appState } from "../lib/app-state.svelte";
-  import { getInSteam, setInSteam } from "../lib/api";
-  import type { InSteam } from "../lib/api";
+  import { engageKillSwitch, getInSteam, getKillSwitch, releaseKillSwitch, setInSteam } from "../lib/api";
+  import type { InSteam, KillSwitch } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
 
   let inSteam = $state<InSteam | null>(null);
+  let hidden = $state<KillSwitch | null>(null);
   let busy = $state(false);
 
   onMount(() => {
     void getInSteam()
       .then((v) => (inSteam = v))
       .catch(() => {});
+    void getKillSwitch()
+      .then((v) => (hidden = v))
+      .catch(() => {});
+    // Hidden from Steam's own panel while this tab is open.
+    const off = listen<KillSwitch>("kill-switch://changed", (e) => (hidden = e.payload));
+    return () => void off.then((f) => f());
   });
+
+  async function hide() {
+    try {
+      hidden = await engageKillSwitch();
+      appState.toast("info", t("trials.hide.done"));
+    } catch (e) {
+      appState.toast("error", String(e));
+    }
+  }
+
+  async function putBack() {
+    try {
+      hidden = await releaseKillSwitch();
+      appState.toast(hidden.engaged ? "error" : "info", t("trials.hide.released"));
+    } catch (e) {
+      appState.toast("error", String(e));
+    }
+  }
 
   /** On a refusal the state is read again, never guessed, and the box is put back by hand: when
    *  the value Svelte holds did not change, it does not touch the box the click had ticked. */
@@ -63,6 +90,8 @@
         <li>{t("trials.steam.item.store")}</li>
         <li>{t("trials.steam.item.follow")}</li>
         <li>{t("trials.steam.item.pill")}</li>
+        <li>{t("trials.steam.item.library")}</li>
+        <li>{t("trials.steam.item.notice")}</li>
       </ul>
       <div class="flex gap-2 rounded-xl bg-peach-soft/60 px-4 py-3 text-xs text-peach-deep" data-trials-steam-risk>
         <Icon name="alert" size={15} class="mt-0.5 shrink-0" />
@@ -80,6 +109,28 @@
         <span class="min-w-0 flex-1">{t("trials.steam.switch")}</span>
       </label>
       <p class="text-xs text-azure-900/45">{t("trials.steam.restart")}</p>
+    </section>
+  {/if}
+
+  {#if hidden && (hidden.engaged || inSteam?.enabled)}
+    <section class="glass enter-up flex flex-col gap-3 rounded-xl2 p-5" data-trials-hide>
+      <h3 class="flex items-center gap-2 text-sm font-semibold">
+        <Icon name="shield" size={16} />
+        {t("trials.hide.title")}
+      </h3>
+      <p class="text-xs text-azure-900/60">{t("trials.hide.desc")}</p>
+      {#if hidden.engaged}
+        <div class="rounded-xl bg-peach-soft/60 px-4 py-3 text-xs text-peach-deep" data-trials-hide-engaged>
+          {t("trials.hide.engaged", { luas: hidden.luas, patches: hidden.patches })}
+        </div>
+        <div>
+          <ConfirmButton label={t("trials.hide.release")} confirmLabel={t("trials.hide.release")} primary onconfirm={putBack} />
+        </div>
+      {:else}
+        <div>
+          <ConfirmButton label={t("trials.hide.button")} confirmLabel={t("trials.hide.confirm")} onconfirm={hide} />
+        </div>
+      {/if}
     </section>
   {/if}
 </div>

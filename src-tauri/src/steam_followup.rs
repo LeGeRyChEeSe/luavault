@@ -166,7 +166,7 @@ pub fn load_pending(data_dir: &Path) -> Vec<String> {
     sanitize_pending(serde_json::from_str(&raw).unwrap_or_default())
 }
 
-fn save_pending(data_dir: &Path, list: &[String]) {
+pub(crate) fn save_pending(data_dir: &Path, list: &[String]) {
     let path = pending_path(data_dir);
     let tmp = path.with_extension("json.tmp");
     let write = std::fs::create_dir_all(data_dir)
@@ -353,7 +353,8 @@ pub fn spawn(app: AppHandle) {
             tokio::time::sleep(Duration::from_secs(WATCH_SECS)).await;
             let data_dir = config::data_dir();
             let waiting = load_pending(&data_dir);
-            if waiting.is_empty() {
+            // Hidden (« Masquer »): nothing is applied behind the person's back.
+            if waiting.is_empty() || crate::kill_switch::engaged(&data_dir) {
                 continue;
             }
             let cfg = app.state::<crate::AppState>().config.lock().unwrap().clone();

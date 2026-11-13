@@ -360,7 +360,7 @@ fn measured_collect_statuses_with(
     (statuses, count, elapsed_ms)
 }
 
-fn build_status(
+pub(crate) fn build_status(
     lib: &Path,
     steam: Option<&Path>,
     app_id: &str,
@@ -2911,6 +2911,26 @@ pub fn set_in_steam(state: State<'_, AppState>, enabled: bool) -> Result<InSteam
     crate::steam_client::refresh();
     info!("set_in_steam: {enabled}");
     Ok(view)
+}
+
+/// « Masquer » (LuaVault dans Steam): is everything hidden, and how much is in the vault.
+#[tauri::command]
+pub fn get_kill_switch() -> crate::kill_switch::Status {
+    crate::kill_switch::status(&config::data_dir())
+}
+
+/// Hide everything LuaVault put into Steam (the window's own button, beside the panel's in Steam).
+#[tauri::command]
+pub async fn engage_kill_switch(app: AppHandle) -> Result<crate::kill_switch::Status, String> {
+    crate::kill_switch::engage_now(&app).await?;
+    Ok(crate::kill_switch::status(&config::data_dir()))
+}
+
+/// Put everything back: the `.lua` into Steam, the patches to the follow-up.
+#[tauri::command]
+pub async fn release_kill_switch(app: AppHandle) -> Result<crate::kill_switch::Status, String> {
+    crate::kill_switch::release_now(&app).await?;
+    Ok(crate::kill_switch::status(&config::data_dir()))
 }
 
 /// What the tools tab shows about game files Steam could not get a code for.
