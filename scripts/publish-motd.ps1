@@ -321,7 +321,7 @@ else {
     $message['body'] = $bodies
     if ($Actions.Count -gt 0) { $message['actions'] = @(New-MotdActions $Actions) }
     if ($Persistent) {
-        if ($Actions -notcontains 'steam_downgrade') { Write-Warning "-Persistent sans steam_downgrade : l'application n'a rien a diagnostiquer, le message restera ordinaire." }
+        if ($Actions -notcontains 'steam_downgrade' -and $Actions -notcontains 'repair_tools') { Write-Warning "-Persistent sans steam_downgrade ni repair_tools : l'application n'a rien a diagnostiquer, le message restera ordinaire." }
         $message['persistent'] = $true
     }
     $document = [ordered]@{ schema = 1; message = $message }
