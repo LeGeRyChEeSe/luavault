@@ -2976,6 +2976,30 @@ pub fn set_in_steam(state: State<'_, AppState>, enabled: bool) -> Result<InSteam
     Ok(view)
 }
 
+/// The version of the experimental's welcome message (`ExpWelcome.svelte`): raise it when a
+/// feature joins the list, and the message shows once more.
+pub const EXP_WELCOME_VERSION: u32 = 1;
+
+/// Whether the experimental's welcome message shows now: experimental, installed, not seen at this
+/// version. A pure read.
+#[tauri::command]
+pub fn exp_welcome_due(state: State<'_, AppState>) -> bool {
+    config::EXPERIMENTAL
+        && !config::is_portable()
+        && state.config.lock().unwrap().exp_welcome_seen.unwrap_or(0) < EXP_WELCOME_VERSION
+}
+
+/// Written when the person closes the welcome message (not when it opens: a message never seen is
+/// shown again at the next start).
+#[tauri::command]
+pub fn mark_exp_welcome_seen(state: State<'_, AppState>) -> Result<(), String> {
+    let mut cfg = state.config.lock().unwrap().clone();
+    cfg.exp_welcome_seen = Some(EXP_WELCOME_VERSION);
+    cfg.save().map_err(|e| e.to_string())?;
+    *state.config.lock().unwrap() = cfg;
+    Ok(())
+}
+
 /// « Masquer » (LuaVault dans Steam): is everything hidden, and how much is in the vault.
 #[tauri::command]
 pub fn get_kill_switch() -> crate::kill_switch::Status {

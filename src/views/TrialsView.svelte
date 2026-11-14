@@ -97,8 +97,8 @@
           <Icon name="steam" size={16} />
           {t("trials.steam.title")}
         </h3>
-        <span class="rounded-full bg-surface/70 px-2 py-0.5 text-[10px] font-semibold text-azure-900/60 uppercase">
-          {t("trials.badge.your_choice")}
+        <span class="rounded-full bg-mint-soft/70 px-2 py-0.5 text-[10px] font-semibold text-mint-deep uppercase">
+          {t("trials.badge.default_on")}
         </span>
       </div>
       <p class="text-xs text-azure-900/60">{t("trials.steam.desc")}</p>

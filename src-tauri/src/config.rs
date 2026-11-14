@@ -79,8 +79,9 @@ pub struct AppConfig {
     #[serde(default)]
     pub watch_dirs: Option<Vec<String>>,
     /// « LuaVault dans Steam » (experimental edition only): the file that makes the Steam client open
-    /// its debugging port sits in Steam's folder, and LuaVault equips the client's pages. Off unless the
-    /// person ticks it; a fact about THIS machine's Steam folder, never imported from a backup.
+    /// its debugging port sits in Steam's folder, and LuaVault equips the client's pages. The
+    /// experimental turns it on unless unticked (`apply_experimental_defaults`); a fact about THIS
+    /// machine's Steam folder, never imported from a backup.
     #[serde(default)]
     pub in_steam: Option<bool>,
     /// The LuaVault block beside the Play button of Steam's library: None = on, Some(false) =
@@ -99,6 +100,10 @@ pub struct AppConfig {
     /// at every start. A fact about this machine: never imported from a backup.
     #[serde(default)]
     pub steamtools_auto_at: Option<u64>,
+    /// The version of the experimental's welcome message last closed on this machine
+    /// (`commands::EXP_WELCOME_VERSION`). Never imported from a backup.
+    #[serde(default)]
+    pub exp_welcome_seen: Option<u32>,
     /// The resident download guard (`guard_service.rs`): `None` = never touched, which
     /// means ON; `Some(false)` = switched off in Settings. A fact about THIS machine's
     /// startup entries: never imported from a backup.
@@ -217,6 +222,7 @@ pub fn merge_imported(
             steam_collection: local.steam_collection,
             steam_discreet: local.steam_discreet,
             steamtools_auto_at: local.steamtools_auto_at,
+            exp_welcome_seen: local.exp_welcome_seen,
             background_guard: local.background_guard,
             auto_update: local.auto_update,
             motd_actions_done: local.motd_actions_done.clone(),
@@ -303,6 +309,19 @@ pub fn exe_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Pure. What the experimental edition turns on by itself unless the person switched it off:
+/// « LuaVault dans Steam » (`in_steam`). The file it needs is written and Steam restarted once by
+/// `steam_restart`. Decided on 2026-11-14: a person who installs the experimental installs it for this,
+/// and one who had to find a switch and restart Steam by hand never saw it. Portable registers nothing,
+/// so it gets nothing. Returns whether `cfg` changed.
+pub fn apply_experimental_defaults(cfg: &mut AppConfig, experimental: bool, portable: bool) -> bool {
+    if experimental && !portable && cfg.in_steam.is_none() {
+        cfg.in_steam = Some(true);
+        return true;
+    }
+    false
+}
+
 pub fn is_portable() -> bool {
     exe_dir().join(PORTABLE_MARKER).exists()
 }
@@ -368,7 +387,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None, steamtools_auto_at: None,            background_guard: None,
+            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None, steamtools_auto_at: None, exp_welcome_seen: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,
@@ -733,7 +752,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None, steamtools_auto_at: None,            background_guard: None,
+            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None, steamtools_auto_at: None, exp_welcome_seen: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,
@@ -753,7 +772,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None, steamtools_auto_at: None,            background_guard: None,
+            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None, steamtools_auto_at: None, exp_welcome_seen: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,
@@ -800,5 +819,21 @@ mod tests {
             Some("secret".to_string()),
             "default_archive_password importé"
         );
+    }
+
+    #[test]
+    fn the_experimental_turns_luavault_in_steam_on_unless_switched_off() {
+        let mut cfg = AppConfig::default();
+        assert!(apply_experimental_defaults(&mut cfg, true, false));
+        assert_eq!(cfg.in_steam, Some(true));
+        assert!(!apply_experimental_defaults(&mut cfg, true, false), "applied once");
+        let mut off = AppConfig { in_steam: Some(false), ..Default::default() };
+        assert!(!apply_experimental_defaults(&mut off, true, false));
+        assert_eq!(off.in_steam, Some(false), "unticked stays unticked");
+        let mut stable = AppConfig::default();
+        assert!(!apply_experimental_defaults(&mut stable, false, false), "the stable has nothing in Steam");
+        let mut portable = AppConfig::default();
+        assert!(!apply_experimental_defaults(&mut portable, true, true), "portable registers nothing");
+        assert_eq!(portable.in_steam, None);
     }
 }

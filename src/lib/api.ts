@@ -726,6 +726,13 @@ export type SteamUpdatePhase =
   | { phase: "failed"; reason: string };
 export const steamUpdateStatus = () => invoke<SteamUpdatePhase | null>("steam_update_status");
 export const STEAM_UPDATE_EVENT = "steam-update://progress";
+/** Steam restarted once by the app so LuaVault appears in it (`steam_restart.rs`). */
+export type SteamRestartPhase = { phase: "restarting" } | { phase: "done" } | { phase: "failed"; reason: string };
+export const STEAM_RESTART_EVENT = "steam-client://restart";
+/** Whether the experimental's welcome message shows now (a pure read). */
+export const expWelcomeDue = () => invoke<boolean>("exp_welcome_due");
+/** Written when the person closes the welcome message. */
+export const markExpWelcomeSeen = () => invoke<void>("mark_exp_welcome_seen");
 /** The update still runs: the banner shows it, with no button. */
 export const steamUpdateRunning = (p: SteamUpdatePhase | null): boolean =>
   p !== null && (p.phase === "starting" || p.phase === "downloading" || p.phase === "installing");

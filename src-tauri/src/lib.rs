@@ -38,6 +38,7 @@ mod kill_switch;
 pub use update::RELEASE_PUBLIC_KEYS;
 mod update;
 mod update_notice;
+mod steam_restart;
 mod steamtools_auto;
 mod vdf;
 mod wipe;
@@ -146,10 +147,17 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let cfg = config::AppConfig::load().unwrap_or_else(|e| {
+            let mut cfg = config::AppConfig::load().unwrap_or_else(|e| {
                 eprintln!("config load failed, using defaults: {e}");
                 config::AppConfig::default()
             });
+            // The experimental's « LuaVault dans Steam » is on unless switched off; its file and the
+            // one Steam restart are `steam_restart`'s.
+            if config::apply_experimental_defaults(&mut cfg, config::EXPERIMENTAL, config::is_portable()) {
+                if let Err(e) = cfg.save() {
+                    warn!("LuaVault dans Steam : réglage par défaut non enregistré ({e})");
+                }
+            }
 
             // The registrations of the background notifications point at this exact
             // executable: re-write them at every launch, so an update or a move
@@ -245,6 +253,9 @@ pub fn run() {
             patch_guard::spawn(app.handle().clone());
             // LuaVault in Steam (experimental): idle unless the person ticked it.
             steam_client::spawn(app.handle().clone());
+            // The file that opens the client's port is read at Steam's start: a Steam started
+            // before it is restarted once, after the app's own update of Steam if one is due.
+            steam_restart::spawn(app.handle().clone());
             steam_followup::spawn(app.handle().clone());
             if guard_on {
                 guard_service::set_running(app.handle(), true);
@@ -380,6 +391,8 @@ pub fn run() {
             commands::download_update,
             commands::install_update,
             commands::update_running,
+            commands::exp_welcome_due,
+            commands::mark_exp_welcome_seen,
             commands::mark_update_notified,
             commands::get_update_notified,
             commands::take_update_result,

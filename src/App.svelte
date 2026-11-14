@@ -18,6 +18,7 @@
   import NotifyOffer from "./components/NotifyOffer.svelte";
   import AutoUpdateNotice from "./components/AutoUpdateNotice.svelte";
   import SteamtoolsNotice from "./components/SteamtoolsNotice.svelte";
+  import ExpWelcome from "./components/ExpWelcome.svelte";
   import DownloadsModal from "./components/DownloadsModal.svelte";
   import { downloadsState } from "./lib/downloads-state.svelte";
   import { libraryState } from "./lib/library-state.svelte";
@@ -30,6 +31,10 @@
     setDefenderChoice,
     setupDefenderExclusions,
     STEAM_UPDATE_EVENT,
+    STEAM_RESTART_EVENT,
+    expWelcomeDue,
+    markExpWelcomeSeen,
+    type SteamRestartPhase,
     steamUpdateRunning,
     installSteamtoolsAuto,
     steamtoolsAutoDue,
@@ -161,7 +166,15 @@
         void appState.refreshWorkaround();
       }
     });
+    // LuaVault inside Steam: the app restarts Steam once so the client opens its access.
+    const unlistenSteamRestart = listen<SteamRestartPhase>(STEAM_RESTART_EVENT, (event) => {
+      const p = event.payload;
+      if (p.phase === "restarting") appState.toast("info", t("steam_restart.restarting"));
+      else if (p.phase === "done") appState.toast("success", t("steam_restart.done"));
+      else appState.toast("error", t("steam_restart.failed", { reason: p.reason }));
+    });
     return () => {
+      void unlistenSteamRestart.then((fn) => fn());
       clearInterval(timer);
       clearInterval(manifestTimer);
       clearInterval(updateTimer);
@@ -197,6 +210,24 @@
     void promptDefenderSetup();
   });
 
+  // The experimental shows what it adds, once per version of the list, in a window: after the
+  // welcome screen and the message, never on the stable (`exp_welcome_due` answers false there).
+  // Marked when closed, so a window never seen shows again at the next start.
+  let expWelcome = $state(false);
+  let expWelcomeAsked = false;
+  $effect(() => {
+    if (expWelcomeAsked || report === null || showOnboarding || appState.motdOpen) return;
+    expWelcomeAsked = true;
+    void expWelcomeDue()
+      .then((due) => (expWelcome = due))
+      .catch(() => {});
+  });
+  async function closeExpWelcome(open: boolean) {
+    expWelcome = false;
+    if (open) view = "trials";
+    await markExpWelcomeSeen().catch(() => {});
+  }
+
   // SteamTools missing (or still OpenSteamTool): the app installs it by itself, once per session,
   // once nothing else is on screen (welcome, message, Defender question). The backend decides
   // again and dates the try (one a day), and the app closes for the installation.
@@ -204,7 +235,7 @@
   let steamtoolsInstalling = $state(false);
   $effect(() => {
     if (steamtoolsChecked) return;
-    const calm = report !== null && !showOnboarding && !appState.motdOpen && !appState.autoUpdate;
+    const calm = report !== null && !showOnboarding && !appState.motdOpen && !appState.autoUpdate && !expWelcome && expWelcomeAsked;
     if (!calm) return;
     if (defenderAvailable && report?.defender_exclusions == null && report?.steam) return; // the Defender question first
     steamtoolsChecked = true;
@@ -497,6 +528,10 @@
     update={appState.updateAvailable}
     onclose={() => (showUpdateModal = false)}
   />
+{/if}
+
+{#if expWelcome && !steamtoolsInstalling && !appState.autoUpdate}
+  <ExpWelcome onclose={(open) => void closeExpWelcome(open)} />
 {/if}
 
 {#if steamtoolsInstalling}

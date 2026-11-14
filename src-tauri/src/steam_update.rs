@@ -102,6 +102,17 @@ pub fn wanted(classic: bool, pinned: bool, installed: Option<&str>, game_running
         && installed.and_then(|v| v.trim().parse::<u64>().ok()).is_some_and(|v| v <= old)
 }
 
+/// Whether Steam is being updated by this app, or is about to be (`wanted` with this session's
+/// state). A restart for another reason waits for it: the update restarts Steam anyway.
+pub fn due(steam: &Path, game_running: bool) -> bool {
+    if current().is_some_and(|p| p.running()) {
+        return true;
+    }
+    let classic = crate::detect::flavor(steam) == crate::detect::Flavor::Classic;
+    let installed = steam_downgrade::installed_version(steam);
+    wanted(classic, steam_downgrade::is_pinned(steam), installed.as_deref(), game_running, TRIED.load(Ordering::SeqCst))
+}
+
 fn publish(app: &AppHandle, phase: Phase) {
     *CURRENT.lock().unwrap() = Some(phase.clone());
     let _ = app.emit(PROGRESS_EVENT, phase);
