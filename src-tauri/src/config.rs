@@ -94,6 +94,11 @@ pub struct AppConfig {
     /// cards) and keeps doing everything else. None = off. Never imported.
     #[serde(default)]
     pub steam_discreet: Option<bool>,
+    /// When the app last started the SteamTools installation by itself (unix seconds,
+    /// `steamtools_auto`): at most one automatic try a day, so a refused prompt is not asked again
+    /// at every start. A fact about this machine: never imported from a backup.
+    #[serde(default)]
+    pub steamtools_auto_at: Option<u64>,
     /// The resident download guard (`guard_service.rs`): `None` = never touched, which
     /// means ON; `Some(false)` = switched off in Settings. A fact about THIS machine's
     /// startup entries: never imported from a backup.
@@ -211,6 +216,7 @@ pub fn merge_imported(
             steam_library: local.steam_library,
             steam_collection: local.steam_collection,
             steam_discreet: local.steam_discreet,
+            steamtools_auto_at: local.steamtools_auto_at,
             background_guard: local.background_guard,
             auto_update: local.auto_update,
             motd_actions_done: local.motd_actions_done.clone(),
@@ -362,7 +368,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None,            background_guard: None,
+            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None, steamtools_auto_at: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,
@@ -727,7 +733,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None,            background_guard: None,
+            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None, steamtools_auto_at: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,
@@ -747,7 +753,7 @@ mod tests {
             background_notify: None,
             watch_downloads: None,
             watch_dirs: None,
-            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None,            background_guard: None,
+            in_steam: None, steam_library: None, steam_collection: None, steam_discreet: None, steamtools_auto_at: None,            background_guard: None,
             auto_update: None,
             motd_actions_done: Vec::new(),
             update_channel: None,

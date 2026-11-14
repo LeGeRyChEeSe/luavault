@@ -16,6 +16,8 @@
   import UpdateModal from "./components/UpdateModal.svelte";
   import MotdModal from "./components/MotdModal.svelte";
   import NotifyOffer from "./components/NotifyOffer.svelte";
+  import AutoUpdateNotice from "./components/AutoUpdateNotice.svelte";
+  import SteamtoolsNotice from "./components/SteamtoolsNotice.svelte";
   import DownloadsModal from "./components/DownloadsModal.svelte";
   import { downloadsState } from "./lib/downloads-state.svelte";
   import { libraryState } from "./lib/library-state.svelte";
@@ -29,6 +31,8 @@
     setupDefenderExclusions,
     STEAM_UPDATE_EVENT,
     steamUpdateRunning,
+    installSteamtoolsAuto,
+    steamtoolsAutoDue,
     type Reachability,
     type SteamUpdatePhase,
   } from "./lib/api";
@@ -122,6 +126,10 @@
     // coming back to the front are the safety nets (a hidden window's timers sleep).
     void appState.refreshManifest();
     const manifestTimer = setInterval(() => void appState.refreshManifest(), 5_000);
+    // An automatic update the background check runs in another process: said here, read every
+    // few seconds (a file in the data folder), so this window never closes on the person in silence.
+    void appState.refreshUpdateRunning();
+    const updateTimer = setInterval(() => void appState.refreshUpdateRunning(), 3_000);
     const onWake = () => void appState.refreshManifest();
     window.addEventListener("focus", onWake);
     document.addEventListener("visibilitychange", onWake);
@@ -156,6 +164,7 @@
     return () => {
       clearInterval(timer);
       clearInterval(manifestTimer);
+      clearInterval(updateTimer);
       window.removeEventListener("focus", onWake);
       document.removeEventListener("visibilitychange", onWake);
       void unlistenManifest.then((fn) => fn());
@@ -187,6 +196,33 @@
     defenderPrompted = true;
     void promptDefenderSetup();
   });
+
+  // SteamTools missing (or still OpenSteamTool): the app installs it by itself, once per session,
+  // once nothing else is on screen (welcome, message, Defender question). The backend decides
+  // again and dates the try (one a day), and the app closes for the installation.
+  let steamtoolsChecked = false;
+  let steamtoolsInstalling = $state(false);
+  $effect(() => {
+    if (steamtoolsChecked) return;
+    const calm = report !== null && !showOnboarding && !appState.motdOpen && !appState.autoUpdate;
+    if (!calm) return;
+    if (defenderAvailable && report?.defender_exclusions == null && report?.steam) return; // the Defender question first
+    steamtoolsChecked = true;
+    void installSteamtoolsIfMissing();
+  });
+
+  async function installSteamtoolsIfMissing() {
+    if (!(await steamtoolsAutoDue().catch(() => false))) return;
+    steamtoolsInstalling = true;
+    // Long enough to read the notice; the app then closes and comes back with the result.
+    await new Promise((r) => setTimeout(r, 6_000));
+    try {
+      await installSteamtoolsAuto();
+    } catch (e) {
+      steamtoolsInstalling = false;
+      appState.toast("error", String(e));
+    }
+  }
 
   async function promptDefenderSetup() {
     const ok = await confirm(
@@ -461,6 +497,14 @@
     update={appState.updateAvailable}
     onclose={() => (showUpdateModal = false)}
   />
+{/if}
+
+{#if steamtoolsInstalling}
+  <SteamtoolsNotice />
+{/if}
+
+{#if appState.autoUpdate}
+  <AutoUpdateNotice version={appState.autoUpdate.version} phase={appState.autoUpdate.phase} />
 {/if}
 
 {#if appState.notifyOffer && !appState.motdOpen && !showOnboarding}

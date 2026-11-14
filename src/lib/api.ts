@@ -500,6 +500,11 @@ export const setLibraryDir = async (path: string) => {
 export const markOnboardingDone = () => invoke<void>("mark_onboarding_done");
 export const installSteam = () => invoke<string>("install_steam");
 export const installSteamtools = () => invoke<string>("install_steamtools");
+/** Whether the app should install SteamTools by itself now (absent or OpenSteamTool, no game running,
+ *  at most one automatic try a day). A pure read. */
+export const steamtoolsAutoDue = () => invoke<boolean>("steamtools_auto_due");
+/** The automatic installation: same path as `installSteamtools`, decided again and dated by the backend. */
+export const installSteamtoolsAuto = () => invoke<string>("install_steamtools_auto");
 export const getLogDir = () => invoke<string>("get_log_dir");
 export const getAppInfo = () => invoke<AppInfo>("get_app_info");
 
@@ -831,6 +836,8 @@ export const downloadUpdate = (
   channel?: UpdateChannel,
 ) => invoke<string>("download_update", { version, file, sha256, size, channel: channel ?? null });
 export const installUpdate = (path: string) => invoke<void>("install_update", { path });
+/** The version the background check is installing right now (another process), or null. */
+export const updateRunning = () => invoke<string | null>("update_running");
 export const markUpdateNotified = (version: string) =>
   invoke<void>("mark_update_notified", { version });
 export const getUpdateNotified = () => invoke<string | null>("get_update_notified");

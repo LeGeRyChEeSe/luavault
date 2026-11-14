@@ -37,6 +37,8 @@ mod steam_settings;
 mod kill_switch;
 pub use update::RELEASE_PUBLIC_KEYS;
 mod update;
+mod update_notice;
+mod steamtools_auto;
 mod vdf;
 mod wipe;
 mod exchange;
@@ -327,6 +329,8 @@ pub fn run() {
             commands::readopt_index,
             commands::install_steam,
             commands::install_steamtools,
+            commands::steamtools_auto_due,
+            commands::install_steamtools_auto,
             commands::mark_onboarding_done,
             commands::get_log_dir,
             commands::get_app_info,
@@ -375,6 +379,7 @@ pub fn run() {
             commands::set_background_guard,
             commands::download_update,
             commands::install_update,
+            commands::update_running,
             commands::mark_update_notified,
             commands::get_update_notified,
             commands::take_update_result,

@@ -2223,6 +2223,53 @@ pub async fn install_steamtools(app: AppHandle) -> Result<String, String> {
     Ok("L'application se ferme pour la réparation, puis se rouvre toute seule avec le résultat et met Steam à jour si besoin.".to_string())
 }
 
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Whether the app should install SteamTools by itself now (`steamtools_auto::due`). Debug builds
+/// (the bench, `tauri dev`) never do unless `LV_STEAMTOOLS_AUTO=1`: it closes the real Steam.
+fn steamtools_auto_due_for(cfg: &config::AppConfig) -> bool {
+    if cfg!(debug_assertions) && std::env::var("LV_STEAMTOOLS_AUTO").as_deref() != Ok("1") {
+        return false;
+    }
+    let steam = resolve_steam(cfg);
+    let flavor = steam.as_deref().map(detect::flavor).unwrap_or_default();
+    let game = crate::motd_run::game_running(crate::motd_run::running_app_id());
+    crate::steamtools_auto::due(steam.is_some(), flavor, game, cfg.steamtools_auto_at, now_secs())
+}
+
+/// A pure read: the window asks it once at startup, after the licence and the welcome.
+#[tauri::command]
+pub fn steamtools_auto_due(state: State<'_, AppState>) -> bool {
+    steamtools_auto_due_for(&state.config.lock().unwrap())
+}
+
+/// The automatic installation: the same path as the Tools button (`install_steamtools`), decided
+/// again here, and dated first so a refused prompt is not asked again before a day.
+#[tauri::command]
+pub async fn install_steamtools_auto(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
+    let mut cfg = state.config.lock().unwrap().clone();
+    if !steamtools_auto_due_for(&cfg) {
+        return Err("SteamTools n'a pas besoin d'être installé maintenant.".to_string());
+    }
+    cfg.steamtools_auto_at = Some(now_secs());
+    cfg.save().map_err(|e| e.to_string())?;
+    *state.config.lock().unwrap() = cfg;
+    info!("install_steamtools_auto: SteamTools classique absent, installation silencieuse");
+    install_steamtools(app).await
+}
+
+/// The automatic update another process (the background check) is installing right now, if
+/// any: the window says so instead of closing in silence (`update_notice`). A pure read.
+#[tauri::command]
+pub fn update_running() -> Option<String> {
+    crate::update_notice::current(&config::data_dir())
+}
+
 /// Outcome of the repair run before this launch, consumed on first read.
 /// `None` when the app was not relaunched by a repair.
 #[tauri::command]

@@ -350,8 +350,33 @@ async fn install_offer(offer: &update::UpdateAvailable, base: &str, lang: &str, 
     if !quiet {
         report(lang, true, say(lang, "Téléchargement de la mise à jour…", "Downloading the update…"));
     }
+    // From here until the helper's installer is done, a window opened by the person says what is
+    // happening instead of closing on them in silence (`update_notice`).
+    let data_dir = config::data_dir();
+    crate::update_notice::mark(&data_dir, version);
+    let installed = install_downloaded(offer, base, lang, quiet, &http, &artifact, &image, others).await;
+    if !installed {
+        crate::update_notice::clear(&data_dir);
+    }
+    installed
+}
+
+/// The second half of `install_offer`: download, verify, announce, hand over to the helper.
+/// `false` on every way out that does not reach the installer.
+#[allow(clippy::too_many_arguments)]
+async fn install_downloaded(
+    offer: &update::UpdateAvailable,
+    base: &str,
+    lang: &str,
+    quiet: bool,
+    http: &UpdateClient,
+    artifact: &update::UpdateArtifact,
+    image: &str,
+    others: usize,
+) -> bool {
+    let version = offer.version.as_str();
     let path = match update::download_and_verify_from(
-        &http,
+        http,
         base,
         &offer.version,
         &artifact.file,
@@ -399,11 +424,12 @@ async fn install_offer(offer: &update::UpdateAvailable, base: &str, lang: &str, 
     cfg.update_from_version = Some(env!("CARGO_PKG_VERSION").to_string());
     let _ = cfg.save();
 
-    let relaunch = match (quiet, others > 0) {
-        (false, _) => crate::relaunch::Relaunch::Window,
-        (true, true) => crate::relaunch::Relaunch::Background,
-        (true, false) => crate::relaunch::Relaunch::Nothing,
-    };
+    // Looked again now: the download took a while, and the person may have opened the app in the
+    // meantime. Their window then comes back once the installer is done (`relaunch_after`).
+    let others_now = instances_running(image).saturating_sub(1);
+    let window_now = others_now > 0 && visible_windows(image) > 0;
+    let relaunch = relaunch_after(quiet, others > 0 || others_now > 0, window_now);
+    announce_install(lang, version);
     // Only instances with no window are left: the helper stops them, installs, reopens.
     match crate::relaunch::update_then_relaunch(&target, true, relaunch) {
         Ok(()) => {
@@ -418,6 +444,43 @@ async fn install_offer(offer: &update::UpdateAvailable, base: &str, lang: &str, 
             false
         }
     }
+}
+
+/// Pure. How the app comes back after an automatic update. A person who asked (`!quiet`) or whose
+/// window is on screen now gets the window back; an update nobody watches brings back what was
+/// running (the tray service) or nothing.
+pub fn relaunch_after(quiet: bool, others: bool, window_now: bool) -> crate::relaunch::Relaunch {
+    use crate::relaunch::Relaunch;
+    match (quiet, window_now, others) {
+        (false, _, _) | (true, true, _) => Relaunch::Window,
+        (true, false, true) => Relaunch::Background,
+        (true, false, false) => Relaunch::Nothing,
+    }
+}
+
+/// Pure. The notification shown just before the silent installer runs.
+pub fn install_text(lang: &str, version: &str) -> (&'static str, String) {
+    if lang == "fr" {
+        (
+            "Mise à jour automatique",
+            format!("LuaVault passe en version {version}. S'il est ouvert, il se ferme quelques secondes puis se rouvre tout seul."),
+        )
+    } else {
+        (
+            "Automatic update",
+            format!("LuaVault is moving to version {version}. If it is open, it closes for a few seconds, then reopens by itself."),
+        )
+    }
+}
+
+fn announce_install(lang: &str, version: &str) {
+    let (title, text) = install_text(lang, version);
+    let xml = notify::toast_xml(title, &notify::plain_text(&text, 220), "", &[]);
+    if let Err(e) = notify::show_toast(&xml) {
+        log_line(&format!("notification de mise à jour impossible : {e}"));
+    }
+    // A moment for the notification to show before the helper stops the app.
+    std::thread::sleep(std::time::Duration::from_millis(1500));
 }
 
 /// A toast that says how it went, then a moment for the platform to take it.
@@ -486,4 +549,29 @@ fn instances_running(image: &str) -> usize {
 #[cfg(not(windows))]
 fn instances_running(_image: &str) -> usize {
     0
+}
+
+#[cfg(test)]
+mod update_notice_tests {
+    use super::*;
+    use crate::relaunch::Relaunch;
+
+    #[test]
+    fn update_brings_back_the_window_a_person_opened_during_the_download() {
+        assert_eq!(relaunch_after(false, false, false), Relaunch::Window, "asked from a notification");
+        assert_eq!(relaunch_after(true, true, true), Relaunch::Window, "a window opened during the download comes back");
+        assert_eq!(relaunch_after(true, false, true), Relaunch::Window, "even when it was the only instance");
+        assert_eq!(relaunch_after(true, true, false), Relaunch::Background, "the tray service comes back hidden");
+        assert_eq!(relaunch_after(true, false, false), Relaunch::Nothing, "nothing was running");
+    }
+
+    #[test]
+    fn update_install_text_names_the_version_in_both_languages() {
+        for lang in ["fr", "en"] {
+            let (title, text) = install_text(lang, "1.4.0");
+            assert!(text.contains("1.4.0"));
+            assert!(!title.contains('\u{2014}') && !text.contains('\u{2014}'), "no em dash");
+            assert!(text.chars().count() <= 220, "fits the toast");
+        }
+    }
 }

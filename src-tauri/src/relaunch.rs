@@ -51,6 +51,8 @@ for ($attempt = 0; $attempt -lt 3; $attempt++) {
   if ($code -ne 0 -or (Get-Sig) -ne $before) { break }
   Start-Sleep -Seconds 2
 }
+# The window that announced « automatic update running » (`update_notice`) stops saying it.
+Remove-Item -LiteralPath (Join-Path $env:LV_DATA_DIR 'update-running.json') -Force -ErrorAction SilentlyContinue
 try {
   Add-Content -LiteralPath (Join-Path $env:LV_DATA_DIR 'update-helper.log') -Value ((Get-Date -Format s) + ' installer exit ' + $code)
 } catch { }
@@ -71,7 +73,9 @@ Wait-Process -Id ([int]$env:LV_WAIT_PID) -Timeout 30 -ErrorAction SilentlyContin
 $code = 1
 $refused = $false
 try {
-  $null = Start-Process -FilePath 'powershell.exe' -ArgumentList $env:LV_ST_ARGS -Verb RunAs -Wait -PassThru -ErrorAction Stop
+  # Hidden: the script works alone (its installer silent, its key waits turned into pauses); the
+  # Windows elevation prompt is the only thing the person sees.
+  $null = Start-Process -FilePath 'powershell.exe' -ArgumentList $env:LV_ST_ARGS -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop
   # The script ends with a bare `exit` whether it worked or not: its exit code says
   # nothing. It prints "Process completed" only when every step went through.
   $done = $false
@@ -158,19 +162,29 @@ pub fn update_then_relaunch(installer: &Path, stop_others: bool, relaunch: Relau
 }
 
 /// The command line of the elevated PowerShell. It runs the repair script, fetched
-/// the way it always was, with ONE change: each of its « Press any key » waits (a
-/// `ReadKey`) becomes a six-second pause, so the window closes by itself and the app
-/// can come back. Everything is transcribed to `log`, where the verdict is read.
-/// Nothing from outside is spliced in but `log`, quoted for a PowerShell string.
+/// the way it always was, with TWO changes: each of its « Press any key » waits (a
+/// `ReadKey`) becomes a six-second pause, and its SteamTools installer (NSIS, read on
+/// 2026-11-14: `Start-Process -FilePath $using:exePath -PassThru -Wait`) gets `/S`, so
+/// nobody clicks Next, Install, Finish (a script that changed that line runs its
+/// installer with a window, as before). Everything is transcribed to `log`, where the
+/// verdict is read. Nothing from outside is spliced in but `log`, quoted for a
+/// PowerShell string.
 pub fn repair_command_line(log: &Path) -> String {
     let log = log.display().to_string().replace('\'', "''");
     format!(
         "-NoProfile -ExecutionPolicy Bypass -Command \"Start-Transcript -Path '{log}' -Force | Out-Null; \
          $s = irm -useb cdn.openlua.cloud/fix-st.ps1; \
          $s = $s -replace '\\$Host\\.UI\\.RawUI\\.ReadKey\\([^)]*\\)','Start-Sleep -Seconds 6'; \
+         $s = $s -replace '{INSTALLER_CALL}','{SILENT_INSTALLER_CALL}'; \
          iex $s\""
     )
 }
+
+/// The installer line of `fix-st.ps1` as a regular expression, and its silent replacement
+/// (`$$` is a literal `$` in a .NET replacement). Both sit inside single quotes, so the
+/// replacement's own quotes are doubled.
+pub const INSTALLER_CALL: &str = r"Start-Process -FilePath \$using:exePath -PassThru -Wait";
+pub const SILENT_INSTALLER_CALL: &str = r"Start-Process -FilePath $$using:exePath -ArgumentList ''/S'' -PassThru -Wait";
 
 /// Run the SteamTools repair script elevated once this process has exited, record
 /// how it went, then reopen the app. The caller exits right after `Ok`.
@@ -284,6 +298,9 @@ mod tests {
         let c = repair_command_line(Path::new("C:\\Users\\O'Brien\\x.log"));
         assert!(c.contains("cdn.openlua.cloud/fix-st.ps1"));
         assert!(c.contains("ReadKey") && c.contains("Start-Sleep"));
+        assert!(c.contains(INSTALLER_CALL) && c.contains(SILENT_INSTALLER_CALL), "the installer runs with /S");
+        assert!(REPAIR_SCRIPT.contains("-Verb RunAs -WindowStyle Hidden"), "the elevated window is hidden");
+        assert!(UPDATE_SCRIPT.contains(crate::update_notice::FILE), "the running-update file is removed");
         assert!(c.contains("O''Brien") && !c.contains("O'Brien"), "{c}");
         assert!(c.contains("Start-Transcript"));
     }

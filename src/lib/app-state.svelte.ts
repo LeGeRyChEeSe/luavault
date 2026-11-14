@@ -1,10 +1,13 @@
-import { appEdition, checkMotd, checkUpdate, detectAll, downloadUpdate, getAutoUpdate, getBackgroundNotify, installUpdate, getReachability, getUpdateNotified, libraryStatus, listLibrary, manifestFallbackStatus, markUpdateNotified, motdActionStatuses, motdWorkaround, steamUpdateStatus, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeSteamtoolsRepairResult, takeUpdateResult } from "./api";
+import { appEdition, checkMotd, checkUpdate, detectAll, downloadUpdate, getAutoUpdate, getBackgroundNotify, installUpdate, updateRunning, getReachability, getUpdateNotified, libraryStatus, listLibrary, manifestFallbackStatus, markUpdateNotified, motdActionStatuses, motdWorkaround, steamUpdateStatus, setBackgroundNotify, setMotdDismissed, syncFromSteam, takeSteamtoolsRepairResult, takeUpdateResult } from "./api";
 import type { DetectionReport, GameStatus, LibraryEntry, ManifestFallbackRun, ManifestFallbackView, MotdActionStatus, MotdMessage, Reachability, SteamUpdatePhase, Workaround, UpdateAvailable, UpdateResult } from "./api";
 import { themeStore } from "./theme.svelte";
 import { i18n, t } from "./i18n.svelte";
 import { LONG_TOAST_MS, resolveToastDuration } from "./toast-duration";
 import { isForced, shouldOpenMotdAtStartup } from "./motd";
 import { EDITION, editionsAgree } from "./edition";
+
+/** How long the window says « the app restarts » before the installer closes it. */
+export const RESTART_NOTICE_MS = 4000;
 
 export interface Toast {
   id: number;
@@ -237,6 +240,12 @@ class AppStore {
 
   /** The app's update of Steam (`steam_update`), pushed by `STEAM_UPDATE_EVENT`. */
   steamUpdate = $state<SteamUpdatePhase | null>(null);
+  /**
+   * What the window says while an automatic update runs, so it never closes in silence: this
+   * window's own (`downloading`, then `restarting` a few seconds before it closes), or the one
+   * the background check is installing from another process (`background`, `update_notice.rs`).
+   */
+  autoUpdate = $state<{ version: string; phase: "downloading" | "restarting" | "background" } | null>(null);
 
   async refreshSteamUpdate() {
     try {
@@ -354,13 +363,29 @@ class AppStore {
       const s = await getAutoUpdate();
       if (!s.active) return;
       this.autoInstalling = true;
-      this.toast("info", t("state.update.auto", { version: update.version }), LONG_TOAST_MS);
+      this.autoUpdate = { version: update.version, phase: "downloading" };
       const a = update.artifacts[0];
       const path = await downloadUpdate(update.version, a.file, a.sha256, a.size, update.channel);
+      // Said before the window goes: the person reads it, then the app closes and comes back.
+      this.autoUpdate = { version: update.version, phase: "restarting" };
+      await new Promise((r) => setTimeout(r, RESTART_NOTICE_MS));
       await installUpdate(path);
     } catch (e) {
       this.autoInstalling = false;
+      this.autoUpdate = null;
       this.addLog("warn", t("state.update.auto-failed", { error: String(e) }));
+    }
+  }
+
+  /** The background check's update, read from its file every few seconds (App.svelte). This
+   *  window's own update wins: it already says more. */
+  async refreshUpdateRunning() {
+    if (this.autoInstalling) return;
+    try {
+      const version = await updateRunning();
+      this.autoUpdate = version ? { version, phase: "background" } : null;
+    } catch {
+      // Nothing to read: nothing to say.
     }
   }
 
