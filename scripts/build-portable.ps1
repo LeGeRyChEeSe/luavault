@@ -19,7 +19,9 @@ $prefix = switch ($Edition) {
     'beside' { 'LuaVault-Experimental-Beside' }
     default { 'LuaVault' }
 }
-$exe = Join-Path $root "src-tauri\target\release\$product.exe"
+# Cargo names the built binary after the package (`luavault.exe`), whatever the productName: the
+# edition beside is built into that same file, and only its copy below takes the product's name.
+$exe = Join-Path $root "src-tauri\target\release\luavault.exe"
 if (-not (Test-Path $exe)) {
     throw "Release exe not found at $exe — run 'npm run tauri build' first."
 }
