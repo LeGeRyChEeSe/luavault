@@ -65,7 +65,7 @@ release-backup.key
 !/docs/screenshots
 
 # Discord announcement webhook — a secret: anyone holding it can post in the channel
-discord-webhook.url
+discord-webhook*.url
 
 # Discord announcement drafts — they go to Discord only, never to GitHub
 announcements/

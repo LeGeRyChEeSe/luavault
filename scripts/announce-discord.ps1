@@ -6,9 +6,10 @@
 #   .\scripts\announce-discord.ps1 -File annonce.md -Kind important
 #   .\scripts\announce-discord.ps1 -Title "Titre" -Body "Texte **markdown** Discord"
 #
-# URL du webhook : fichier `discord-webhook.url` à la racine (ignoré par git), ou la
-# variable d'environnement LUAVAULT_DISCORD_WEBHOOK. Salon d'annonces > Modifier le
-# salon > Intégrations > Webhooks > Copier l'URL.
+# Salon : -Target announcements (défaut), releases (version stable) ou beta-releases (version
+# expérimentale). -Kind release exige releases ou beta-releases. URL du webhook de chaque salon :
+# `discord-webhook.url`, `discord-webhook-releases.url`, `discord-webhook-beta-releases.url` à la
+# racine (ignorés par git), ou LUAVAULT_DISCORD_WEBHOOK[_RELEASES|_BETA_RELEASES].
 #
 # Format de -File : première ligne `# Titre`, le reste est le corps (markdown Discord).
 # Le texte est écrit à la main pour être lisible par tout le monde : ce qui change,
@@ -33,6 +34,9 @@ param(
     [string]$Title = '',
     [string]$Body = '',
     [ValidateSet('release', 'important', 'info')][string]$Kind = 'info',
+    # Salon visé. Une annonce de version va dans le salon de son canal : 'releases' (stable)
+    # ou 'beta-releases' (expérimentale), jamais dans 'announcements'. -Kind release l'exige.
+    [ValidateSet('announcements', 'releases', 'beta-releases')][string]$Target = '',
     [string]$WebhookFile = '',
     # Message riche déjà composé (JSON Discord, composants V2 : conteneur, séparateurs,
     # boutons-liens). Les mêmes garde-fous s'appliquent à tout son texte.
@@ -47,7 +51,20 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-if (-not $WebhookFile) { $WebhookFile = Join-Path $root 'discord-webhook.url' }
+if ($Kind -eq 'release' -and -not $PayloadFile -and -not $Test) {
+    if (-not $Target) { throw "annonce de version : précise le salon (-Target releases pour une stable, -Target beta-releases pour une expérimentale)." }
+}
+if ($Kind -eq 'release' -and $Target -eq 'announcements') { throw "une annonce de version va dans releases ou beta-releases, jamais dans announcements." }
+if (-not $Target) { $Target = 'announcements' }
+# Un webhook par salon, chacun dans son fichier ignoré par git (ou sa variable d'environnement).
+$hook = @{
+    'announcements' = @{ file = 'discord-webhook.url';               env = 'LUAVAULT_DISCORD_WEBHOOK' }
+    'releases'      = @{ file = 'discord-webhook-releases.url';      env = 'LUAVAULT_DISCORD_WEBHOOK_RELEASES' }
+    'beta-releases' = @{ file = 'discord-webhook-beta-releases.url'; env = 'LUAVAULT_DISCORD_WEBHOOK_BETA_RELEASES' }
+}[$Target]
+if (-not $WebhookFile) { $WebhookFile = Join-Path $root $hook.file }
+$envUrl = [Environment]::GetEnvironmentVariable($hook.env)
+Write-Host "Salon visé : $Target"
 
 if ($PayloadFile) {
     $full = if ([System.IO.Path]::IsPathRooted($PayloadFile)) { $PayloadFile } else { [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $PayloadFile)) }
@@ -71,7 +88,7 @@ if ($PayloadFile) {
     }
     $json = $payload | ConvertTo-Json -Depth 20 -Compress
     if ($DryRun) { Write-Host "-DryRun : rien n'est envoyé. Message riche ($($json.Length) caractères JSON)."; exit 0 }
-    $url = if (Test-Path $WebhookFile) { ([System.IO.File]::ReadAllText($WebhookFile)).Trim() } else { $env:LUAVAULT_DISCORD_WEBHOOK }
+    $url = if (Test-Path $WebhookFile) { ([System.IO.File]::ReadAllText($WebhookFile)).Trim() } else { $envUrl }
     if ($url -notmatch '^https://(?:discord|discordapp)\.com/api/webhooks/\d+/[\w-]+$') { throw "URL du webhook absente ou invalide." }
     $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($json)
     try {
@@ -152,7 +169,7 @@ if ($DryRun) {
     exit 0
 }
 
-$url = if (Test-Path $WebhookFile) { ([System.IO.File]::ReadAllText($WebhookFile)).Trim() } else { $env:LUAVAULT_DISCORD_WEBHOOK }
+$url = if (Test-Path $WebhookFile) { ([System.IO.File]::ReadAllText($WebhookFile)).Trim() } else { $envUrl }
 if (-not $url) { throw "URL du webhook introuvable : crée discord-webhook.url (ou LUAVAULT_DISCORD_WEBHOOK)." }
 if ($url -notmatch '^https://(?:discord|discordapp)\.com/api/webhooks/\d+/[\w-]+$') {
     throw "l'URL ne ressemble pas à un webhook Discord : rien n'est envoyé."

@@ -258,7 +258,7 @@ if (-not $SkipSigning) {
 }
 
 if ($DryRun) {
-    if ($AnnounceFile) { & (Join-Path $PSScriptRoot 'announce-discord.ps1') -File $AnnounceFile -Kind release -DryRun }
+    if ($AnnounceFile) { & (Join-Path $PSScriptRoot 'announce-discord.ps1') -File $AnnounceFile -Kind release -Target $(if ($experimental) { 'beta-releases' } else { 'releases' }) -DryRun }
     $result = if ($SkipSigning) { 'manifeste créé (signature simulée)' } else { 'manifeste et signature créés' }
     Write-Host "Dry-run réussi : $result dans $releaseDir"
     exit 0
@@ -329,7 +329,7 @@ Write-Host "Release GitHub $tag publiée avec $($artifacts.Count) artefact(s), $
 
 # Une release en brouillon n'est pas visible : l'annoncer maintenant serait mentir.
 if ($AnnounceFile -and -not $Draft) {
-    & (Join-Path $PSScriptRoot 'announce-discord.ps1') -File $AnnounceFile -Kind release
+    & (Join-Path $PSScriptRoot 'announce-discord.ps1') -File $AnnounceFile -Kind release -Target $(if ($experimental) { 'beta-releases' } else { 'releases' })
 } elseif ($AnnounceFile) {
     Write-Host "Brouillon : l'annonce Discord n'est pas envoyée. Publie la release, puis lance announce-discord.ps1."
 }
