@@ -1291,4 +1291,15 @@ const EDITION_CASES = 6;
   );
 }
 
+// ── The store button inside the Steam client: the row it lands in, on real page shapes ───
+const STORE_BUTTON_CASES = 6;
+{
+  const mod = (await import("./test-steam-store-button")) as unknown as {
+    __storeButtonRan: boolean;
+    storeButtonCases: number;
+  };
+  assert.ok(mod.__storeButtonRan === true, "la suite du bouton de la boutique doit être importée par le runner");
+  assert.equal(mod.storeButtonCases, STORE_BUTTON_CASES, `la suite du bouton doit aller au bout de ses ${STORE_BUTTON_CASES} cas`);
+}
+
 console.log("\nTous les tests frontend passent.");

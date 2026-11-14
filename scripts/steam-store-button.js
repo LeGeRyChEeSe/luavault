@@ -13,7 +13,12 @@
 // Les ancres sont celles de la vraie page, relevées dans le client Steam :
 //   1. la ligne d'achat du jeu lui-même (`.game_purchase_action`) du PREMIER bloc
 //      `.game_area_purchase_game_wrapper` qui n'est pas un bundle (`dynamic_bundle_description`),
-//      un bloc de licence gratuite (formulaire vers `/freelicense/`) étant passé ;
+//      un bloc de licence gratuite (formulaire vers `/freelicense/`) étant passé. Relevé sur 25
+//      vraies pages (2026-11-14) : les offres peuvent être rangées sous « Éditions de … »
+//      (`.editions_purchase_options_container`), un jeu gratuit a un bloc nu
+//      `.game_area_purchase_game` (« Jouer à … »), et la démo ou bêta ouverte
+//      (`.demo_above_purchase`), le playtest (`.game_pt_note`) et l'abonnement
+//      (`.game_purchase_sub_dropdown`) ne sont jamais l'offre du jeu ;
 //   2. `#queueActionsCtn` (liste de souhaits / suivre / ignorer), présent même sans bloc d'achat ;
 //   3. `#game_area_purchase`, en dernier secours.
 // Les lignes de recherche sont `a.search_result_row[data-ds-appid]`.
@@ -171,13 +176,34 @@
     return !!form && String(form.getAttribute("action") || "").indexOf("/freelicense/") >= 0;
   }
 
+  // The offer blocks of the purchase area, in page order: its own children and those grouped under
+  // « Éditions de … ». A demo, a playtest and a subscription are never the game's own offer.
+  function offers(area) {
+    var out = [];
+    var add = function (node) {
+      var block = hasClass(node, "game_area_purchase_game_wrapper") || hasClass(node, "game_area_purchase_game");
+      if (!block || hasClass(node, "demo_above_purchase") || hasClass(node, "game_purchase_sub_dropdown")) return;
+      if (node.querySelector(".game_pt_note")) return;
+      out.push(node);
+    };
+    var kids = area.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (hasClass(kids[i], "editions_purchase_options_container")) {
+        var inner = kids[i].children;
+        for (var j = 0; j < inner.length; j++) add(inner[j]);
+      } else {
+        add(kids[i]);
+      }
+    }
+    return out;
+  }
+
   function purchaseRow() {
     var area = document.getElementById("game_area_purchase");
     if (!area) return null;
-    var kids = area.children;
+    var kids = offers(area);
     var free = null;
     for (var i = 0; i < kids.length; i++) {
-      if (!hasClass(kids[i], "game_area_purchase_game_wrapper")) continue;
       if (hasClass(kids[i], "dynamic_bundle_description")) break;
       if (freeLicense(kids[i])) {
         if (!free) free = kids[i];
