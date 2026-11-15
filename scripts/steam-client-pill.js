@@ -729,7 +729,6 @@
     true
   );
 
-  // Steam redraws its title bar and its lists: everything is put back within a second.
   // Another application may put its own pill in this same row. Both wanted to be the very first
   // child: each second one took the other's place, and both blinked and swapped (seen on the real
   // client, 2026-11-15). A pill is at the head of the row when only pills (any `data-<name>-pill`)
@@ -745,6 +744,7 @@
     return true;
   }
 
+  // Steam redraws its title bar and its lists: everything is put back within a second.
   function place() {
     if (root.lvWinRun !== myRun) return false;
     placeLib();

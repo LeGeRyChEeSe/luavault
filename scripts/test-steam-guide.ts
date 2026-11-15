@@ -393,6 +393,7 @@ interface FakeDoc {
   querySelectorAll(sel: string): El[];
   createElement(tag: string): El;
   addEventListener(kind: string, cb: Listener, capture?: boolean): void;
+  removeEventListener(kind: string, cb: Listener, capture?: boolean): void;
 }
 function makeDoc(): FakeDoc {
   const html = new El("HTML");
@@ -407,6 +408,9 @@ function makeDoc(): FakeDoc {
     createElement: (tag) => new El(tag),
     addEventListener: (kind, cb, capture) => {
       if (kind === "click" && capture) doc.captures.push(cb);
+    },
+    removeEventListener: (kind, cb, capture) => {
+      if (kind === "click" && capture) doc.captures = doc.captures.filter((c) => c !== cb);
     },
   };
   return doc;

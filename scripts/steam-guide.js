@@ -432,15 +432,13 @@
   }
 
   // ─────────────────────────────────────────────── le geste
-  document.addEventListener(
-    "click",
-    function (e) {
-      if (root.lvGuideRun !== myRun || !view || !view.gesture || !targetHere() || !e || !e.target) return;
-      var t = TARGETS[view.target](view.appId || null);
-      if (t && (t === e.target || (typeof t.contains === "function" && t.contains(e.target)))) send("hit:" + view.target);
-    },
-    true,
-  );
+  // A later pass of this script takes over: this listener goes with its timer (below).
+  function onClick(e) {
+    if (root.lvGuideRun !== myRun || !view || !view.gesture || !targetHere() || !e || !e.target) return;
+    var t = TARGETS[view.target](view.appId || null);
+    if (t && (t === e.target || (typeof t.contains === "function" && t.contains(e.target)))) send("hit:" + view.target);
+  }
+  document.addEventListener("click", onClick, true);
 
   if (typeof window === "object" && window !== null) {
     window.lvGuide = function (v) {
@@ -462,7 +460,10 @@
     window.lvGuide(lvGuideView);
   }
   var timer = setInterval(function () {
-    if (root.lvGuideRun !== myRun) return clearInterval(timer);
+    if (root.lvGuideRun !== myRun) {
+      document.removeEventListener("click", onClick, true);
+      return clearInterval(timer);
+    }
     place();
     report();
   }, 250);

@@ -326,11 +326,18 @@ pub fn script() -> String {
 
 /// Whether the heartbeat runs.
 static TICKING: AtomicBool = AtomicBool::new(false);
+/// The guide runs with nothing drawn (« Reprendre plus tard »): it still waits on Steam.
+static WAITING: AtomicBool = AtomicBool::new(false);
 /// How often the engine is woken while a step is on screen.
 pub const TICK_SECS: u64 = 3;
 
+/// A step is drawn, or the guide waits with nothing drawn.
+fn running() -> bool {
+    WAITING.load(Ordering::SeqCst) || CURRENT.lock().unwrap().is_some()
+}
+
 /// The engine waits on Steam (an install, a download) with nothing to tell it: a hidden window's
-/// timers sleep, its events do not. So while a step is on screen, this wakes it every few seconds
+/// timers sleep, its events do not. So while the guide runs, this wakes it every few seconds
 /// (`steam-guide://tick`), and stops by itself once the guide is taken away.
 fn ensure_heartbeat(app: &AppHandle) {
     if TICKING.swap(true, Ordering::SeqCst) {
@@ -340,9 +347,13 @@ fn ensure_heartbeat(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(TICK_SECS)).await;
-            if CURRENT.lock().unwrap().is_none() {
+            if !running() {
                 TICKING.store(false, Ordering::SeqCst);
-                return;
+                // A step shown between the read and the store found the heartbeat still running
+                // and started none: this one goes on, unless another took over meanwhile.
+                if !running() || TICKING.swap(true, Ordering::SeqCst) {
+                    return;
+                }
             }
             let _ = app.emit("steam-guide://tick", ());
         }
@@ -435,10 +446,13 @@ pub fn steam_guide_ready(state: tauri::State<'_, crate::AppState>) -> Readiness 
     )
 }
 
+/// `waiting`: nothing drawn, but the guide goes on (paused until Steam has the game) and keeps
+/// its heartbeat, which is what tells it the game arrived.
 #[tauri::command]
-pub fn steam_guide_show(app: AppHandle, view: Option<View>) -> Result<(), String> {
-    let on = view.is_some();
+pub fn steam_guide_show(app: AppHandle, view: Option<View>, waiting: Option<bool>) -> Result<(), String> {
+    let on = view.is_some() || waiting == Some(true);
     show(view)?;
+    WAITING.store(on, Ordering::SeqCst);
     if on {
         ensure_heartbeat(&app);
     }

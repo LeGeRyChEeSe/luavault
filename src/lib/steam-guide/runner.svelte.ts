@@ -218,7 +218,8 @@ class SteamGuideRunner {
     if (!force && json === this.lastSent) return;
     this.lastSent = json;
     try {
-      await steamGuideShow(view);
+      // Paused: nothing drawn, but the heartbeat goes on (it tells the guide the game arrived).
+      await steamGuideShow(view, s.paused);
     } catch {
       // The step was refused (it never should be): better to stop than to show a broken guide.
       this.stop();

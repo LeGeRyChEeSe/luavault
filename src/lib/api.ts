@@ -904,8 +904,9 @@ export interface SteamGuideView {
   corner: boolean;
 }
 export const steamGuideReady = () => invoke<SteamGuideReadiness>("steam_guide_ready");
-/** Draw this step in Steam, or take the guide away (`null`). */
-export const steamGuideShow = (view: SteamGuideView | null) => invoke<void>("steam_guide_show", { view });
+/** Draw this step in Steam, or take the guide away (`null`). `waiting`: nothing drawn, but the guide
+ *  goes on (paused) and keeps its heartbeat. */
+export const steamGuideShow = (view: SteamGuideView | null, waiting = false) => invoke<void>("steam_guide_show", { view, waiting });
 /** Bring Steam to a place of a closed set (`store`, `library`, `store-app:<id>`, `library-app:<id>`). */
 export const steamGuideOpen = (place: string) => invoke<void>("steam_guide_open", { place });
 
