@@ -29,20 +29,28 @@ $expConf = Join-Path $root 'src-tauri\tauri.exp.conf.json'
 if (-not (Test-Path $expConf)) { throw "surcharge introuvable : $expConf" }
 
 $env:VITE_LV_EDITION = 'experimental'
+# The builder's folders stay out of the executable (`release-paths.ps1`).
+. (Join-Path $PSScriptRoot 'release-paths.ps1')
+$exe = Join-Path $root 'src-tauri\target\release\luavault.exe'
 Push-Location $root
 try {
     if ($Beside) {
+        Enable-PathRemap
         & npx tauri build --config $expConf --features beside
         if ($LASTEXITCODE -ne 0) { throw "tauri build (experimental, a cote) a echoue" }
+        Assert-NoBuilderPath $exe
         Write-Host "release experimentale (a cote) construite : lance maintenant 'build-portable.ps1 -Edition beside'."
     }
     else {
+        Enable-PathRemap
         & npx tauri build --features experimental
         if ($LASTEXITCODE -ne 0) { throw "tauri build (experimental) a echoue" }
+        Assert-NoBuilderPath $exe
         Write-Host "release experimentale construite : lance maintenant 'build-portable.ps1 -Edition experimental'."
     }
 }
 finally {
+    Disable-PathRemap
     Pop-Location
     Remove-Item Env:\VITE_LV_EDITION -ErrorAction SilentlyContinue
 }

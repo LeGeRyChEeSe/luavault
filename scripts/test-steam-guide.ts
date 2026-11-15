@@ -635,4 +635,18 @@ const view = (over: Record<string, unknown> = {}) => ({
   ok(store.includes('install.setAttribute("data-lv-job-install", appId)'), "le bouton Installer du panneau porte son ancre");
 }
 
+{
+  // Not the guide: the published executables. Rust writes the builder's profile folder into every
+  // binary (dependency and toolchain sources); each script that builds one to publish remaps it
+  // and refuses an executable that still names it (`release-paths.ps1`, 2026-11-15).
+  const helper = read("scripts/release-paths.ps1");
+  ok(helper.includes("--remap-path-prefix=$profileDir=~") && helper.includes("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS"), "le dossier de profil est remplacé à la construction");
+  ok(/function Assert-NoBuilderPath/.test(helper) && helper.includes("throw"), "un exécutable qui le contient encore est refusé");
+  for (const f of ["scripts/build-app.ps1", "scripts/build-exp.ps1"]) {
+    const script = read(f);
+    ok(script.includes("release-paths.ps1") && script.includes("Enable-PathRemap") && script.includes("Assert-NoBuilderPath"), `${f} retire les chemins et le vérifie`);
+  }
+  ok(read("package.json").includes('"build:app": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-app.ps1"'), "npm run build:app passe par ce script");
+}
+
 console.log(`test-steam-guide : ${passed} vérifications passées`);

@@ -16,7 +16,7 @@
     "e2e:build": "tauri build --debug --no-bundle --config e2e/tauri.e2e.conf.json",
     "e2e:mutate": "powershell -NoProfile -ExecutionPolicy Bypass -File e2e/mutate.ps1",
     "tauri": "tauri",
-    "build:app": "tauri build",
+    "build:app": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-app.ps1",
     "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
     "build:app:exp": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-exp.ps1",
     "build:portable:exp": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1 -Edition experimental",
