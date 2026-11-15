@@ -2501,7 +2501,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "argon2",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "dirs 6.0.0",
  "ed25519-dalek",
