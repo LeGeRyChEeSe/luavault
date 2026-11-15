@@ -149,7 +149,9 @@ async fn run(app: &AppHandle, change: Change) -> Result<(), String> {
         Change::WatchDownloads(on) => commands::set_downloads_watch(app.clone(), state, on).map(|_| ()),
         Change::Locale(lang) => {
             commands::set_locale(state, lang.to_string()).await?;
-            // The play bar's texts are asked again in the new language.
+            // The window follows at once (`locale://changed`): the guide drawn in Steam takes its
+            // texts from it. The play bar's texts are asked again in the new language.
+            let _ = tauri::Emitter::emit(app, "locale://changed", lang);
             crate::steam_client::to_window(LIB_RESET.to_string());
             crate::steam_library::send_dots(app).await;
             Ok(())

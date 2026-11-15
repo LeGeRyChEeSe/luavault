@@ -198,6 +198,8 @@ pub enum ClientCall {
     LibAct(crate::steam_library::LibAction, String),
     /// « Masquer », confirmed twice in the panel.
     Hide,
+    /// A word of the guide drawn in Steam (`steam_guide::GuideCall`).
+    Guide(crate::steam_guide::GuideCall),
 }
 
 /// The call carried by a `Runtime.bindingCalled` event for our function, under the strict rule.
@@ -216,6 +218,9 @@ pub fn binding_call(message: &Value) -> Option<ClientCall> {
         "panel" => return Some(ClientCall::Panel),
         "hide" => return Some(ClientCall::Hide),
         _ => {}
+    }
+    if let Some(rest) = payload.strip_prefix("guide:") {
+        return crate::steam_guide::GuideCall::parse(rest).map(ClientCall::Guide);
     }
     if let Some(rest) = payload.strip_prefix("set:") {
         return crate::steam_settings::Change::parse(rest).map(ClientCall::Set);
@@ -264,6 +269,7 @@ pub fn allowed(kind: Kind, call: &ClientCall) -> bool {
         ClientCall::OpenApp | ClientCall::Settings | ClientCall::Set(_) | ClientCall::Hide => kind != Kind::Shared,
         ClientCall::Find(_) | ClientCall::Dismiss(_) => kind == Kind::Store,
         ClientCall::Panel | ClientCall::LibQuery(_) | ClientCall::LibAct(..) => kind == Kind::Window,
+        ClientCall::Guide(call) => call.allowed(kind),
     }
 }
 
@@ -410,6 +416,7 @@ pub fn job_call(job: &Job) -> String {
 /// Show a step in every store page of the client, now and on the pages opened later.
 pub fn publish(mut job: Job) {
     job.at = chrono::Utc::now().timestamp();
+    crate::steam_guide::job_seen(&job);
     let call = job_call(&job);
     merge_job(&mut JOBS.lock().unwrap(), job);
     let _ = PROGRESS.send(call);
@@ -530,9 +537,10 @@ async fn script_for(app: &AppHandle, kind: Kind) -> String {
             let jobs = live_jobs(&JOBS.lock().unwrap(), chrono::Utc::now().timestamp());
             // The window's script too: in the web view it only draws the settings panel, on the
             // application's word (`PANEL_IN_STORE`), since that view lies over the main window.
-            format!("{}\n{WINDOW_SCRIPT}\n{NOTICE_SCRIPT}", store_script_with(&known, &jobs))
+            // The guide's script last, in both views (each draws its part of a step).
+            format!("{}\n{WINDOW_SCRIPT}\n{NOTICE_SCRIPT}\n;{}", store_script_with(&known, &jobs), crate::steam_guide::script())
         }
-        Kind::Window => format!("{WINDOW_SCRIPT}\n{NOTICE_SCRIPT}"),
+        Kind::Window => format!("{WINDOW_SCRIPT}\n{NOTICE_SCRIPT}\n;{}", crate::steam_guide::script()),
         Kind::Shared => String::new(),
     }
 }
@@ -748,12 +756,14 @@ async fn attach(app: AppHandle, target: Target) {
                 match call {
                     ClientCall::Find(app_id) => {
                         info!("LuaVault dans Steam : recherche de {app_id} sur le site");
+                        crate::steam_guide::fetch_seen(&app, std::slice::from_ref(&app_id));
                         let handle = app.clone();
                         tauri::async_runtime::spawn(async move {
                             steam_store::find(&handle, &app_id, steam_store::Wanted::Game).await;
                         });
                     }
                     ClientCall::Dismiss(app_id) => dismiss(&app_id),
+                    ClientCall::Guide(call) => crate::steam_guide::received(&app, target.kind, call),
                     ClientCall::OpenApp => {
                         info!("LuaVault dans Steam : fenêtre demandée depuis Steam");
                         crate::guard_service::show_main(&app);
@@ -799,6 +809,7 @@ async fn attach(app: AppHandle, target: Target) {
 
 /// The loop of a running instance: while the switch is on, equip the client's pages.
 pub fn spawn(app: AppHandle) {
+    crate::steam_guide::set_app(&app);
     tauri::async_runtime::spawn(async move {
         let Ok(http) = reqwest::Client::builder()
             .no_proxy()

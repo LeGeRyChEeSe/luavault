@@ -373,6 +373,8 @@ export interface SteamDetails {
   coming_soon: boolean;
   metacritic?: number | null;
   price?: string | null;
+  /** Steam's own `is_free`: the guide in Steam asks for a game to buy. */
+  is_free: boolean;
   website?: string | null;
   screenshots: Shot[];
   changelog?: Changelog | null;
@@ -872,6 +874,40 @@ export const takeSteamtoolsRepairResult = () =>
 // The command only seeds the initial state; transitions arrive as
 // `reachability://changed` events so the UI never polls.
 export const getReachability = () => invoke<Reachability>("get_reachability");
+
+/** The guide drawn in Steam: whether it can be drawn now, and the first obstacle if not. */
+export interface SteamGuideReadiness {
+  ready: boolean;
+  reason: "ready" | "stable" | "off" | "hidden" | "discreet" | "steam";
+}
+export interface SteamGuideSegment {
+  t: string;
+  ui?: boolean;
+}
+/** One step as Steam draws it (`steam_guide::View`, sanitized again in Rust). */
+export interface SteamGuideView {
+  run: number;
+  where: "window" | "web" | "any";
+  bubble: "window" | "web";
+  target?: string | null;
+  appId?: string | null;
+  title: string;
+  progress: string;
+  info: SteamGuideSegment[];
+  action: SteamGuideSegment[];
+  choices: { id: string; label: string; primary: boolean }[];
+  next: string;
+  back: string;
+  quit: string;
+  gesture: boolean;
+  veil: boolean;
+  corner: boolean;
+}
+export const steamGuideReady = () => invoke<SteamGuideReadiness>("steam_guide_ready");
+/** Draw this step in Steam, or take the guide away (`null`). */
+export const steamGuideShow = (view: SteamGuideView | null) => invoke<void>("steam_guide_show", { view });
+/** Bring Steam to a place of a closed set (`store`, `library`, `store-app:<id>`, `library-app:<id>`). */
+export const steamGuideOpen = (place: string) => invoke<void>("steam_guide_open", { place });
 
 /** « LuaVault dans Steam » (experimental edition). */
 export interface InSteam {

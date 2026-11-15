@@ -393,7 +393,12 @@
     if (job.install === true || job.library === true || job.site === true) {
       var actions = document.createElement("div");
       actions.style.cssText = "display:flex;gap:6px;margin-top:8px;flex-wrap:wrap";
-      if (job.install === true) actions.appendChild(smallLink(words("Installer", "Install"), true, function () { go(installHref(appId)); }));
+      if (job.install === true) {
+        var install = smallLink(words("Installer", "Install"), true, function () { go(installHref(appId)); });
+        // The guide's ring finds it by this.
+        install.setAttribute("data-lv-job-install", appId);
+        actions.appendChild(install);
+      }
       if (job.library === true) actions.appendChild(smallLink(words("Bibliothèque", "Library"), false, function () { go(libraryHref(appId)); }));
       if (job.site === true)
         actions.appendChild(

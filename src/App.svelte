@@ -45,7 +45,8 @@
   import { originOf, themeStore } from "./lib/theme.svelte";
   import { resolveShortcut, isEditableTarget } from "./lib/keyboard-shortcuts";
   import { focusTrap } from "./lib/focus-trap";
-  import { t } from "./lib/i18n.svelte";
+  import { i18n, t } from "./lib/i18n.svelte";
+  import { steamGuide } from "./lib/steam-guide/runner.svelte";
   import { isExperimental } from "./lib/edition";
 
   type View =
@@ -167,6 +168,14 @@
       }
     });
     // LuaVault inside Steam: the app restarts Steam once so the client opens its access.
+    // The guide drawn in Steam, driven from this window (shown or hidden).
+    const offSteamGuide = steamGuide.init();
+    // The language changed from the panel inside Steam: this window (and the guide it draws
+    // there) follows at once instead of at its next start.
+    const unlistenLocale = listen<string>("locale://changed", (event) => {
+      i18n.setLocale(event.payload);
+      steamGuide.redraw();
+    });
     const unlistenSteamRestart = listen<SteamRestartPhase>(STEAM_RESTART_EVENT, (event) => {
       const p = event.payload;
       if (p.phase === "restarting") appState.toast("info", t("steam_restart.restarting"));
@@ -175,6 +184,8 @@
     });
     return () => {
       void unlistenSteamRestart.then((fn) => fn());
+      offSteamGuide();
+      void unlistenLocale.then((fn) => fn());
       clearInterval(timer);
       clearInterval(manifestTimer);
       clearInterval(updateTimer);

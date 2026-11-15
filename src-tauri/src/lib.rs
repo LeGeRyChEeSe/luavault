@@ -34,6 +34,7 @@ mod steam_store;
 mod steam_followup;
 mod steam_library;
 mod steam_settings;
+mod steam_guide;
 mod kill_switch;
 pub use update::RELEASE_PUBLIC_KEYS;
 mod update;
@@ -297,6 +298,9 @@ pub fn run() {
             commands::bulk_preflight,
             commands::cancel_bulk,
             commands::get_steam_details,
+            steam_guide::steam_guide_ready,
+            steam_guide::steam_guide_show,
+            steam_guide::steam_guide_open,
             commands::get_reachability,
             commands::changelog_feed,
             commands::library_stats,

@@ -100,6 +100,9 @@ Run-Step "Publication: manifeste simulé" "powershell -NoProfile -ExecutionPolic
 # qu'au moment de la release.
 Run-Step "Dependances: Tauri npm et Rust alignes" "npx --yes tsx@4.19.2 scripts/test-tauri-versions.ts" "$root" "tauri-versions"
 Run-Step "Frontend: audit de lignage" "npx --yes tsx@4.19.2 scripts/test-lineage.ts" "$root" "lineage"
+# Le guide dessine dans Steam (moteur joue par valeur, cibles alignees entre Rust, le script de la
+# page et le moteur, catalogues, et le script de la page EXECUTE contre un faux DOM).
+Run-Step "Frontend: guide dans Steam" "npx --yes tsx@4.19.2 scripts/test-steam-guide.ts" "$root" "steam-guide"
 
 if (-not $Quiet) { Write-Host "`n==============================" -ForegroundColor Yellow }
 if ($failed.Count -gt 0) {

@@ -8,6 +8,7 @@
   import { engageKillSwitch, getInSteam, getKillSwitch, releaseKillSwitch, setInSteam, setSteamDiscreet } from "../lib/api";
   import type { InSteam, KillSwitch } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
+  import { steamGuide } from "../lib/steam-guide/runner.svelte";
 
   let inSteam = $state<InSteam | null>(null);
   let hidden = $state<KillSwitch | null>(null);
@@ -24,6 +25,12 @@
     const off = listen<KillSwitch>("kill-switch://changed", (e) => (hidden = e.payload));
     return () => void off.then((f) => f());
   });
+
+  // The guide drawn in Steam. Refused = said, never a silent button.
+  async function startGuide() {
+    const reason = await steamGuide.start();
+    if (reason !== null) appState.toast("info", t(`steamguide.ready.${reason}`));
+  }
 
   async function hide() {
     try {
@@ -145,6 +152,25 @@
   {/if}
 
   {#if hidden && (hidden.engaged || inSteam?.enabled)}
+    <section class="glass enter-up flex flex-wrap items-center gap-4 rounded-xl2 p-5" data-trials-steam-guide>
+      <div class="min-w-0 flex-1 basis-64">
+        <h3 class="flex items-center gap-2 text-sm font-semibold">
+          <Icon name="play" size={16} />
+          {t("trials.steamguide.title")}
+        </h3>
+        <p class="mt-1 text-sm text-azure-900/60">{t("trials.steamguide.text")}</p>
+      </div>
+      <button
+        type="button"
+        class="rounded-lg bg-azure-600 px-4 py-2 text-sm font-medium text-white hover:bg-azure-700 disabled:opacity-50"
+        disabled={steamGuide.running}
+        data-trials-steam-guide-start
+        onclick={() => void startGuide()}
+      >
+        {t("trials.steamguide.start")}
+      </button>
+    </section>
+
     <section class="glass enter-up flex flex-col gap-3 rounded-xl2 p-5" data-trials-hide>
       <h3 class="flex items-center gap-2 text-sm font-semibold">
         <Icon name="shield" size={16} />

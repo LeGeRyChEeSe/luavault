@@ -296,6 +296,15 @@
     close.addEventListener("click", closeCard);
     head.appendChild(close);
     card.appendChild(head);
+    // The guide drawn in Steam, first thing in the panel, where it is seen without scrolling.
+    var tour = button(words("Visite guidée : votre premier jeu", "Guided tour: your first game"), true, function () {
+      closeCard();
+      lvStore("guide:start");
+    });
+    tour.setAttribute("data-lv-guide-start", "1");
+    tour.style.marginTop = "10px";
+    tour.style.textAlign = "center";
+    card.appendChild(tour);
     var body = el("div");
     body.setAttribute("data-lv-settings-body", "1");
     card.appendChild(body);
@@ -325,11 +334,16 @@
       if (wasFr !== FR) {
         var openCaption = card && card.querySelector("[data-lv-open-app] [data-lv-caption]");
         if (openCaption) openCaption.textContent = words("Ouvrir LuaVault", "Open LuaVault");
+        var tourCaption = card && card.querySelector("[data-lv-guide-start] [data-lv-caption]");
+        if (tourCaption) tourCaption.textContent = words("Visite guidée : votre premier jeu", "Guided tour: your first game");
         if (typeof window.lvLibReset === "function") window.lvLibReset();
       }
     };
+    // The pill asks again while the panel is open in this page (a web page in front): a second
+    // click on the same pill closes it, as it does when the main window draws the panel.
     window.lvOpenSettings = function () {
-      if (root.lvWinRun !== myRun || card) return;
+      if (root.lvWinRun !== myRun) return;
+      if (card) return closeCard();
       openCard(null);
     };
   }
@@ -727,6 +741,21 @@
     drop(have);
     r.insertBefore(pill(), r.firstChild);
     return true;
+  }
+
+  // Where the main window is, for the guide's script (`guide:place:`): its web view in front, a
+  // game's page of the library (its play bar), or anything else; and the play bars themselves.
+  if (typeof window === "object" && window !== null) {
+    window.lvWindowPlace = function () {
+      if (root.lvWinRun !== myRun) return "window";
+      if (storeShown()) return "web-shown";
+      var bars = playBars();
+      return bars.length > 0 ? "library-app:" + bars[0].appId : "window";
+    };
+    window.lvPlayButtons = function () {
+      if (root.lvWinRun !== myRun) return [];
+      return playBars().map(function (b) { return b.container; });
+    };
   }
 
   place();

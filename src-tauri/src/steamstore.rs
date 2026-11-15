@@ -39,6 +39,8 @@ pub struct SteamDetails {
     pub coming_soon: bool,
     pub metacritic: Option<u32>,
     pub price: Option<String>,
+    /// Steam's own `is_free`: the guide in Steam asks for a game to buy, not a free one.
+    pub is_free: bool,
     pub website: Option<String>,
     pub screenshots: Vec<Shot>,
     pub changelog: Option<Changelog>,
@@ -379,6 +381,7 @@ pub async fn details(http: &Client, app_id: &str, lang: &str) -> Result<SteamDet
         } else {
             data.price_overview.map(|p| p.final_formatted)
         },
+        is_free: data.is_free,
         website: data.website.filter(|w| !w.is_empty()),
         screenshots: data
             .screenshots
