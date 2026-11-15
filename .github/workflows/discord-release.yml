@@ -1,0 +1,28 @@
+# Hands each published release to Discord's GitHub endpoint, in the channel it belongs to:
+# a pre-release goes to #beta-releases, a stable release to #releases.
+# A repository webhook cannot tell them apart and posted the experimental builds in #releases.
+# Secrets (webhook URLs, without the trailing /github): DISCORD_RELEASES_WEBHOOK, DISCORD_BETA_RELEASES_WEBHOOK.
+name: Discord release notice
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post the release to its channel
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          RELEASES: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}
+          BETA: ${{ secrets.DISCORD_BETA_RELEASES_WEBHOOK }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then url="$BETA"; else url="$RELEASES"; fi
+          if [ -z "$url" ]; then echo "::error::webhook secret missing"; exit 1; fi
+          curl --fail-with-body -sS -X POST "$url/github" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: release" \
+            --data-binary "@$GITHUB_EVENT_PATH"
