@@ -14,6 +14,24 @@ over describes it again in `CHANGELOG.md`.
 
 ## Unreleased
 
+## 1.3.3-exp.2 - 2026-11-15
+
+### fr
+- Visite guidée dans Steam : un vrai jeu de votre choix, du magasin au site puis à la bibliothèque, avec à chaque étape le bouton à cliquer mis en surbrillance. Elle se lance depuis la pastille LV dans Steam (en tête de son menu) ou depuis l'onglet À l'essai.
+- La visite dit quand un jeu est gratuit, déjà possédé ou déjà dans LuaVault, attend que les fichiers soient repris de vos Téléchargements puis que Steam ait installé le jeu, et reprend toute seule après une pause.
+- Le mode discret dans Steam se bascule d'un clic depuis l'icône près de l'horloge, dans les deux sens.
+- Changer la langue depuis la pastille LV change aussitôt celle de LuaVault, et un second clic sur la pastille referme son menu.
+- Quand une autre application place aussi sa pastille dans la barre de titre de Steam, les deux restent à leur place au lieu de clignoter.
+- Les fichiers de LuaVault ne contiennent plus de chemins propres à l'ordinateur où il a été construit.
+
+### en
+- Guided tour in Steam: a real game of your choice, from the store to the site and then the library, with the button to click highlighted at every step. It starts from the LV pill in Steam (at the top of its menu) or from the Trials tab.
+- The tour says when a game is free, already owned or already in LuaVault, waits for the files to be picked up from your Downloads and then for Steam to install the game, and picks up by itself after a pause.
+- Discreet mode in Steam is switched in one click from the icon next to the clock, both ways.
+- Changing the language from the LV pill changes LuaVault's at once, and a second click on the pill closes its menu.
+- When another application also puts its pill in Steam's title bar, both stay in place instead of blinking.
+- LuaVault's files no longer carry paths of the computer it was built on.
+
 ## 1.3.3-exp.1 - 2026-11-14
 
 ### fr
