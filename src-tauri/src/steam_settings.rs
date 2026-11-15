@@ -139,7 +139,7 @@ fn save_with(app: &AppHandle, edit: impl FnOnce(&mut AppConfig)) -> Result<(), S
     Ok(())
 }
 
-async fn run(app: &AppHandle, change: Change) -> Result<(), String> {
+pub(crate) async fn run(app: &AppHandle, change: Change) -> Result<(), String> {
     use crate::commands;
     let state = app.state::<crate::AppState>();
     match change {

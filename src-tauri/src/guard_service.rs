@@ -36,6 +36,8 @@ struct Items {
     detail: MenuItem<Wry>,
     /// The way in that Do Not Disturb cannot silence: a game file is missing, one click.
     manifest: MenuItem<Wry>,
+    /// The discreet mode in Steam, switched in one click (both ways).
+    discreet: MenuItem<Wry>,
     open: MenuItem<Wry>,
     quit: MenuItem<Wry>,
 }
@@ -79,6 +81,55 @@ fn manifest_menu(lang: &str, pending: bool) -> (&'static str, Option<&'static st
     }
 }
 
+/// Pure. The discreet mode's entry: what it says and whether it answers. Off when LuaVault is not in
+/// Steam at all (stable, switched off) or hidden: there is nothing to show or quiet then.
+pub fn discreet_menu(lang: &str, discreet: bool, in_steam: bool) -> (&'static str, bool) {
+    match (lang == "fr", in_steam, discreet) {
+        (true, false, _) => ("Mode discret dans Steam : indisponible", false),
+        (false, false, _) => ("Discreet mode in Steam: unavailable", false),
+        (true, true, true) => ("Mode discret actif : réafficher dans Steam", true),
+        (false, true, true) => ("Discreet mode on: show again in Steam", true),
+        (true, true, false) => ("Passer en mode discret dans Steam", true),
+        (false, true, false) => ("Switch to discreet mode in Steam", true),
+    }
+}
+
+fn discreet_facts(app: &AppHandle) -> (bool, bool) {
+    let cfg = app.state::<AppState>().config.lock().unwrap().clone();
+    let in_steam = crate::steam_client::wanted(&cfg, crate::config::is_portable(), crate::config::EXPERIMENTAL)
+        && !crate::kill_switch::engaged(&crate::config::data_dir());
+    (crate::steam_client::discreet(&cfg), in_steam)
+}
+
+/// One click: the discreet mode the other way, through the very path of the panel inside Steam.
+fn toggle_discreet(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let (discreet, in_steam) = discreet_facts(&app);
+        if !in_steam {
+            return;
+        }
+        match crate::steam_settings::run(&app, crate::steam_settings::Change::Discreet(!discreet)).await {
+            Ok(()) => info!("mode discret dans Steam : {} depuis l'icône", if discreet { "coupé" } else { "activé" }),
+            Err(e) => warn!("mode discret dans Steam : changement refusé depuis l'icône ({e})"),
+        }
+    });
+}
+
+/// Keep the discreet mode's entry in step with the settings (changed from Steam or the window too).
+fn refresh_discreet(app: &AppHandle, l: &str, last: &mut Option<(bool, bool, String)>) {
+    let (discreet, in_steam) = discreet_facts(app);
+    if last.as_ref().is_some_and(|(d, i, lang)| *d == discreet && *i == in_steam && lang == l) {
+        return;
+    }
+    let (label, enabled) = discreet_menu(l, discreet, in_steam);
+    if let Some(items) = ITEMS.lock().unwrap().as_ref() {
+        let _ = items.discreet.set_text(label);
+        let _ = items.discreet.set_enabled(enabled);
+    }
+    *last = Some((discreet, in_steam, l.to_string()));
+}
+
 fn labels(lang: &str) -> (String, &'static str) {
     let open = if lang == "fr" { format!("Ouvrir {}", notify::display_name()) } else { format!("Open {}", notify::display_name()) };
     (open, if lang == "fr" { "Quitter" } else { "Quit" })
@@ -94,12 +145,16 @@ fn build_tray(app: &AppHandle, cfg: &AppConfig) -> tauri::Result<()> {
     let status = MenuItemBuilder::with_id("status", &head).enabled(false).build(app)?;
     let detail_item = MenuItemBuilder::with_id("detail", &detail).enabled(false).build(app)?;
     let manifest = MenuItemBuilder::with_id("manifest", manifest_menu(l, false).0).enabled(false).build(app)?;
+    let (discreet_now, in_steam) = discreet_facts(app);
+    let (discreet_label, discreet_on) = discreet_menu(l, discreet_now, in_steam);
+    let discreet = MenuItemBuilder::with_id("discreet", discreet_label).enabled(discreet_on).build(app)?;
     let open = MenuItemBuilder::with_id("open", &open_label).build(app)?;
     let quit = MenuItemBuilder::with_id("quit", quit_label).build(app)?;
     let menu = MenuBuilder::new(app)
         .item(&status)
         .item(&detail_item)
         .item(&manifest)
+        .item(&discreet)
         .separator()
         .item(&open)
         .item(&quit)
@@ -111,6 +166,7 @@ fn build_tray(app: &AppHandle, cfg: &AppConfig) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => show_main(app),
             "manifest" => open_for_manifest(app),
+            "discreet" => toggle_discreet(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -123,7 +179,7 @@ fn build_tray(app: &AppHandle, cfg: &AppConfig) -> tauri::Result<()> {
         tray = tray.icon(icon.clone());
     }
     tray.build(app)?;
-    *ITEMS.lock().unwrap() = Some(Items { status, detail: detail_item, manifest, open, quit });
+    *ITEMS.lock().unwrap() = Some(Items { status, detail: detail_item, manifest, discreet, open, quit });
     Ok(())
 }
 
@@ -225,6 +281,7 @@ async fn run(app: AppHandle) {
     let mut first_source: Option<String> = None;
     let mut last_shown = (String::new(), String::new());
     let mut last_manifest = (false, String::new(), String::new());
+    let mut last_discreet: Option<(bool, bool, String)> = None;
     let mut n: u64 = 0;
     info!("service de téléchargement : surveillance démarrée");
     loop {
@@ -238,6 +295,8 @@ async fn run(app: AppHandle) {
         }
         let cfg = app.state::<AppState>().config.lock().unwrap().clone();
         let l = lang(&cfg);
+        // Before the early turns below: the entry must follow even without SteamTools.
+        refresh_discreet(&app, l, &mut last_discreet);
         let steam = cfg.steam_dir.clone().or_else(detect::detect_steam_path);
         // Without SteamTools a failed download is an ordinary network problem, and
         // changing the source of a tool that is not there would be a lie.
@@ -379,6 +438,20 @@ pub fn sync_autostart(enabled: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guard_the_discreet_entry_switches_both_ways_and_only_when_it_means_something() {
+        for lang in ["fr", "en"] {
+            let (on, enabled) = discreet_menu(lang, true, true);
+            assert!(enabled && (on.contains("réafficher") || on.contains("show again")), "{on}");
+            let (off, enabled) = discreet_menu(lang, false, true);
+            assert!(enabled && (off.contains("Passer") || off.contains("Switch")), "{off}");
+            for d in [true, false] {
+                let (label, enabled) = discreet_menu(lang, d, false);
+                assert!(!enabled, "not in Steam (stable, switched off, hidden): greyed, {label}");
+            }
+        }
+    }
 
     #[test]
     fn the_tray_entry_speaks_both_languages_and_only_invites_when_a_file_is_missing() {
