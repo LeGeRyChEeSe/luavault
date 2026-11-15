@@ -61,9 +61,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # `init` and `analyze` must move in the same commit: one half at v4 with the
-    # other at v3 makes all three `Analyze (<language>)` jobs fail. Two pull requests
-    # per major, each red, is how the previous cycle looked.
-    ignore:
-      - dependency-name: github/codeql-action
-        update-types: [version-update:semver-major]
+    # `init` and `analyze` must move in the same commit, at every step and not only
+    # across a major: `analyze` refuses a configuration written by another `init`
+    # version ("Loaded a configuration file for version '4.39.3', but running version
+    # '4.39.1'"), which turns all three `Analyze (<language>)` jobs red. Dependabot
+    # reads `codeql-action/init` and `codeql-action/analyze` as two dependencies and
+    # opened one pull request for each (#38, #39): the group makes them one.
+    groups:
+      codeql-action:
+        patterns: ["github/codeql-action", "github/codeql-action/*"]
