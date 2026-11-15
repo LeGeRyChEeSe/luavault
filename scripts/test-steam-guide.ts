@@ -627,6 +627,9 @@ const view = (over: Record<string, unknown> = {}) => ({
   ok(pill.includes('lvStore("guide:start")'), "la pastille lance la visite");
   ok(pill.indexOf('setAttribute("data-lv-guide-start"') < pill.indexOf('setAttribute("data-lv-settings-body"'), "en tête du panneau, avant les réglages");
   ok(pill.includes("window.lvWindowPlace = function") && pill.includes("window.lvPlayButtons = function"), "la pastille dit le lieu de la fenêtre et ses barres Jouer");
+  // Two applications may each put a pill in Steam's title bar: one at the head of the row must not
+  // dislodge the other every second (seen 2026-11-15: both blinked and swapped places).
+  ok(/function atHead\(r, mine\)/.test(pill) && !/r\.firstChild === (mine|have)\)/.test(pill), "une pastille accepte d'autres pastilles devant elle");
   ok(/window\.lvOpenSettings = function \(\) \{[\s\S]{0,120}if \(card\) return closeCard\(\);/.test(pill), "un second clic sur la pastille referme le panneau ouvert dans le magasin");
   const store = read("scripts/steam-store-button.js");
   ok(store.includes('install.setAttribute("data-lv-job-install", appId)'), "le bouton Installer du panneau porte son ancre");

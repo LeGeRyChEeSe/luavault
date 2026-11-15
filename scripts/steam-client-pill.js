@@ -730,6 +730,21 @@
   );
 
   // Steam redraws its title bar and its lists: everything is put back within a second.
+  // Another application may put its own pill in this same row. Both wanted to be the very first
+  // child: each second one took the other's place, and both blinked and swapped (seen on the real
+  // client, 2026-11-15). A pill is at the head of the row when only pills (any `data-<name>-pill`)
+  // stand before it; only one of Steam's own buttons before it moves it back.
+  function pillNode(n) {
+    var attrs = n && n.nodeType === 1 && n.attributes ? n.attributes : [];
+    for (var i = 0; i < attrs.length; i++) if (/^data-[a-z]+-pill$/.test(attrs[i].name)) return true;
+    return false;
+  }
+  function atHead(r, mine) {
+    if (!mine || mine.parentNode !== r) return false;
+    for (var n = mine.previousSibling; n; n = n.previousSibling) if (!pillNode(n)) return false;
+    return true;
+  }
+
   function place() {
     if (root.lvWinRun !== myRun) return false;
     placeLib();
@@ -737,7 +752,7 @@
     var r = row();
     if (!r) return true;
     var have = document.querySelector("[data-lv-pill]");
-    if (have && have.parentNode === r && r.firstChild === have) return true;
+    if (atHead(r, have)) return true;
     drop(have);
     r.insertBefore(pill(), r.firstChild);
     return true;
