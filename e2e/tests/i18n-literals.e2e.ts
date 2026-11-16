@@ -91,10 +91,12 @@ export default defineSuite({
       const s = app.session;
       await (await s.waitFor('button[aria-label="Close"]')).click();
       await (await s.waitFor('nav button[data-tip="Steam & Tools"]')).click();
+      // The classic SteamTools (fix-st.ps1 since 2026-11) reads `config\stplug-in`: that is the
+      // folder the marker names now (`tools.marker.plugin_dir`), in either language.
       await s.waitUntil('le contrôle SteamTools est rendu', async () =>
-        (await bodyText(app)).includes('dossier config\\lua') || (await bodyText(app)).includes('config\\lua folder'),
+        (await bodyText(app)).includes('dossier config\\stplug-in') || (await bodyText(app)).includes('config\\stplug-in folder'),
       );
-      assert.excludes(await bodyText(app), 'dossier config\\lua');
+      assert.excludes(await bodyText(app), 'dossier config\\stplug-in');
     },
 
   },

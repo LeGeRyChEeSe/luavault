@@ -45,7 +45,7 @@ updates:
     # configuration. Each one fails `npm ci` before any build step, so a weekly pull
     # request is noise: the pair has to move together, or not at all.
     ignore:
-      # `@sveltejs/vite-plugin-svelte` 5 declares `vite: ^6`; vite 8 is ERESOLVE.
+      # `@sveltejs/vite-plugin-svelte` 6 declares `vite: ^6.3.0 || ^7.0.0`; vite 8 is ERESOLVE.
       - dependency-name: vite
         update-types: [version-update:semver-major]
       # 7 declares `vite: ^8` and raises the `svelte` floor to 5.46.4. The `svelte`
@@ -61,9 +61,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # `init` and `analyze` must move in the same commit: one half at v4 with the
-    # other at v3 makes all three `Analyze (<language>)` jobs fail. Two pull requests
-    # per major, each red, is how the previous cycle looked.
-    ignore:
-      - dependency-name: github/codeql-action
-        update-types: [version-update:semver-major]
+    # `init` and `analyze` must move in the same commit, at every step and not only
+    # across a major: `analyze` refuses a configuration written by another `init`
+    # version ("Loaded a configuration file for version '4.39.3', but running version
+    # '4.39.1'"), which turns all three `Analyze (<language>)` jobs red. Dependabot
+    # reads `codeql-action/init` and `codeql-action/analyze` as two dependencies and
+    # opened one pull request for each (#38, #39): the group makes them one.
+    groups:
+      codeql-action:
+        patterns: ["github/codeql-action", "github/codeql-action/*"]

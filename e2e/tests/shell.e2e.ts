@@ -23,7 +23,7 @@ const VIEW_MARKERS: Record<string, string> = {
   // `stats.empty.title` is also the empty-news title. The hint stays in the
   // StatsView-only branch and therefore lets the exclusion assertion distinguish them.
   Statistiques: 'Recherchez et ajoutez des jeux pour voir leurs statistiques ici.',
-  'Steam & Outils': 'État de Steam et SteamTools — installation, réparation et dossiers.',
+  'Steam & Outils': 'État de Steam et SteamTools : installation, réparation et dossiers.',
   Journaux: 'Journaux',
   Remerciements: 'Remerciements',
   Réglages: 'Réglages',

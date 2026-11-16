@@ -653,6 +653,17 @@ pub fn decrypt_import(src: &Path, dest: &Path, password: &str) -> Result<u64> {
 mod tests {
     use super::*;
 
+    /// The key a given password and salt derive to, computed once with argon2 0.5.3 (the version
+    /// every existing LVBCK-v2 file was written with). A crate update that changes this output
+    /// compiles and round-trips its own files, yet opens none of the backups already on disk.
+    #[test]
+    fn derive_key_matches_the_vector_existing_backups_were_written_with() {
+        let salt: [u8; SALT_LEN] = core::array::from_fn(|i| i as u8);
+        let key = derive_key(b"correct horse battery staple", &salt).unwrap();
+        let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, "6ed12d7d594a6ae56c7ad1725982ae0d41317bd2b239dd1e0916d913d4da0757");
+    }
+
     fn scratch(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("lv_enc2_{tag}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
