@@ -61,7 +61,7 @@ anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "7"
 # LuaVault in Steam (experimental): the Steam client's debugging protocol, on the loopback only (ws://, no TLS).
-tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "handshake"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 urlencoding = "2"
 unrar = "0.5"
@@ -69,7 +69,7 @@ sha2 = "0.11"
 # Wayback stores some captures gzipped and serves them so whatever the request
 # says; `steam_downgrade` inflates by hand, under a cap (`gunzip_capped`).
 flate2 = "1"
-ed25519-dalek = "2"
+ed25519-dalek = "3"
 walkdir = "2"
 zip = { version = "9", default-features = false, features = ["deflate", "aes-crypto", "bzip2", "lzma", "zstd", "deflate64"] }
 

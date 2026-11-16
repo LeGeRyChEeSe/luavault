@@ -1,0 +1,2 @@
+# Signed fixtures: the signature covers these exact bytes, line endings included.
+src-tauri/testdata/* -text

@@ -1127,6 +1127,32 @@ pub(crate) mod tests {
         );
     }
 
+    // ── signatures already published (ed25519-dalek across majors) ──
+    //
+    // Every manifest, message and licence in the wild was signed by ed25519-dalek 2.
+    // A later major must still verify them and still sign the same bytes: Ed25519 is
+    // deterministic, so a different signature means a different algorithm, never a
+    // different random draw. `testdata/signed-motd.json` is the message published on
+    // the update server, byte for byte (`-text` in `.gitattributes`: a CRLF checkout
+    // would change the bytes the signature covers).
+
+    #[test]
+    fn a_published_message_still_verifies_with_the_compiled_keys() {
+        let bytes = include_bytes!("../testdata/signed-motd.json");
+        let sig = include_str!("../testdata/signed-motd.json.sig");
+        assert_eq!(verify_manifest_with_keys(bytes, sig, &RELEASE_PUBLIC_KEYS), Some(0));
+        let mut tampered = bytes.to_vec();
+        tampered[0] ^= 1;
+        assert_eq!(verify_manifest_with_keys(&tampered, sig, &RELEASE_PUBLIC_KEYS), None);
+    }
+
+    #[test]
+    fn signing_matches_the_vector_published_signatures_were_made_with() {
+        let (sk, pk) = test_keypair(0x07);
+        assert_eq!(pk, "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c");
+        assert_eq!(sign_b64(&sk, b"release signature vector"), "5SBHlPpgT7LXf+Gf66KAcZu0Kt1csd6Sj7Kj3+HIyP03/7aJGnsNZVbPEQuY0IeXBoaHMY8uJ2tloZcZTfTcBQ==");
+    }
+
     #[test]
     fn verify_manifest_compiled_keys_are_well_formed() {
         for key_hex in &RELEASE_PUBLIC_KEYS {
