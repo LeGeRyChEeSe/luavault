@@ -14,6 +14,14 @@ over describes it again in `CHANGELOG.md`.
 
 ## Unreleased
 
+## 1.3.3-exp.3 - 2026-11-16
+
+### fr
+- Les bibliothèques internes sont à jour (chiffrement des sauvegardes, vérification des signatures, liaison avec Steam), sans rien changer à l'usage : les sauvegardes et mises à jour existantes restent reconnues.
+
+### en
+- Internal libraries are up to date (backup encryption, signature checks, the link with Steam), with no change in use: existing backups and updates are still recognised.
+
 ## 1.3.3-exp.2 - 2026-11-15
 
 ### fr
