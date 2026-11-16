@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "message": {
+    "id": "20261114-090052",
+    "published_at": "2026-11-14T09:00:52Z",
+    "severity": "info",
+    "title": {
+      "fr": "SteamTools à jour, et LuaVault dans Steam",
+      "en": "SteamTools up to date, and LuaVault in Steam"
+    },
+    "body": {
+      "fr": "**Encore sur l'ancien SteamTools ?** Cliquez **Réparer SteamTools** : l'application se ferme, installe le nouveau (si l'installeur s'affiche : Next, Install, Finish), se rouvre, puis met Steam à jour toute seule.\n\n**Nouveau :** la version expérimentale affiche LuaVault dans Steam (un bouton dans la boutique qui ouvre le site du jeu, correctifs sous le bouton Jouer) et installe SteamTools toute seule. Essayez-la avec **Passer à l'expérimentale**.",
+      "en": "**Still on the old SteamTools?** Click **Repair SteamTools**: the app closes, installs the new one (if the installer shows: Next, Install, Finish), reopens, then updates Steam by itself.\n\n**New:** the experimental version shows LuaVault in Steam (a button in the store that opens the game's site, patches under the Play button) and installs SteamTools by itself. Try it with **Switch to experimental**."
+    },
+    "actions": [
+      {
+        "id": "repair_tools",
+        "kind": "repair_tools"
+      },
+      {
+        "id": "restart_steam",
+        "kind": "restart_steam"
+      },
+      {
+        "id": "switch_experimental",
+        "kind": "switch_channel",
+        "channel": "experimental",
+        "label": {
+          "fr": "Passer à l'expérimentale",
+          "en": "Switch to experimental"
+        }
+      }
+    ],
+    "persistent": true
+  }
+}
